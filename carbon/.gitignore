@@ -1,0 +1,10 @@
+# carbon/: local outputs and project data never go in this public repo
+*_massing_takeoff*.csv
+*_massing_takeoff*.json
+*_plan_extract*.json
+*_overlay.png
+*.3dm
+*.xlsx
+*.pdf
+__pycache__/
+.pytest_cache/
