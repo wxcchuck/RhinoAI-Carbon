@@ -323,8 +323,10 @@ def test_options_targets_dashboard(built2, tmp_path):
     assert C["C6"].value == pytest.approx(y(2, "UP_ALL"), rel=1e-9)
     D = wb["Dashboard"]
     assert D["U%d" % ct.SUM_ROW["UP_ALL"]].value == pytest.approx(y(1, "UP_ALL"), rel=1e-9)
-    assert D["G13"].value == TG_SC and D["F13"].value == pytest.approx(y(1, "UP_SC"), rel=1e-9)   # offices: shell & core limit
-    assert D["G14"].value == TG_UK and D["I14"].value == "Not assessed"                          # whole building needs Cat B
+    assert D["H13"].value == TG_SC and D["G13"].value == pytest.approx(y(1, "UP_SC"), rel=1e-9)   # offices: shell & core limit
+    assert D["F13"].value == pytest.approx(y(1, "UP_SC") / 1.15, rel=1e-9)                       # before contingency
+    assert D["H14"].value == TG_UK and D["J14"].value == "Not assessed"                          # whole building needs Cat B
+    assert C["C8"].value == pytest.approx(y(2, "UP_ALL") / 1.15, rel=1e-9)                       # Compare: before contingency
     # budget (UKNZCBS offices -> shell & core): target - modelled = what is left
     assert D["Y53"].value == TG_SC
     assert D["Y55"].value == pytest.approx(TG_SC - y(1, "MOD_UP_SC"), rel=1e-9)
@@ -334,6 +336,16 @@ def test_options_targets_dashboard(built2, tmp_path):
     assert D["AA46"].value == pytest.approx(GLA_SHARE[3] * TG_GLA_B, rel=1e-9)
     assert D["Y46"].value == pytest.approx(y(1, "E_3") * 1.15, rel=1e-9)
 
+    # result states: a limit between the before- and incl.-contingency figures -> "Meets before contingency only"
+    mid = y(1, "UP_SC") * (1 + 1 / 1.15) / 2
+    t_ = src["Targets"]
+    row_sc = next(r for r in range(5, t_.max_row + 1) if t_.cell(r, 2).value == "UKNZCBS S&C 2027")
+    t_.cell(row_sc, 6).value = mid
+    p_mid = str(tmp_path / "mid.xlsx")
+    src.save(p_mid)
+    Dm = _calc(p_mid, str(tmp_path / "cm"))["Dashboard"]
+    assert Dm["J13"].value == "Meets before contingency only"
+    t_.cell(row_sc, 6).value = TG_SC
     src["Dashboard"]["N3"] = "Opt B"
 
     def setn(nm, val):

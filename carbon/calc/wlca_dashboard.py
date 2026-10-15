@@ -33,7 +33,7 @@ DEFAULT = dict(
     font="Calibri", logo=None,
     project="1F4E79", target="7F2A3C", ink="222222", muted="7F7F7F", tile="F2F2F2", rule="D9D9D9",
     groups=["8C6D4F", "2F4F4F", "5B8DB8", "E07B1A", "7A3B5A", "79A88B", "D9534F", "9FB3BC"],
-    contingency="D9D2C5",
+    contingency="D9D2C5", contingency_bar="8FB9BE", warn="FCE8C3",
     modules=["1F5F66", "5B8DB8", "2C4A68", "B8C4C8", "B5A82A"],
     basis=["1F5F66", "E07B1A", "9FB3BC", "B8C4C8", "D9D2C5"],
     good="DCEFE1", bad="F8D7D3",
@@ -141,6 +141,7 @@ def build_dashboard(wb, ctx, opts, branding):
     ws.sheet_view.showGridLines = False
     for c in range(1, 19):
         ws.column_dimensions[chr(64 + c)].width = 10.5
+    ws.column_dimensions["J"].width = 24      # result column ("Meets before contingency only")
     for r in range(1, 110):
         ws.row_dimensions[r].height = 15      # fixed rows so chart anchors land the same in Excel and LibreOffice
     TGc, TGb = ctx["TGc"], ctx["TGb"]
@@ -239,8 +240,8 @@ def build_dashboard(wb, ctx, opts, branding):
                          "=%s*%s" % (pct, tsum("GLA", '"GLA benchmark"', "UP_ALL"))))
     tables["gla"] = table(42, "Elements vs GLA typical development (A1-A5, kgCO2e/m2, incl. contingency)", gla_rows,
                           ["Project", "GLA aspirational", "GLA benchmark"])
-    bud = [("Target", "=BUD_VAL"),
-           ("Modelled + site", "=%s" % pick('"MOD_"&BUD_KEY')),
+    bud = [("Target (no contingency)", "=BUD_VAL"),
+           ("Modelled + site, incl. contingency", "=%s" % pick('"MOD_"&BUD_KEY')),
            ("Left for elements not yet designed", "=BUD_VAL-%s" % pick('"MOD_"&BUD_KEY')),
            ("Not yet designed - typical benchmarks", "=%s" % pick('"BM_"&BUD_KEY')),
            ("Not yet designed - scenario tier", "=%s" % pick('"BMS_"&BUD_KEY'))]
@@ -254,8 +255,8 @@ def build_dashboard(wb, ctx, opts, branding):
     uk_lim = "IF(%s>0,%s,%s)" % (v("UK_LIM_SC"), v("UK_LIM_SC"), v("UK_LIM"))
     uk_val = "IF(%s>0,%s,%s)" % (v("UK_LIM_SC"), v("UP_SC"), v("UP_X8"))
     tiles = [
-        ("Upfront carbon A1-A5", "=%s" % v("UP_ALL"), "#,##0", "kgCO2e/m2 GIA"),
-        ("Embodied carbon A-C", "=%s" % v("AC_ALL"), "#,##0", "kgCO2e/m2 GIA (excl. B6/B7)"),
+        ("Upfront carbon A1-A5", "=%s" % v("UP_ALL"), "#,##0", '="kgCO2e/m2 GIA | "&TEXT(%s/(1+CONT),"#,##0")&" before contingency"' % v("UP_ALL")),
+        ("Embodied carbon A-C", "=%s" % v("AC_ALL"), "#,##0", '="excl. B6/B7 | "&TEXT(%s/(1+CONT),"#,##0")&" before contingency"' % v("AC_ALL")),
         ("Upfront total", "=%s" % v("UP_T"), "#,##0", "tCO2e"),
         ("LETI upfront band", "=%s" % v("LETI_UP"), "@", '="life cycle: "&%s' % v("LETI_LC")),
         ("UKNZCBS upfront", '=IF({lim}=0,"n/a",IF({val}<={lim},"Meets","Above"))'.format(lim=uk_lim, val=uk_val), "@",
@@ -281,9 +282,12 @@ def build_dashboard(wb, ctx, opts, branding):
 
     # ---- targets table + chart (rows 11-22)
     _section(ws, B, 11, "Against targets - each compared on its own boundary")
-    hdr = ["Target", "", "", "Boundary", "", "Project", "Target", "Margin", "Result"]
+    hdr = ["Target", "", "", "Boundary", "", "Before contingency", "Incl. contingency", "Target (no cont.)",
+           "Margin", "Result (incl. contingency)"]
     for j, h in enumerate(hdr, start=1):
         ws.cell(12, j, h).font = _f(B, 9, True, B["muted"])
+        ws.cell(12, j).alignment = Alignment(wrap_text=True, vertical="bottom")
+    ws.row_dimensions[12].height = 26
     trows = [
         ("SH_UK", '"UKNZCBS "&UK_YEAR&" shell & core limit"', "UP_SC", "UK_LIM_SC"),
         ("SH_UK", '"UKNZCBS "&UK_YEAR&IF(UK_LIM_SC>0," whole-building limit"," limit")', "UP_WB", "UK_LIM"),
@@ -303,35 +307,56 @@ def build_dashboard(wb, ctx, opts, branding):
         ws.merge_cells(start_row=r, start_column=4, end_row=r, end_column=5)
         ws.cell(r, 1, '=IF(AND(%s="Y",N(%s)>0),%s,"")' % (sh, tgt, lbl))
         ws.cell(r, 4, '=IF(A%d="","",%s)' % (r, '"%s"' % BOUNDARY_TEXT[key]))
-        ws.cell(r, 6, '=IF(A%d="",NA(),IF(ISNUMBER(%s),%s,NA()))' % (r, v(key), v(key)))
-        ws.cell(r, 7, '=IF(A%d="",NA(),%s)' % (r, tgt))
-        ws.cell(r, 8, '=IF(A{r}="","",IF(ISNA(F{r}),"",G{r}-F{r}))'.format(r=r))
-        ws.cell(r, 9, '=IF(A{r}="","",IF(ISNA(F{r}),"Not assessed",IF(F{r}<=G{r},"Meets","Above")))'.format(r=r))
-        for c in range(1, 10):
+        # summary values include contingency on every target boundary, so "before" = value / (1 + CONT)
+        ws.cell(r, 6, '=IF(ISNUMBER(G{r}),G{r}/(1+CONT),NA())'.format(r=r))
+        ws.cell(r, 7, '=IF(A%d="",NA(),IF(ISNUMBER(%s),%s,NA()))' % (r, v(key), v(key)))
+        ws.cell(r, 8, '=IF(A%d="",NA(),%s)' % (r, tgt))
+        ws.cell(r, 9, '=IF(A{r}="","",IF(ISNA(G{r}),"",H{r}-G{r}))'.format(r=r))
+        # judged on the reportable figure (incl. contingency, PS 4.10); middle state shows what the contingency alone tips over
+        ws.cell(r, 10, '=IF(A{r}="","",IF(ISNA(G{r}),"Not assessed",IF(G{r}<=H{r},"Meets",IF(F{r}<=H{r},"Meets before contingency only","Above"))))'.format(r=r))
+        for c in range(1, 11):
             ws.cell(r, c).font = _f(B, 9)
             ws.cell(r, c).border = Border(bottom=Side(style="hair", color=B["rule"]))
-        for c in (6, 7, 8):
+        for c in (6, 7, 8, 9):
             ws.cell(r, c).number_format = '#,##0;-#,##0;0;""'
     t1 = t0 + len(trows) - 1
-    ws.conditional_formatting.add("I%d:I%d" % (t0, t1), CellIsRule(operator="equal", formula=['"Meets"'], fill=PatternFill("solid", fgColor=B["good"])))
-    ws.conditional_formatting.add("I%d:I%d" % (t0, t1), CellIsRule(operator="equal", formula=['"Above"'], fill=PatternFill("solid", fgColor=B["bad"])))
-    _note(ws, B, t1 + 1, "Project values incl. contingency. UKNZCBS offices: shell & core = this result less the Cat A share of finishes, FF&E and services "
+    ws.conditional_formatting.add("J%d:J%d" % (t0, t1), CellIsRule(operator="equal", formula=['"Meets"'], fill=PatternFill("solid", fgColor=B["good"])))
+    ws.conditional_formatting.add("J%d:J%d" % (t0, t1), CellIsRule(operator="equal", formula=['"Meets before contingency only"'],
+                                                                    fill=PatternFill("solid", fgColor=B["warn"])))
+    ws.conditional_formatting.add("J%d:J%d" % (t0, t1), CellIsRule(operator="equal", formula=['"Above"'], fill=PatternFill("solid", fgColor=B["bad"])))
+    _note(ws, B, t1 + 1, "Targets and limits are bare thresholds (no contingency); the result uses the project figure incl. the PS Table 10 contingency, "
+                         "the figure the PS requires for reporting (4.10). UKNZCBS offices: shell & core = this result less the Cat A share of finishes, FF&E and services "
                        "(Project inputs, 100% shell & core by default); whole building needs a Cat B + loose FF&E allowance. B1-B3, B5 not assessed.", h=24)
     na = FormulaRule(formula=["ISNA(F%d)" % t0], font=Font(color="FFFFFF"))      # hide #N/A kept for the chart
-    ws.conditional_formatting.add("F%d:G%d" % (t0, t1), na)
+    ws.conditional_formatting.add("F%d:H%d" % (t0, t1), na)
+    # chart rows (X:AA from row 60): per target one stacked project bar (before + contingency) and one target bar
+    c0r = 60
+    for j, h in enumerate(["Targets chart", "Project before contingency", "Contingency (PS Table 10)", "Target (no contingency)"]):
+        ws.cell(c0r - 1, xc + j, h).font = _f(B, 8, True, B["muted"])
+    for i in range(len(trows)):
+        r, p_, q_ = t0 + i, c0r + 2 * i, c0r + 2 * i + 1
+        vals = [("=A%d" % r, "=F%d" % r, "=G%d-F%d" % (r, r), "=NA()"), ("", "=NA()", "=NA()", "=H%d" % r)]
+        for rr_, row_ in zip((p_, q_), vals):
+            for j, val in enumerate(row_):
+                cc = ws.cell(rr_, xc + j, val)
+                cc.font = _f(B, 8, color=B["muted"])
+                if j:
+                    cc.number_format = "#,##0"
+    c1r = c0r + 2 * len(trows) - 1
     ch = BarChart()
     ch.type = "bar"
-    ch.grouping = "clustered"
-    ch.overlap = -10
-    ch.gapWidth = 60
-    ch.add_data(Reference(ws, min_col=6, max_col=7, min_row=12, max_row=t1), titles_from_data=True)
-    ch.set_categories(Reference(ws, min_col=1, min_row=t0, max_row=t1))
+    ch.grouping = "stacked"
+    ch.overlap = 100
+    ch.gapWidth = 30
+    ch.add_data(Reference(ws, min_col=xc + 1, max_col=xc + 3, min_row=c0r - 1, max_row=c1r), titles_from_data=True)
+    ch.set_categories(Reference(ws, min_col=xc, min_row=c0r, max_row=c1r))
     _fill(ch.series[0], B["project"])
-    _fill(ch.series[1], B["target"])
-    _labels(ch.series[0], B)
+    _fill(ch.series[1], B["contingency_bar"])
+    _fill(ch.series[2], B["target"])
+    ch.gapWidth = 15                          # values are in the table beside the chart
     ch.x_axis.scaling.orientation = "maxMin"
-    _style_chart(ch, B, "Project against targets (kgCO2e/m2 GIA)", w=17.5, h=7.2)
-    ws.add_chart(ch, "J12")
+    _style_chart(ch, B, "Project (before + contingency) against targets (kgCO2e/m2 GIA)", w=15.5, h=7.6)
+    ws.add_chart(ch, "L12")
 
     # ---- where the carbon is (rows 26-42)
     _section(ws, B, 27, "Where the carbon is")
@@ -489,20 +514,21 @@ def build_compare(wb, ctx, opts, branding):
     B = _brand(branding)
     ws = wb["Compare"]
     ws.sheet_view.showGridLines = False
-    ws.column_dimensions["A"].width = 44
+    ws.column_dimensions["A"].width = 56
     n = len(opts)
     ws["A1"] = "Options compared"
     ws["A1"].font = _f(B, 18, True)
     ws["A2"] = '=PROJ&"  |  "&USE&"  |  same library, benchmarks and inputs for every option; values incl. contingency unless stated"'
     ws["A2"].font = _f(B, 10, color=B["muted"])
     rows = [("Option", "NAME", "@"), ("GIA (m2)", "GIA", "#,##0"),
-            ("Upfront A1-A5 (kgCO2e/m2)", "UP_ALL", "#,##0"), ("Embodied A-C (kgCO2e/m2)", "AC_ALL", "#,##0"),
+            ("Upfront A1-A5 (kgCO2e/m2, incl. contingency)", "UP_ALL", "#,##0"), ("Embodied A-C (kgCO2e/m2, incl. contingency)", "AC_ALL", "#,##0"),
+            ("Upfront A1-A5 before contingency", "UP_ALL/", "#,##0"), ("Embodied A-C before contingency", "AC_ALL/", "#,##0"),
             ("Upfront total (tCO2e)", "UP_T", "#,##0"),
             ("A1-A5 excl. ext. works - UKNZCBS / LETI boundary", "UP_X8", "#,##0"),
             ("A1-A5 shell & core excl. ext. works (UKNZCBS offices)", "UP_SC", "#,##0"),
-            ("UKNZCBS shell & core limit (offices)", "UK_LIM_SC", "#,##0"),
+            ("UKNZCBS shell & core limit (offices, no contingency)", "UK_LIM_SC", "#,##0"),
             ("A1-A5 incl. Cat B + loose FF&E (UKNZCBS whole building)", "UP_WB", "#,##0"),
-            ("UKNZCBS whole-building limit", "UK_LIM", "#,##0"),
+            ("UKNZCBS whole-building limit (no contingency)", "UK_LIM", "#,##0"),
             ("LETI upfront band", "LETI_UP", "@"), ("LETI life-cycle band", "LETI_LC", "@")] + \
            [("%s A1-A5 (before contingency)" % GROUP_LABELS[i], "E_%d" % i, "#,##0") for i in range(len(GROUPS))] + \
            [("Contingency A1-A5", "E_CONT", "#,##0"), ("Share resting on [ASSUMED] quantities", "SH_ASM", "0%"),
@@ -516,7 +542,8 @@ def build_compare(wb, ctx, opts, branding):
         r = r0 + i
         ws.cell(r, 1, lbl).font = _f(B, 10, i == 0)
         for j, o in enumerate(opts):
-            c = ws.cell(r, 2 + j, "=%s!$Y$%d" % (o["RS"], SUM_ROW[key]))
+            ref = "%s!$Y$%d" % (o["RS"], SUM_ROW[key.rstrip("/")])
+            c = ws.cell(r, 2 + j, "=%s/(1+CONT)" % ref if key.endswith("/") else "=" + ref)
             c.number_format = fmt
             c.font = _f(B, 10, i == 0, B["project"] if i == 0 else None)
             c.alignment = Alignment(horizontal="right", wrap_text=(i == 0), vertical="bottom")
@@ -540,8 +567,8 @@ def build_compare(wb, ctx, opts, branding):
     g1 = g0 + len(labels)
     b0 = g1 + 2
     ws.cell(b0, 1, "Budget comparison").font = _f(B, 8, True, B["muted"])
-    ws.cell(b0 + 1, 1, '="Project ("&BUD_KEY&")"').font = _f(B, 8, color=B["muted"])
-    ws.cell(b0 + 2, 1, '="Target: "&BUD').font = _f(B, 8, color=B["muted"])
+    ws.cell(b0 + 1, 1, '="Project ("&BUD_KEY&", incl. contingency)"').font = _f(B, 8, color=B["muted"])
+    ws.cell(b0 + 2, 1, '="Target: "&BUD&" (no contingency)"').font = _f(B, 8, color=B["muted"])
     for j, o in enumerate(opts):
         ws.cell(b0, 2 + j, "=%s!$Y$%d" % (o["RS"], SUM_ROW["NAME"])).font = _f(B, 8, color=B["muted"])
         ws.cell(b0 + 1, 2 + j).number_format = "#,##0"
