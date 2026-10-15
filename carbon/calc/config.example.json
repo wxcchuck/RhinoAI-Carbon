@@ -1,12 +1,24 @@
 {
   "_comment": "Copy next to your private data and edit the paths. Keep the real config out of this public repo.",
-  "takeoff_csv": "C:\\path\\to\\Project_takeoff.csv",
+  "options": [
+    {
+      "name": "A - option name",
+      "takeoff_csv": "C:\\path\\to\\OptionA_takeoff.csv",
+      "facade_route": "Unitised curtain wall"
+    },
+    {
+      "name": "B - option name",
+      "takeoff_csv": "C:\\path\\to\\OptionB_takeoff.csv",
+      "facade_route": "As exported"
+    }
+  ],
   "library_xlsx": "C:\\path\\to\\WLCA_Buildup_Library_v0.8.xlsx",
   "benchmarks": {
     "path": "C:\\path\\to\\benchmark_table.xlsx",
     "sheet": "Benchmark Placeholders",
     "source": "Name the benchmark source here - it is printed on the Benchmarks sheet"
   },
+  "targets_xlsx": "C:\\path\\to\\WLCA_Targets.xlsx  (sheets Targets, GLA_Breakdown, PM_Structure - private; optional)",
   "site": {
     "A51": 35,
     "A52": 40,
@@ -16,15 +28,45 @@
   "params": {
     "contingency": 0.15,
     "rsp": 60,
-    "facade_route": "Unitised curtain wall",
     "facade_opaque_build_up": "EW-SFS-BRK-01",
     "cw_build_up": "CW-UNIT-01",
     "road_vehicle": "RV-17PLUS",
     "eol_vehicle": "RV-17PLUS",
     "sea_factor": 0.01592,
-    "eol_distances_km": [50, 50, 50],
+    "eol_distances_km": [
+      50,
+      50,
+      50
+    ],
     "benchmark_c1": "Exclude",
-    "cw_reference_a1a5": null
+    "cw_reference_a1a5": null,
+    "facade_route": "Unitised curtain wall",
+    "construction_start_year": 2027,
+    "show_targets": {
+      "UKNZCBS": "Y",
+      "LETI": "Y",
+      "RIBA": "Y",
+      "GLA": "Y"
+    },
+    "scenario": "GLA aspirational",
+    "budget_target": "UKNZCBS",
+    "pm_group": null
+  },
+  "branding": {
+    "_comment": "Optional and private: fonts, colours (hex without #) and logo for Dashboard / Compare. Omit for neutral defaults.",
+    "font": "Calibri",
+    "logo": "C:\\path\\to\\logo.png",
+    "project": "1F4E79",
+    "target": "7F2A3C",
+    "groups": [
+      "8 hex colours: substructure, superstructure, facade, finishes, FF&E, services, external works, site"
+    ],
+    "modules": [
+      "5 hex colours: A1-A3, A4, A5, B4, C1-C4"
+    ],
+    "basis": [
+      "5 hex colours: modelled, assumed, benchmarked, site, contingency"
+    ]
   },
   "out": "C:\\path\\to\\Project_WLCA_calc.xlsx"
 }

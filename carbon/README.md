@@ -19,8 +19,9 @@ this repo. Upstream McNeel code is untouched; everything here sits under `carbon
 | `takeoff/wlca_massing_takeoff.py` | Measures the massing: slices storeys, bakes GEA and GIA curves, measures façade by orientation and envelope roofs, then writes CSV and JSON rows | Rhino 8 (Python 3) |
 | `takeoff/wlca_core.py` | All quantity rules. No Rhino dependency, so it can be unit-tested | anywhere |
 | `takeoff/wlca_plan_extract.py` | Measures core walls (m per floor, thickness), columns (count, size) and stairs (count, flights, treads, width, going) from a vector plan PDF, and writes an overlay image to review | Python 3 (`pymupdf`, `shapely`, `matplotlib`) |
-| `calc/wlca_calc_template.py` | Builds the Excel calculation workbook from a take-off export, the build-up library and a benchmark table. Live formulas: modules A1–A5, B4, C1–C4, D (memo), biogenic (memo), contingency, RICS reporting, QA | Python 3 (`openpyxl`) |
-| `calc/config.example.json` | Config template for the generator (paths only; keep real configs private) | — |
+| `calc/wlca_calc_template.py` | Builds the Excel calculation workbook from one take-off export per design option, the build-up library, a benchmark table and (optionally) a targets table. Live formulas: modules A1–A5, B4, C1–C4, D (memo), biogenic (memo), contingency, RICS reporting, QA, target boundaries | Python 3 (`openpyxl`) |
+| `calc/wlca_dashboard.py` | Dashboard (one option at a time, picked from a drop-down) and Compare (all options) sheets with native Excel charts on live formulas: targets on their own boundaries, modules, element groups, basis of the number, top 10 materials, GLA element comparison, structure range, carbon budget | Python 3 (`openpyxl`) |
+| `calc/config.example.json` | Config template for the generator (paths, options, targets, branding; keep real configs private) | — |
 | `tests/` | pytest suite on an invented test tower and an invented library; pilot regression on private data (opt-in) | Python 3 (+ LibreOffice for the workbook number checks) |
 | `docs/decisions.md` | Methodology decisions and defaults, with their status | — |
 
@@ -67,11 +68,13 @@ Check `<stem>_overlay.png` before using the numbers.
 python calc/wlca_calc_template.py my_config.json     # see calc/config.example.json
 ```
 Open the workbook and read the sheets in this order:
-1. `Project`: inputs.
-2. `QA`: every FLAG must be fixed or justified.
-3. `Results`: the RICS element × module table.
+1. `Project`: inputs, targets to show, scenario and budget target, and the options table (name, GIA, façade route per option).
+2. `O<k>_QA`: every FLAG must be fixed or justified, for each option.
+3. `Dashboard`: pick an option at the top; every chart follows it. `Compare`: all options side by side.
+4. `O<k>_Results`: the RICS element × module table per option.
 
-`Lines` shows the working for each take-off row × layer.
+`O<k>_Lines` shows the working for each take-off row × layer. Target values are not in this repo:
+the targets table (UKNZCBS, LETI, RIBA 2030, GLA, structure ranges) is private data supplied through the config.
 
 **Tests:**
 ```

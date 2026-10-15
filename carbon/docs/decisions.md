@@ -79,6 +79,20 @@ Drafted by an AI agent (Claude) from the working sessions; review before relying
 | C17 | Scope coverage in QA: any expected element with neither a quantity nor a benchmark is a GAP flag (PS 4.4.1). The pilot gaps are now covered by the allowances below (G1–G7) | Confirmed |
 | C18 | Rows that rest on an office assumption carry `[ASSUMED]` at the start of their notes. The workbook marks them (Takeoff column Z), counts them in QA and shows their share of A1–A5 in the Results headline | Confirmed |
 
+## Targets, options and visualisation (calculation template v0.2)
+
+| # | Decision | Status |
+|---|---|---|
+| V1 | One workbook holds several design options, each with its own take-off sheets and results (`O<k>_*`); library, benchmarks, project inputs and targets are shared, so options are compared like for like. The façade route is set per option | Confirmed |
+| V2 | The user picks which targets to show: UKNZCBS (limit for the year construction starts, UKNZCBS 4.2.5.3), LETI (upfront and life-cycle bands), RIBA 2030 Climate Challenge, GLA London Plan Guidance | Confirmed |
+| V3 | Each target is compared on its own boundary: UKNZCBS and LETI upfront on A1–A5 excl. external works; LETI life cycle and RIBA on A–C excl. external works; GLA on A1–A5 and A–C (excl. B6/B7) with all elements. Project values include contingency | Assumed |
+| V4 | The headline always uses typical benchmarks for elements not yet designed. Target-aligned benchmarks are used only in a scenario (non-modelled elements scaled by GLA aspirational / benchmark) and in a carbon budget chart (target − modelled − site = what is left for the rest). Neither is a compliance result | Confirmed |
+| V5 | LETI band = the first band whose limit the project does not exceed; a value just over a limit falls into the next band (no rounding) | Assumed |
+| V6 | UKNZCBS offices limits cover the whole building including Cat B and loose FF&E, which this shell & core + Cat A scope does not. The comparison is shown with that caveat | Assumed |
+| V7 | GLA element comparison: GLA share of the typical development × GLA total for the use class, against the project's element group incl. contingency. Site A5.1/A5.2 sit inside the GLA groups, so they are not shown as a row | Assumed |
+| V8 | Structure is compared with a published structural range (sub + superstructure, A1–A5, before contingency) as a sense-check, not a target: the source method and factors differ | Assumed |
+| V9 | Branding (font, colours, logo) comes from a private config; without it the sheets use neutral defaults. Colour pairs were checked for colour-vision deficiency; every chart has data labels or a table beside it | Confirmed |
+
 ## Scope-gap allowances (take-off v0.8)
 
 All of these run on office assumptions until project information replaces them: drawings, model quantities or figures supplied by the engineer or the user. Each rule takes the best source available, in this order: supplied (`source: "supplied"`), then drawing or model, then assumption. Rows that still rest on an assumption are tagged `[ASSUMED]`.
