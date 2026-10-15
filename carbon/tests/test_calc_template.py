@@ -240,7 +240,7 @@ def test_facade_as_exported_keeps_split(built, tmp_path):
 
 
 # ------------------------------------------------------------------------- targets, options, dashboard
-TG_UK, TG_GLA_B, TG_GLA_A = 600.0, 900.0, 600.0             # invented
+TG_UK, TG_SC, TG_GLA_B, TG_GLA_A = 600.0, 400.0, 900.0, 600.0     # invented
 LETI_UP = [("A++", 50), ("A+", 100), ("A", 150), ("B", 200), ("C", 250), ("D", 300), ("E", 350), ("F", 400), ("G", 450)]
 GLA_SHARE = [0.2, 0.3, 0.2, 0.1, 0.05, 0.1, 0.05]            # 7 GLA groups, sum 1
 
@@ -252,6 +252,7 @@ def _targets(path):
     ws.append(["scheme", "target", "use_class", "year_or_band", "metric", "value", "unit", "source", "note"])
     ws.append(["UKNZCBS", "UKNZCBS 2026", "Office", 2026, "UP_X8", 700, "", "invented", ""])
     ws.append(["UKNZCBS", "UKNZCBS 2027", "Office", 2027, "UP_X8", TG_UK, "", "invented", ""])
+    ws.append(["UKNZCBS", "UKNZCBS S&C 2027", "Office", 2027, "UP_X8", TG_SC, "", "invented", "offices shell & core"])
     ws.append(["UKNZCBS", "UKNZCBS 2027", "Residential", 2027, "UP_X8", 1, "", "invented", "other use - must be ignored"])
     for b, v in LETI_UP:
         ws.append(["LETI upfront", "LETI band " + b, "Office", b, "UP_X8", v, "", "invented", ""])
@@ -267,8 +268,8 @@ def _targets(path):
     g.append(["Office", "UP_ALL"] + GLA_SHARE)
     g.append(["Residential", "UP_ALL"] + [1, 0, 0, 0, 0, 0, 0])
     p = wb.create_sheet("PM_Structure")
-    p.append(["group", "use_class", "n", "p10", "p25", "p50", "p75", "p90"])
-    p.append(["Commercial", "Office", 10, 20, 30, 40, 50, 60])
+    p.append(["group", "use_class", "n", "p10", "p25", "p50", "p75", "p90", "ac_p25", "ac_p50", "ac_p75"])
+    p.append(["Commercial", "Office", 10, 20, 30, 40, 50, 60, 35, 45, 55])
     wb.save(path)
 
 
@@ -304,7 +305,14 @@ def test_options_targets_dashboard(built2, tmp_path):
         assert y(k, "BMS_UP_ALL") == pytest.approx(y(k, "BM_UP_ALL") * TG_GLA_A / TG_GLA_B, rel=1e-9)
         assert sum(y(k, "E_%d" % i) for i in range(8)) + y(k, "E_CONT") == pytest.approx(y(k, "UP_ALL"), rel=1e-9)
         assert y(k, "B_MOD") + y(k, "B_ASM") + y(k, "B_BM") + y(k, "B_SITE") + y(k, "B_CONT") == pytest.approx(y(k, "UP_ALL"), rel=1e-9)
-        assert y(k, "UK_LIM") == TG_UK                                                  # 2027 default, Office only
+        assert y(k, "UK_LIM") == TG_UK and y(k, "UK_LIM_SC") == TG_SC                   # 2027 default, Office only
+        assert y(k, "UP_SC") == pytest.approx(y(k, "UP_X8"), rel=1e-9)                  # default: 100% shell & core
+        assert y(k, "MOD_UP_SC") + y(k, "BM_UP_SC") == pytest.approx(y(k, "UP_SC"), rel=1e-9)
+        assert y(k, "UP_WB") == "not assessed"                                          # office, no Cat B allowance
+        # structure for P&M: modelled 2.2.1 slab (the only structural row) + A5.2 site lump
+        slab = next(r for r in range(14, R.max_row + 1) if R.cell(r, 1).value == "2.2.1" and R.cell(r, 21).value == "Modelled")
+        a52 = next(r for r in range(14, R.max_row + 1) if R.cell(r, 1).value == "A5.2")
+        assert y(k, "STRUCT") == pytest.approx((R.cell(slab, 9).value + R.cell(a52, 9).value) * 1000 / GIA, rel=1e-9)
         band = next((b for b, v in LETI_UP if y(k, "UP_X8") <= v), "worse than G")
         assert y(k, "LETI_UP") == band
         assert y(k, "STRUCT") > 0
@@ -315,17 +323,30 @@ def test_options_targets_dashboard(built2, tmp_path):
     assert C["C6"].value == pytest.approx(y(2, "UP_ALL"), rel=1e-9)
     D = wb["Dashboard"]
     assert D["U%d" % ct.SUM_ROW["UP_ALL"]].value == pytest.approx(y(1, "UP_ALL"), rel=1e-9)
-    assert D["G13"].value == TG_UK and D["F13"].value == pytest.approx(y(1, "UP_X8"), rel=1e-9)
-    # budget (UKNZCBS on UP_X8): target - modelled = what is left
-    assert D["Y53"].value == TG_UK
-    assert D["Y55"].value == pytest.approx(TG_UK - y(1, "MOD_UP_X8"), rel=1e-9)
+    assert D["G13"].value == TG_SC and D["F13"].value == pytest.approx(y(1, "UP_SC"), rel=1e-9)   # offices: shell & core limit
+    assert D["G14"].value == TG_UK and D["I14"].value == "Not assessed"                          # whole building needs Cat B
+    # budget (UKNZCBS offices -> shell & core): target - modelled = what is left
+    assert D["Y53"].value == TG_SC
+    assert D["Y55"].value == pytest.approx(TG_SC - y(1, "MOD_UP_SC"), rel=1e-9)
+    assert D["D76"].value == 30 and D["D77"].value == 35                                         # P&M A1-A5 / A1-C4 P25
     # GLA element comparison: share x GLA total; project incl. contingency
     assert D["Z46"].value == pytest.approx(GLA_SHARE[3] * TG_GLA_A, rel=1e-9)
     assert D["AA46"].value == pytest.approx(GLA_SHARE[3] * TG_GLA_B, rel=1e-9)
     assert D["Y46"].value == pytest.approx(y(1, "E_3") * 1.15, rel=1e-9)
 
     src["Dashboard"]["N3"] = "Opt B"
+
+    def setn(nm, val):
+        sh, ref = next(iter(src.defined_names[nm].destinations))
+        src[sh][ref.replace("$", "")] = val
+    setn("SC_FIN", 0.25)                     # 75% of finishes is Cat A
+    setn("CATB", 50)                         # Cat B + loose FF&E allowance, before contingency
     path = str(tmp_path / "sel.xlsx")
     src.save(path)
-    D2 = _calc(path, str(tmp_path / "c3"))["Dashboard"]
+    w3 = _calc(path, str(tmp_path / "c3"))
+    D2 = w3["Dashboard"]
     assert D2["U%d" % ct.SUM_ROW["UP_ALL"]].value == pytest.approx(y(2, "UP_ALL"), rel=1e-9)
+    y3 = lambda key: w3["O1_Results"]["Y%d" % ct.SUM_ROW[key]].value      # noqa: E731
+    assert y3("UP_SC") == pytest.approx(y(1, "UP_X8") - 0.75 * y(1, "E_3") * 1.15, rel=1e-9)
+    assert y3("BM_UP_SC") == pytest.approx(y(1, "BM_UP_X8") - 0.75 * y(1, "E_3") * 1.15, rel=1e-9)   # finishes are benchmarked
+    assert y3("UP_WB") == pytest.approx(y(1, "UP_X8") + 50 * 1.15, rel=1e-9)

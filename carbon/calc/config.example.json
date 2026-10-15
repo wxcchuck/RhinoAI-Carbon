@@ -18,7 +18,7 @@
     "sheet": "Benchmark Placeholders",
     "source": "Name the benchmark source here - it is printed on the Benchmarks sheet"
   },
-  "targets_xlsx": "C:\\path\\to\\WLCA_Targets.xlsx  (sheets Targets, GLA_Breakdown, PM_Structure - private; optional)",
+  "targets_xlsx": "C:\\path\\to\\WLCA_Targets.xlsx  (sheets Targets, GLA_Breakdown, PM_Structure - private; optional; offices shell & core rows as 'UKNZCBS S&C <year>')",
   "site": {
     "A51": 35,
     "A52": 40,
@@ -50,7 +50,13 @@
     },
     "scenario": "GLA aspirational",
     "budget_target": "UKNZCBS",
-    "pm_group": null
+    "pm_group": null,
+    "sc_share": {
+      "finishes": 1.0,
+      "ffe": 1.0,
+      "services": 1.0
+    },
+    "catb_allowance": null
   },
   "branding": {
     "_comment": "Optional and private: fonts, colours (hex without #) and logo for Dashboard / Compare. Omit for neutral defaults.",

@@ -110,7 +110,9 @@ SUMMARY = [
     ("E_CONT", "A1-A5 contingency", "kgCO2e/m2"),
     ("B_MOD", "A1-A5 modelled from project information", "kgCO2e/m2"), ("B_ASM", "A1-A5 modelled on [ASSUMED] quantities", "kgCO2e/m2"),
     ("B_BM", "A1-A5 benchmarked", "kgCO2e/m2"), ("B_SITE", "A1-A5 site lumps", "kgCO2e/m2"), ("B_CONT", "A1-A5 contingency", "kgCO2e/m2"),
-    ("SH_ASM", "Share of A1-A5 on [ASSUMED] quantities", ""), ("STRUCT", "Structure A1-A5 before contingency (P&M scope)", "kgCO2e/m2"),
+    ("SH_ASM", "Share of A1-A5 on [ASSUMED] quantities", ""),
+    ("STRUCT", "Structure A1-A5 + A5.2 site lump, before contingency (P&M scope)", "kgCO2e/m2"),
+    ("STRUCT_AC", "Structure A-C + A5.2 and C1 site lumps, before contingency (P&M scope)", "kgCO2e/m2"),
     ("MOD_UP_ALL", "Modelled + site, A1-A5", "kgCO2e/m2"), ("MOD_UP_X8", "Modelled + site, A1-A5 excl. cat 8", "kgCO2e/m2"),
     ("MOD_AC_ALL", "Modelled + site, A-C", "kgCO2e/m2"), ("MOD_AC_X8", "Modelled + site, A-C excl. cat 8", "kgCO2e/m2"),
     ("BM_UP_ALL", "Benchmarked, A1-A5", "kgCO2e/m2"), ("BM_UP_X8", "Benchmarked, A1-A5 excl. cat 8", "kgCO2e/m2"),
@@ -119,7 +121,12 @@ SUMMARY = [
     ("SCN_AC_ALL", "Scenario: A-C with non-modelled at the scenario tier", "kgCO2e/m2"),
     ("BMS_UP_ALL", "Benchmarked at scenario tier, A1-A5", "kgCO2e/m2"), ("BMS_UP_X8", "Benchmarked at scenario tier, A1-A5 excl. cat 8", "kgCO2e/m2"),
     ("BMS_AC_ALL", "Benchmarked at scenario tier, A-C", "kgCO2e/m2"), ("BMS_AC_X8", "Benchmarked at scenario tier, A-C excl. cat 8", "kgCO2e/m2"),
-    ("UK_LIM", "UKNZCBS upfront limit (construction start year)", "kgCO2e/m2"), ("LETI_UP", "LETI upfront band", ""),
+    ("UP_SC", "A1-A5 shell & core excl. external works (UKNZCBS offices)", "kgCO2e/m2"),
+    ("MOD_UP_SC", "Modelled + site, A1-A5 shell & core", "kgCO2e/m2"), ("BM_UP_SC", "Benchmarked, A1-A5 shell & core", "kgCO2e/m2"),
+    ("BMS_UP_SC", "Benchmarked at scenario tier, A1-A5 shell & core", "kgCO2e/m2"),
+    ("UP_WB", "A1-A5 whole building incl. Cat B allowance (UKNZCBS offices)", "kgCO2e/m2"),
+    ("UK_LIM", "UKNZCBS upfront limit, whole building (construction start year)", "kgCO2e/m2"),
+    ("UK_LIM_SC", "UKNZCBS upfront limit, offices shell & core", "kgCO2e/m2"), ("LETI_UP", "LETI upfront band", ""),
     ("LETI_LC", "LETI life-cycle band", ""), ("QA_FLAGS", "QA flags open", ""), ("NAME", "Option", ""),
 ]
 SUM_ROW = dict((k, 5 + i) for i, (k, _, _) in enumerate(SUMMARY))     # row of each key on O<k>_Results (cols X:Z)
@@ -284,7 +291,8 @@ def build(cfg):
                   road_vehicle="RV-17PLUS", eol_vehicle="RV-17PLUS", sea_factor=0.01592,
                   eol_distances_km=[50, 50, 50], benchmark_c1="Exclude", cw_reference_a1a5=None,
                   construction_start_year=2027, show_targets=dict(UKNZCBS="Y", LETI="Y", RIBA="Y", GLA="Y"),
-                  scenario="GLA aspirational", budget_target="UKNZCBS", pm_group=None)
+                  scenario="GLA aspirational", budget_target="UKNZCBS", pm_group=None,
+                  sc_share=dict(finishes=1.0, ffe=1.0, services=1.0), catb_allowance=None)
     params.update(cfg.get("params", {}))
 
     wb = Workbook()
@@ -454,10 +462,10 @@ def build(cfg):
         for c, v in enumerate(row[:9], start=gb_col):
             TG.cell(4 + i, c, v)
     gb_last = 4 + len(gb) - 1
-    pm = (tg or {}).get("PM_Structure") or [["group", "use_class", "n", "p10", "p25", "p50", "p75", "p90"]]
+    pm = (tg or {}).get("PM_Structure") or [["group", "use_class", "n", "p10", "p25", "p50", "p75", "p90", "ac_p25", "ac_p50", "ac_p75"]]
     pm_col = 23
     for i, row in enumerate(pm):
-        for c, v in enumerate(row[:8], start=pm_col):
+        for c, v in enumerate(row[:11], start=pm_col):
             TG.cell(4 + i, c, v)
     pm_last = 4 + len(pm) - 1
     for c in list(TG[4])[gb_col - 1:]:
@@ -501,7 +509,13 @@ def build(cfg):
         ("C2 distance - landfill", params["eol_distances_km"][2], "km", "PLACEHOLDER, replace per site", "D_LAND"),
         ("TARGETS", None, None, None, None),
         ("Construction start year (UKNZCBS limit year)", params["construction_start_year"], "", "UKNZCBS 4.2.5.3: limits for the year construction commences", "UK_YEAR"),
-        ("Show UKNZCBS", show.get("UKNZCBS", "Y"), "", "Upfront A1-A5 excl. external works; Offices whole building includes Cat B + loose FF&E (not in this scope)", "SH_UK"),
+        ("Show UKNZCBS", show.get("UKNZCBS", "Y"), "", "Upfront A1-A5 excl. external works. Offices: shell & core limit (5.1.6.2) and whole-building limit (incl. Cat B + loose FF&E)", "SH_UK"),
+        ("Shell & core share - internal finishes", params["sc_share"]["finishes"], "",
+         "UKNZCBS offices: share of element group 3 counted as shell & core (rest = Cat A). 100% = strict default until a split is known", "SC_FIN"),
+        ("Shell & core share - FF&E", params["sc_share"]["ffe"], "", "As above, element group 4 (building-related FF&E)", "SC_FFE"),
+        ("Shell & core share - services", params["sc_share"]["services"], "", "As above, element group 5 (MEP)", "SC_MEP"),
+        ("Cat B fit-out + loose FF&E allowance", params["catb_allowance"], "kgCO2e/m2 GIA",
+         "UKNZCBS offices whole-building limit only. Before contingency. Leave blank = whole-building limit 'not assessed'", "CATB"),
         ("Show LETI", show.get("LETI", "Y"), "", "Upfront and life-cycle bands; excl. external works and non-fixed FF&E", "SH_LETI"),
         ("Show RIBA 2030 Climate Challenge", show.get("RIBA", "Y"), "", "A1-A5, B1-B5, C1-C4 incl. sequestration; categories 0-7", "SH_RIBA"),
         ("Show GLA (London Plan Guidance)", show.get("GLA", "Y"), "", "A1-A5 and A-C (excl. B6, B7), all categories incl. external works", "SH_GLA"),
@@ -528,7 +542,7 @@ def build(cfg):
         P.cell(r, 5, note)
         if nm:
             name(wb, nm, "Project!$C$%d" % r)
-        if nm == "CONT":
+        if nm in ("CONT", "SC_FIN", "SC_FFE", "SC_MEP"):
             c.number_format = "0%"
         if nm in lists and lists[nm]:
             v = DataValidation(type="list", formula1='"%s"' % lists[nm])
@@ -589,15 +603,19 @@ def build(cfg):
          '=IF(SCN="None",1,IFERROR(IF(SCN="GLA aspirational",%s,%s)/%s,1))' % (gla("aspirational", "UP_ALL"), gla("benchmark", "UP_ALL"), gla("benchmark", "UP_ALL")), "", "SCN_FUP"),
         ("Scenario factor B-C (tier / GLA benchmark)",
          '=IF(SCN="None",1,IFERROR(IF(SCN="GLA aspirational",%s,%s)/%s,1))' % (gla("aspirational", "BC_ALL"), gla("benchmark", "BC_ALL"), gla("benchmark", "BC_ALL")), "", "SCN_FBC"),
+        ("UKNZCBS offices shell & core limit", "=" + tsum("UKNZCBS", '"UKNZCBS S&C "&UK_YEAR', "UP_X8"), "kgCO2e/m2", "UK_LIM_SC"),
         ("Budget target value",
-         '=IF(BUD="UKNZCBS",UK_LIM,IF(BUD="LETI 2030 (A)",%s,IF(BUD="LETI 2020 (C)",%s,IF(BUD="RIBA 2030",%s,IF(BUD="GLA aspirational A1-A5",%s,%s)))))'
+         '=IF(BUD="UKNZCBS",IF(UK_LIM_SC>0,UK_LIM_SC,UK_LIM),IF(BUD="LETI 2030 (A)",%s,IF(BUD="LETI 2020 (C)",%s,IF(BUD="RIBA 2030",%s,IF(BUD="GLA aspirational A1-A5",%s,%s)))))'
          % (tsum("LETI upfront", '"LETI band A"', "UP_X8"), tsum("LETI upfront", '"LETI band C"', "UP_X8"),
             tsum("RIBA 2030", '"RIBA 2030"', "AC_X8"), gla("aspirational", "UP_ALL"), gla("benchmark", "UP_ALL")), "kgCO2e/m2", "BUD_VAL"),
-        ("Budget target boundary", '=IF(BUD="RIBA 2030","AC_X8",IF(LEFT(BUD,3)="GLA","UP_ALL","UP_X8"))', "", "BUD_KEY"),
+        ("Budget target boundary", '=IF(BUD="RIBA 2030","AC_X8",IF(LEFT(BUD,3)="GLA","UP_ALL",IF(AND(BUD="UKNZCBS",UK_LIM_SC>0),"UP_SC","UP_X8")))', "", "BUD_KEY"),
         ("P&M structure P25", '=SUMIFS(%s,%s,PM_GROUP)' % (TGp("AA"), TGp("W")), "kgCO2e/m2", "PM_P25"),
         ("P&M structure median", '=SUMIFS(%s,%s,PM_GROUP)' % (TGp("AB"), TGp("W")), "kgCO2e/m2", "PM_P50"),
         ("P&M structure P75", '=SUMIFS(%s,%s,PM_GROUP)' % (TGp("AC"), TGp("W")), "kgCO2e/m2", "PM_P75"),
         ("P&M sample size", '=SUMIFS(%s,%s,PM_GROUP)' % (TGp("Y"), TGp("W")), "projects", "PM_N"),
+        ("P&M structure A1-C4 P25", '=SUMIFS(%s,%s,PM_GROUP)' % (TGp("AE"), TGp("W")), "kgCO2e/m2", "PM_C25"),
+        ("P&M structure A1-C4 median", '=SUMIFS(%s,%s,PM_GROUP)' % (TGp("AF"), TGp("W")), "kgCO2e/m2", "PM_C50"),
+        ("P&M structure A1-C4 P75", '=SUMIFS(%s,%s,PM_GROUP)' % (TGp("AG"), TGp("W")), "kgCO2e/m2", "PM_C75"),
     ]
     for lbl, f, unit, nm in derived:
         P.cell(r, 2, lbl)
@@ -973,6 +991,10 @@ def build_option(wb, ctx, o):
     asm = 'SUMIF(%s,"Assumed",%s)/1000' % (TR("Z"), TR("U"))
     bm_up, bm_ac = kind("I", "Benchmark"), kind("O", "Benchmark")
     bm_up8, bm_ac8 = "(%s-%s)" % (bm_up, ext("I", "Benchmark")), "(%s-%s)" % (bm_ac, ext("O", "Benchmark"))
+    # Cat A part of groups 3 / 4 / 5 for the UKNZCBS offices shell & core comparison (share inputs on Project)
+    cat_a = lambda c, k_=None: "+".join('(1-%s)*SUMIFS(%s,%s,"%s"%s)' % (nm_, RG(c), RG("T"), g_, ',%s,"%s"' % (RG("U"), k_) if k_ else "")  # noqa: E731
+                                        for nm_, g_ in (("SC_FIN", "Internal finishes"), ("SC_FFE", "FFE"), ("SC_MEP", "Services/MEP")))
+    code = lambda c, cd: 'SUMIFS(%s,%s,"%s")' % (RG(c), RG("A"), cd)       # noqa: E731
     scn = lambda up, ac: "(%s*SCN_FUP+(%s-%s)*SCN_FBC)" % (up, ac, up)      # noqa: E731
     letis = '{"A++","A+","A","B","C","D","E","F","G","worse than G"}'
     tsub = "%s,\"%s\",%s,USE,%s,\"<\"&%s"      # band = first band whose limit the project does not exceed
@@ -993,7 +1015,14 @@ def build_option(wb, ctx, o):
         "B_BM": "=IF(%s>0,%s*1000/%s,0)" % (GIA, bm_up, GIA), "B_SITE": "=IF(%s>0,%s*1000/%s,0)" % (GIA, kind("I", "Site"), GIA),
         "B_CONT": "=Y%d" % SUM_ROW["E_CONT"],
         "SH_ASM": "=IF(%s=0,0,%s/%s)" % (I_, asm, I_),
-        "STRUCT": '=IF(%s>0,SUMIFS(%s,%s,"Y")*1000/%s,0)' % (GIA, RG("I"), RG("V"), GIA),
+        "STRUCT": '=IF(%s>0,(SUMIFS(%s,%s,"Y")+%s)*1000/%s,0)' % (GIA, RG("I"), RG("V"), code("I", "A5.2"), GIA),
+        "STRUCT_AC": '=IF(%s>0,(SUMIFS(%s,%s,"Y")+%s+%s)*1000/%s,0)' % (GIA, RG("O"), RG("V"), code("O", "A5.2"), code("O", "C1"), GIA),
+        "UP_SC": "=IF(%s>0,(%s-%s-(%s))*%s,0)" % (GIA, I_, ext("I"), cat_a("I"), G1),
+        "MOD_UP_SC": "=IF(%s>0,(%s-%s-%s-(%s))*%s,0)" % (GIA, I_, bm_up, ext("I", "Modelled"), cat_a("I", "Modelled"), G1),
+        "BM_UP_SC": "=IF(%s>0,(%s-%s-(%s))*%s,0)" % (GIA, bm_up, ext("I", "Benchmark"), cat_a("I", "Benchmark"), G1),
+        "BMS_UP_SC": "=Y%d*SCN_FUP" % SUM_ROW["BM_UP_SC"],
+        "UP_WB": '=IF(USE<>"Office",Y{x},IF(ISNUMBER(CATB),Y{x}+CATB*(1+CONT),"not assessed"))'.format(x=SUM_ROW["UP_X8"]),
+        "UK_LIM_SC": "=UK_LIM_SC",
         "MOD_UP_ALL": "=IF(%s>0,(%s-%s)*%s,0)" % (GIA, I_, bm_up, G1),
         "MOD_UP_X8": "=IF(%s>0,(%s-%s-%s)*%s,0)" % (GIA, I_, bm_up, ext("I", "Modelled"), G1),
         "MOD_AC_ALL": "=IF(%s>0,(%s-%s)*%s,0)" % (GIA, O_, bm_ac, G1),

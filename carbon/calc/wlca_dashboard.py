@@ -23,7 +23,7 @@ from openpyxl.chart.text import RichText, Text
 from openpyxl.chart.title import Title
 from openpyxl.drawing.line import LineProperties
 from openpyxl.drawing.text import CharacterProperties, Font as DFont, Paragraph, ParagraphProperties, RegularTextRun
-from openpyxl.formatting.rule import CellIsRule
+from openpyxl.formatting.rule import CellIsRule, FormulaRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.worksheet.datavalidation import DataValidation
 
@@ -39,6 +39,7 @@ DEFAULT = dict(
     good="DCEFE1", bad="F8D7D3",
 )
 BOUNDARY_TEXT = {"UP_X8": "A1-A5 excl. ext. works", "UP_ALL": "A1-A5 all elements",
+                 "UP_SC": "A1-A5 shell & core, excl. ext. works", "UP_WB": "A1-A5 incl. Cat B + loose FF&E",
                  "AC_X8": "A-C excl. ext. works", "AC_ALL": "A-C (excl. B6/B7)"}
 GROUP_LABELS = ["Substructure", "Superstructure", "Facade", "Internal finishes", "FF&E", "Services (MEP)", "External works", "Site (A5.1/A5.2)"]
 
@@ -116,6 +117,15 @@ def _points(series, colours):
 
 def _f(B, size=10, bold=False, color=None):
     return Font(name=B["font"], size=size, bold=bold, color=color or B["ink"])
+
+
+def _note(ws, B, r, text, c2=9, h=22):
+    """Muted note wrapped inside A:I so it never runs under the charts on the right."""
+    ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=c2)
+    c = ws.cell(r, 1, text)
+    c.font = _f(B, 8, color=B["muted"])
+    c.alignment = Alignment(wrap_text=True, vertical="top")
+    ws.row_dimensions[r].height = h
 
 
 def _section(ws, B, r, text, c1=1, c2=18):
@@ -240,13 +250,17 @@ def build_dashboard(wb, ctx, opts, branding):
     _section(ws, B, 6, "Headline - incl. %s contingency" % "PS Table 10")
     ws["J6"] = '="Contingency "&TEXT(CONT,"0%")&" (PS Table 10, RIBA stage "&STAGE&")"'
     ws["J6"].font = _f(B, 9, color=B["muted"])
+    # UKNZCBS headline: offices use the shell & core limit (5.1.6.2); other sectors the single limit
+    uk_lim = "IF(%s>0,%s,%s)" % (v("UK_LIM_SC"), v("UK_LIM_SC"), v("UK_LIM"))
+    uk_val = "IF(%s>0,%s,%s)" % (v("UK_LIM_SC"), v("UP_SC"), v("UP_X8"))
     tiles = [
         ("Upfront carbon A1-A5", "=%s" % v("UP_ALL"), "#,##0", "kgCO2e/m2 GIA"),
         ("Embodied carbon A-C", "=%s" % v("AC_ALL"), "#,##0", "kgCO2e/m2 GIA (excl. B6/B7)"),
         ("Upfront total", "=%s" % v("UP_T"), "#,##0", "tCO2e"),
         ("LETI upfront band", "=%s" % v("LETI_UP"), "@", '="life cycle: "&%s' % v("LETI_LC")),
-        ("UKNZCBS upfront", '=IF(%s=0,"n/a",IF(%s<%s,"Meets","Above"))' % (v("UK_LIM"), v("UP_X8"), v("UK_LIM")), "@",
-         '=IF(%s=0,"no limit for this use",TEXT(%s,"#,##0")&" vs limit "&TEXT(%s,"#,##0")&" ("&UK_YEAR&")")' % (v("UK_LIM"), v("UP_X8"), v("UK_LIM"))),
+        ("UKNZCBS upfront", '=IF({lim}=0,"n/a",IF({val}<={lim},"Meets","Above"))'.format(lim=uk_lim, val=uk_val), "@",
+         '=IF({lim}=0,"no limit for this use",IF({sc}>0,"shell & core ","")&TEXT({val},"#,##0")&" vs limit "&TEXT({lim},"#,##0")&" ("&UK_YEAR&")")'
+         .format(lim=uk_lim, val=uk_val, sc=v("UK_LIM_SC"))),
         ("Resting on assumptions", "=%s" % v("SH_ASM"), "0%", "of A1-A5 - replace as information arrives"),
     ]
     for i, (lbl, val, fmt, sub) in enumerate(tiles):
@@ -271,7 +285,8 @@ def build_dashboard(wb, ctx, opts, branding):
     for j, h in enumerate(hdr, start=1):
         ws.cell(12, j, h).font = _f(B, 9, True, B["muted"])
     trows = [
-        ("SH_UK", '"UKNZCBS "&UK_YEAR&" limit"', "UP_X8", "UK_LIM"),
+        ("SH_UK", '"UKNZCBS "&UK_YEAR&" shell & core limit"', "UP_SC", "UK_LIM_SC"),
+        ("SH_UK", '"UKNZCBS "&UK_YEAR&IF(UK_LIM_SC>0," whole-building limit"," limit")', "UP_WB", "UK_LIM"),
         ("SH_LETI", '"LETI 2020 design target (C)"', "UP_X8", tsum("LETI upfront", '"LETI band C"', "UP_X8")),
         ("SH_LETI", '"LETI 2030 design target (A)"', "UP_X8", tsum("LETI upfront", '"LETI band A"', "UP_X8")),
         ("SH_RIBA", '"RIBA 2030 Challenge - 2025"', "AC_X8", tsum("RIBA 2030", '"RIBA 2025"', "AC_X8")),
@@ -288,10 +303,10 @@ def build_dashboard(wb, ctx, opts, branding):
         ws.merge_cells(start_row=r, start_column=4, end_row=r, end_column=5)
         ws.cell(r, 1, '=IF(AND(%s="Y",N(%s)>0),%s,"")' % (sh, tgt, lbl))
         ws.cell(r, 4, '=IF(A%d="","",%s)' % (r, '"%s"' % BOUNDARY_TEXT[key]))
-        ws.cell(r, 6, '=IF(A%d="",NA(),%s)' % (r, v(key)))
+        ws.cell(r, 6, '=IF(A%d="",NA(),IF(ISNUMBER(%s),%s,NA()))' % (r, v(key), v(key)))
         ws.cell(r, 7, '=IF(A%d="",NA(),%s)' % (r, tgt))
-        ws.cell(r, 8, '=IF(A%d="","",G%d-F%d)' % (r, r, r))
-        ws.cell(r, 9, '=IF(A%d="","",IF(F%d<G%d,"Meets","Above"))' % (r, r, r))
+        ws.cell(r, 8, '=IF(A{r}="","",IF(ISNA(F{r}),"",G{r}-F{r}))'.format(r=r))
+        ws.cell(r, 9, '=IF(A{r}="","",IF(ISNA(F{r}),"Not assessed",IF(F{r}<=G{r},"Meets","Above")))'.format(r=r))
         for c in range(1, 10):
             ws.cell(r, c).font = _f(B, 9)
             ws.cell(r, c).border = Border(bottom=Side(style="hair", color=B["rule"]))
@@ -300,8 +315,10 @@ def build_dashboard(wb, ctx, opts, branding):
     t1 = t0 + len(trows) - 1
     ws.conditional_formatting.add("I%d:I%d" % (t0, t1), CellIsRule(operator="equal", formula=['"Meets"'], fill=PatternFill("solid", fgColor=B["good"])))
     ws.conditional_formatting.add("I%d:I%d" % (t0, t1), CellIsRule(operator="equal", formula=['"Above"'], fill=PatternFill("solid", fgColor=B["bad"])))
-    ws.cell(t1 + 1, 1, "Project values incl. contingency. UKNZCBS offices limit covers the whole building incl. Cat B and loose FF&E - this "
-                       "shell & core + Cat A result understates it. B1-B3, B5 not assessed.").font = _f(B, 8, color=B["muted"])
+    _note(ws, B, t1 + 1, "Project values incl. contingency. UKNZCBS offices: shell & core = this result less the Cat A share of finishes, FF&E and services "
+                       "(Project inputs, 100% shell & core by default); whole building needs a Cat B + loose FF&E allowance. B1-B3, B5 not assessed.", h=24)
+    na = FormulaRule(formula=["ISNA(F%d)" % t0], font=Font(color="FFFFFF"))      # hide #N/A kept for the chart
+    ws.conditional_formatting.add("F%d:G%d" % (t0, t1), na)
     ch = BarChart()
     ch.type = "bar"
     ch.grouping = "clustered"
@@ -392,18 +409,32 @@ def build_dashboard(wb, ctx, opts, branding):
             ws.cell(r, c).border = Border(bottom=Side(style="hair", color=B["rule"]))
     ws.conditional_formatting.add("F65:F71", CellIsRule(operator="equal", formula=['"Better than aspirational"'], fill=PatternFill("solid", fgColor=B["good"])))
     ws.conditional_formatting.add("F65:F71", CellIsRule(operator="equal", formula=['"Above typical"'], fill=PatternFill("solid", fgColor=B["bad"])))
-    ws.cell(72, 1, "GLA values = typical-development share x GLA total (London Plan Guidance). Project incl. contingency; site A5.1/A5.2 sits inside the GLA groups so is not shown.").font = _f(B, 8, color=B["muted"])
-    ws.cell(74, 1, "Structure (modelled sub + superstructure, A1-A5, before contingency)").font = _f(B, 9, True)
-    ws.cell(75, 1, "=%s" % v("STRUCT")).number_format = "#,##0"
-    ws.cell(75, 1).font = _f(B, 16, True, B["project"])
-    ws.cell(75, 2).value = None
-    ws.cell(76, 1, "kgCO2e/m2 GIA").font = _f(B, 8, color=B["muted"])
-    ws.cell(75, 4, '="P&M "&PM_GROUP&" (n="&PM_N&"): P25 "&PM_P25&" | median "&PM_P50&" | P75 "&PM_P75')
-    ws.cell(75, 4).font = _f(B, 9)
-    ws.cell(76, 4, '=IF(PM_N=0,"",IF(%s<PM_P25,"Below the middle half - check for omissions (or a genuinely lean structure)",'
-                   'IF(%s<=PM_P75,"Within the middle half of comparable projects","Above the middle half - look for savings")))' % (v("STRUCT"), v("STRUCT")))
-    ws.cell(76, 4).font = _f(B, 9, True)
-    ws.cell(77, 1, "Price & Myers data are structure only (RICS 2017 / IStructE v2 method, ICE v3 factors): a range to sense-check, not a target.").font = _f(B, 8, color=B["muted"])
+    _note(ws, B, 72, "GLA values = typical-development share x GLA total (London Plan Guidance). Project incl. contingency; site A5.1/A5.2 sits inside the GLA groups so is not shown.")
+    ws.cell(74, 1, '="Structure against Price & Myers - "&PM_GROUP&" (n="&PM_N&"), kgCO2e/m2 GIA, before contingency"').font = _f(B, 9, True)
+    for j, h in zip((1, 3, 4, 5, 6, 7), ["Stages", "Project", "P&M P25", "P&M median", "P&M P75", "Position"]):
+        ws.cell(75, j, h).font = _f(B, 9, True, B["muted"])
+    for r, lbl, key, q in ((76, "A1-A5", "STRUCT", ("PM_P25", "PM_P50", "PM_P75")), (77, "A1-C4", "STRUCT_AC", ("PM_C25", "PM_C50", "PM_C75"))):
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=2)
+        ws.merge_cells(start_row=r, start_column=7, end_row=r, end_column=9)
+        ws.cell(r, 1, lbl)
+        ws.cell(r, 3, "=%s" % v(key)).font = _f(B, 9, True, B["project"])
+        for c, nm_ in zip((4, 5, 6), q):
+            ws.cell(r, c, "=%s" % nm_)
+        ws.cell(r, 7, '=IF(N(D{r})=0,"no P&M range",IF(C{r}<D{r},"Below P25 - check for omissions",IF(C{r}<=F{r},"Within P25-P75","Above P75 - look for savings")))'.format(r=r))
+        for c in range(1, 10):
+            if c != 3:
+                ws.cell(r, c).font = _f(B, 9)
+            ws.cell(r, c).border = Border(bottom=Side(style="hair", color=B["rule"]))
+        for c in (3, 4, 5, 6):
+            ws.cell(r, c).number_format = "#,##0"
+    ws.conditional_formatting.add("G76:G77", CellIsRule(operator="equal", formula=['"Within P25-P75"'], fill=PatternFill("solid", fgColor=B["good"])))
+    ws.conditional_formatting.add("G76:G77", FormulaRule(formula=['OR(LEFT(G76,5)="Below",LEFT(G76,5)="Above")'], fill=PatternFill("solid", fgColor=B["bad"])))
+    for r, t in ((78, "P&M scope: structural engineer's elements only - foundations, piles, basement walls, slabs, frame, roof slabs, structural stairs; "
+                      "includes site activities (A5a). Excludes facade, finishes, non-loadbearing / secondary elements, services and external works."),
+                 (79, "Project: modelled structure (RICS 1, 2.1, 2.2, 2.4) plus the whole-building A5.2 site lump (and C1 for A1-C4). "
+                      "The lumps are not split by element, so the project figure leans high."),
+                 (80, "P&M method: RICS 2017 / IStructE v2 with ICE v3 factors; A1-C4 includes B1 carbonation. A range to sense-check, not a target.")):
+        _note(ws, B, r, t)
     ch = BarChart()
     ch.type = "bar"
     ch.grouping = "clustered"
@@ -467,11 +498,16 @@ def build_compare(wb, ctx, opts, branding):
     rows = [("Option", "NAME", "@"), ("GIA (m2)", "GIA", "#,##0"),
             ("Upfront A1-A5 (kgCO2e/m2)", "UP_ALL", "#,##0"), ("Embodied A-C (kgCO2e/m2)", "AC_ALL", "#,##0"),
             ("Upfront total (tCO2e)", "UP_T", "#,##0"),
-            ("A1-A5 excl. ext. works - UKNZCBS / LETI boundary", "UP_X8", "#,##0"), ("UKNZCBS limit (construction start year)", "UK_LIM", "#,##0"),
+            ("A1-A5 excl. ext. works - UKNZCBS / LETI boundary", "UP_X8", "#,##0"),
+            ("A1-A5 shell & core excl. ext. works (UKNZCBS offices)", "UP_SC", "#,##0"),
+            ("UKNZCBS shell & core limit (offices)", "UK_LIM_SC", "#,##0"),
+            ("A1-A5 incl. Cat B + loose FF&E (UKNZCBS whole building)", "UP_WB", "#,##0"),
+            ("UKNZCBS whole-building limit", "UK_LIM", "#,##0"),
             ("LETI upfront band", "LETI_UP", "@"), ("LETI life-cycle band", "LETI_LC", "@")] + \
            [("%s A1-A5 (before contingency)" % GROUP_LABELS[i], "E_%d" % i, "#,##0") for i in range(len(GROUPS))] + \
            [("Contingency A1-A5", "E_CONT", "#,##0"), ("Share resting on [ASSUMED] quantities", "SH_ASM", "0%"),
-            ("Structure (P&M scope, before contingency)", "STRUCT", "#,##0"),
+            ("Structure A1-A5 incl. A5.2 (P&M scope, before contingency)", "STRUCT", "#,##0"),
+            ("Structure A1-C4 incl. A5.2, C1 (P&M scope, before contingency)", "STRUCT_AC", "#,##0"),
             ("Scenario: upfront with non-modelled at scenario tier", "SCN_UP_ALL", "#,##0"), ("QA flags open", "QA_FLAGS", "0")]
     for j, o in enumerate(opts):
         ws.column_dimensions[chr(66 + j)].width = 18
