@@ -18,7 +18,7 @@ this repo. Upstream McNeel code is untouched; everything here sits under `carbon
 |---|---|---|
 | `takeoff/wlca_massing_takeoff.py` | Measures the massing: slices storeys, bakes GEA and GIA curves, measures façade by orientation and envelope roofs, then writes CSV and JSON rows | Rhino 8 (Python 3) |
 | `takeoff/wlca_core.py` | All quantity rules. No Rhino dependency, so it can be unit-tested | anywhere |
-| `takeoff/wlca_plan_extract.py` | Measures core walls (m per floor, thickness) and columns (count, size) from a vector plan PDF, and writes an overlay image to review | Python 3 (`pymupdf`, `shapely`, `matplotlib`) |
+| `takeoff/wlca_plan_extract.py` | Measures core walls (m per floor, thickness), columns (count, size) and stairs (count, flights, treads, width, going) from a vector plan PDF, and writes an overlay image to review | Python 3 (`pymupdf`, `shapely`, `matplotlib`) |
 | `calc/wlca_calc_template.py` | Builds the Excel calculation workbook from a take-off export, the build-up library and a benchmark table. Live formulas: modules A1–A5, B4, C1–C4, D (memo), biogenic (memo), contingency, RICS reporting, QA | Python 3 (`openpyxl`) |
 | `calc/config.example.json` | Config template for the generator (paths only; keep real configs private) | — |
 | `tests/` | pytest suite on an invented test tower and an invented library; pilot regression on private data (opt-in) | Python 3 (+ LibreOffice for the workbook number checks) |
@@ -31,10 +31,24 @@ this repo. Upstream McNeel code is untouched; everything here sits under `carbon
 | Floor arrangement | Area schedule xlsx (Level / GEA / GIA, optional AOD, Floor to Floor, NIA) | Massing sliced at storey heights; GIA = massing offset inward by the façade zone |
 | Envelope | Massing (always): façade by 8 orientations × WWR, roofs, parapets | — |
 | Core + columns | Plan extract JSON | Core area (m², % GIA, or schedule GIA − NIA) × wall density; column grid × edge factor |
-| Substructure | Engineer's figures (method `Supplied`) | Bored piles per column + core group; hard/firm secant wall + RC liner (method `Derived`) |
+| Substructure | Engineer's figures (method `Supplied`) | Bored piles per column + core group; hard/firm secant wall + RC liner; pile caps (method `Derived`, `[ASSUMED]`) |
+| Stairs | Supplied volume | Count and flight geometry from the plan extract; waist and landings assumed |
+| Edge beams, louvres, doors, roof elements | Supplied length / area | Slab-edge length, plant-level façade, entrance count, roof area × office allowances |
 
 Rows carry RICS element codes and follow the office boundary rules (BR-01 to BR-04): slab allocation
 1.2.1 / 1.2.2 / 2.2.1, roof slab vs roof coverings, basement walls in 1.2.3.
+
+The take-off also covers elements a massing model cannot show (v0.8):
+- pile caps;
+- stairs, counted from the plan drawing;
+- edge beams;
+- louvres on plant levels and entrance doors;
+- other roof elements.
+
+These rules use office assumptions until project information arrives. Each one prefers figures you
+supply, then drawings or the model, then the assumption. Rows that still rest on an assumption start
+their notes with `[ASSUMED]`, and the calculation workbook lists them and shows their share of the
+result.
 
 ## Run
 

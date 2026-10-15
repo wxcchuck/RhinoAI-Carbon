@@ -30,6 +30,9 @@ class TakeoffError(Exception):
 
 
 # ----------------------------------------------------------------------------- orientation / WWR
+
+ASSUMED = "[ASSUMED] "   # notes prefix: quantity rests on an office assumption - replace with project information
+
 def orientation(nx, ny, north_deg=0.0):
     """Bin an outward normal (plan) into one of 8 orientations; north_deg = true north clockwise from +Y."""
     az = (math.degrees(math.atan2(nx, ny)) - north_deg) % 360.0
@@ -316,8 +319,9 @@ def structure_rows(lv_all, plan, S, method, warnings, core_wall_build_up="WALL-R
         wl_src = "core area %.0f m2 x %.2f m/m2" % (core_area, S["core_wall_density_m_per_m2"])
     if wall_len:
         q = sum(wall_len * x[1] for x in lv_all)
+        tag = ASSUMED if wl_src.startswith("core area") else ""
         rows.append(("2.1.1", "core_wall", q, "m2", method,
-                     "Core walls, all RC: %.1f m/floor (%s) x FTF, %d levels incl. basements" % (wall_len, wl_src, len(lv_all))))
+                     tag + "Core walls, all RC: %.1f m/floor (%s) x FTF, %d levels incl. basements" % (wall_len, wl_src, len(lv_all))))
         if plan and plan["core"]["mean_thickness_m"] and abs(plan["core"]["mean_thickness_m"] - 0.25) > 0.05:
             warnings.append("Plan core walls average %.2f m thick vs build-up %s" % (plan["core"]["mean_thickness_m"], core_wall_build_up))
     else:
@@ -342,7 +346,7 @@ def structure_rows(lv_all, plan, S, method, warnings, core_wall_build_up="WALL-R
         col_n.append((name, n))
         col_m += n * h
     rows.append(("2.1.1", "column", col_m, "m", method,
-                 "Columns %s; scaled per level by GEA less core (%s): %s"
+                 ("" if n_typ else ASSUMED) + "Columns %s; scaled per level by GEA less core (%s): %s"
                  % (rho_src, "core %.0f m2, %s" % (core_area, ca_src) if core_area else "no core deduction",
                     ", ".join("%s:%d" % c for c in col_n[:3]) + " ...")))
     info = dict(typical_level=typ[0], core_area_m2=core_area, core_area_source=ca_src,
@@ -407,20 +411,20 @@ def substructure_rows(lv_all, n_base, has_schedule, ground, lowest_gea, col_n, c
             g = secant_section(d, sp, warnings)
             n = int(math.ceil(per / sp))                      # closed perimeter: n hard + n firm
             rows.append(("1.2.3", "secant_wall", n * g["a_hard"] * L, "m3", method,
-                         "Secant wall HARD RC piles (assumed, no SI): %d = perimeter %.1f m (%s) / %.2f m hard-to-hard c/c, %.2f m dia x %.2f m (%s) (BR-04)"
+                         ASSUMED + "Secant wall HARD RC piles (no SI): %d = perimeter %.1f m (%s) / %.2f m hard-to-hard c/c, %.2f m dia x %.2f m (%s) (BR-04)"
                          % (n, per, src_p, sp, d, L, L_src)))
             rows.append(("1.2.3", "secant_firm", n * g["a_firm"] * L, "m3", method,
-                         "Secant wall FIRM piles: %d x %.3f m2 net (circle %.3f - 2 overlaps of %.3f) x %.2f m; equivalent wall %.2f m thick"
+                         ASSUMED + "Secant wall FIRM piles: %d x %.3f m2 net (circle %.3f - 2 overlaps of %.3f) x %.2f m; equivalent wall %.2f m thick"
                          % (n, g["a_firm"], g["a_hard"], g["lens"], L, g["eq_thickness"])))
             t = ret.get("liner_thickness_m")
             if t:
                 rows.append(("1.2.3", "liner_wall", per * depth, "m2", method,
-                             "RC liner %.0f mm inside piled wall = perimeter %.1f m x basement depth %.2f m" % (t * 1000, per, depth)))
+                             ASSUMED + "RC liner %.0f mm inside piled wall = perimeter %.1f m x basement depth %.2f m" % (t * 1000, per, depth)))
                 if abs(t - 0.20) > 0.01:
                     warnings.append("Liner %.0f mm vs build-up %s (200 mm)" % (t * 1000, liner_build_up))
         else:
             rows.append(("1.2.3", "retaining_wall", per * depth, "m2", method,
-                         "RC basement walls = perimeter %.1f m (%s) x basement depth %.2f m (BR-04)" % (per, src_p, depth)))
+                         ASSUMED + "RC basement walls = perimeter %.1f m (%s) x basement depth %.2f m (BR-04)" % (per, src_p, depth)))
         if has_schedule and lowest_gea > 1.05 * g_gea and not ret.get("perimeter_m"):
             warnings.append("Basement GEA %.0f m2 exceeds ground footprint %.0f m2 - footprint perimeter may understate basement walls (x%.2f if same shape)"
                             % (lowest_gea, g_gea, (lowest_gea / g_gea) ** 0.5))
@@ -435,25 +439,147 @@ def substructure_rows(lv_all, n_base, has_schedule, ground, lowest_gea, col_n, c
             n = int(round(n_cols * p["per_column"]))
             v = n * math.pi / 4 * p["diameter_m"] ** 2 * p["length_m"]
             rows.append(("1.1", "pile", v, "m3", method,
-                         "Bored piles under columns (assumed, no SI): %d columns at %s x %s per column = %d piles x %.2f m dia x %.1f m"
+                         ASSUMED + "Bored piles under columns (no SI): %d columns at %s x %s per column = %d piles x %.2f m dia x %.1f m"
                          % (n_cols, col_n[0][0], p["per_column"], n, p["diameter_m"], p["length_m"])))
         if p.get("core_group") and core_area:
             s_c = p["core_spacing_x_dia"] * p["diameter_m"]
             n_c = int(math.ceil(core_area / s_c ** 2))
             v_c = n_c * math.pi / 4 * p["diameter_m"] ** 2 * p["length_m"]
             rows.append(("1.1", "pile", v_c, "m3", method,
-                         "Bored pile group under core (assumed, no SI): core %.0f m2 (%s) / (%.2f m c/c)^2 = %d piles x %.2f m dia x %.1f m"
+                         ASSUMED + "Bored pile group under core (no SI): core %.0f m2 (%s) / (%.2f m c/c)^2 = %d piles x %.2f m dia x %.1f m"
                          % (core_area, ca_src, s_c, n_c, p["diameter_m"], p["length_m"])))
         elif p.get("core_group"):
             warnings.append("Core pile group not derived - no core area (input, % GIA or schedule NIA)")
     c = SUB["caps_raft"]
     if c.get("source") == "engineer" and c.get("volume_m3"):
         rows.append(("1.1", "cap_raft", c["volume_m3"], "m3", "Supplied", "Engineer's figures: pile caps / raft %.0f m3" % c["volume_m3"]))
+    elif c.get("source") == "assumed" and p.get("source") == "assumed":
+        D, e, t = p["diameter_m"], c.get("edge_m", 0.15), c.get("depth_m", 1.2)
+        k = int(round(p["per_column"]))
+        s = p.get("core_spacing_x_dia", 3.0) * D
+        n_cols = col_n[0][1] if col_n else 0
+        if n_cols and k:
+            a = cap_plan_area(k, s, D, e)
+            rows.append(("1.1", "cap_raft", n_cols * a * t, "m3", method,
+                         ASSUMED + "Pile caps under columns: %d caps x %d-pile cap %.2f m2 plan (piles at %.2f m, %.2f m edge) x %.2f m deep"
+                         % (n_cols, k, a, s, e, t)))
+        if p.get("core_group") and core_area:
+            m_, tc = c.get("core_margin_m", 0.5), c.get("core_thickness_m", 2.0)
+            a_c = (math.sqrt(core_area) + 2 * m_) ** 2
+            rows.append(("1.1", "cap_raft", a_c * tc, "m3", method,
+                         ASSUMED + "Core pile cap: (sqrt(core %.0f m2) + 2 x %.2f m)^2 = %.0f m2 x %.2f m thick" % (core_area, m_, a_c, tc)))
     if not any(r[0] == "1.1" for r in rows):
         warnings.append("1.1 foundations: no piles derived - keep the benchmark row")
     elif not any(r[1] == "cap_raft" for r in rows):
         warnings.append("1.1 pile caps / raft not included - add the engineer's volume (caps_raft) or confirm an assumption")
     return rows, depth
+
+
+def cap_plan_area(k, s, d, e):
+    """Plan area of a pile cap for k piles of diameter d at spacing s, with edge distance e beyond the pile."""
+    b = d + 2 * e
+    if k <= 1:
+        return b * b
+    if k == 2:
+        return (s + b) * b
+    if k == 3:                                     # equilateral triangle enclosing the piles, corners not trimmed
+        side = s + math.sqrt(3) * b
+        return math.sqrt(3) / 4 * side * side
+    n = math.ceil(math.sqrt(k))
+    return ((n - 1) * s + b) ** 2
+
+
+# ----------------------------------------------------------------------------- allowances for scope gaps (v0.8)
+# Each rule uses the best information available: supplied figures (engineer / user) > drawing or model >
+# office assumption. Rows that rest on an assumption carry the ASSUMED tag in their notes so the
+# calculation workbook can list them for replacement.
+def stair_rows(lv_all, typ_name, plan, ST, method, warnings):
+    """Stairs (2.4), concrete volume. Count from the plan extract (drawing) unless supplied; flight
+    geometry from the drawing (treads, width, going) where found; waist and landing thickness assumed.
+    Volume per storey scales with the storey height (riser height kept from the typical floor)."""
+    if ST.get("source") == "supplied" and ST.get("volume_m3"):
+        return [("2.4", "stair", ST["volume_m3"], "m3", "Supplied", "Supplied stair volume %.1f m3" % ST["volume_m3"])]
+    ps = (plan or {}).get("stairs") or {}
+    if ST.get("count"):
+        n, n_src = ST["count"], "input"
+    elif ps.get("count"):
+        n, n_src = ps["count"], "drawing %s" % plan.get("source", "")
+    else:
+        n, n_src = ST.get("assumed_count", 2), "ASSUMED count"
+    if ps.get("count") and not ST.get("count"):
+        fps = ps["flights_per_stair"]
+        f = max(set(fps), key=fps.count)
+        tr = ps["treads_per_flight"]
+        nt = int(round(sum(tr) / len(tr)))
+        w, g, g_src = ps["flight_width_m"], ps["going_m"], "drawing"
+    else:
+        f, nt, w, g, g_src = ST["flights_per_storey"], ST["treads_per_flight"], ST["flight_width_m"], ST["going_m"], "assumed"
+    ftf = dict((x[0], x[1]) for x in lv_all)
+    typ_h = ftf.get(typ_name) or sorted(x[1] for x in lv_all)[len(lv_all) // 2]
+    r = typ_h / (f * (nt + 1))
+    L = math.hypot(nt * g, (nt + 1) * r)
+    wt, tl, gap = ST["waist_m"], ST["landing_thickness_m"], ST.get("flight_gap_m", 0.10)
+    v_fl = w * (L * wt + nt * g * r / 2)
+    v_land = (f - 1) * (f * w + gap * (f - 1)) * w * tl
+    v_typ = f * v_fl + v_land
+    climbed = sum(x[1] for x in lv_all[:-1])                # every storey except the top one
+    v = n * v_typ * climbed / typ_h
+    if r > 0.19:
+        warnings.append("Stairs: riser %.3f m on the typical floor (%d flights x %d treads over %.2f m) - check the stair geometry" % (r, f, nt, typ_h))
+    return [("2.4", "stair", v, "m3", method,
+             ASSUMED + "In-situ RC stairs (waist %.2f m, landings %.2f m - assumed): %d stairs (%s) x %d flights x %d treads, %.2f m wide, going %.2f m (%s); "
+             "%.2f m3 per stair on the %.2f m typical storey, scaled by storey height over %.2f m climbed"
+             % (wt, tl, n, n_src, f, nt, w, g, g_src, v_typ, typ_h, climbed))]
+
+
+def edge_beam_rows(perims, EB, method):
+    """Edge beams (2.1.2) along every suspended slab edge above ground, plus the top roof edge.
+    perims: [(storey name, perimeter m)] bottom -> top, above-ground storeys from the massing."""
+    if not EB.get("include", True):
+        return []
+    if EB.get("source") == "supplied" and EB.get("length_m"):
+        return [("2.1.2", "edge_beam", EB["length_m"], "m", "Supplied", "Supplied edge beam length %.0f m" % EB["length_m"])]
+    if len(perims) < 2:
+        return []
+    L = sum(max(perims[i][1], perims[i - 1][1]) for i in range(1, len(perims))) + perims[-1][1]
+    return [("2.1.2", "edge_beam", L, "m", method,
+             ASSUMED + "Edge beams (downstand, section in build-up) on every slab edge from level %s up + top roof edge: %.0f m; "
+             "no transfer structures assumed" % (perims[1][0], L))]
+
+
+def envelope_allowance_rows(plant_facade_m2, plant_src, glazed, opaque, roof_area, EA, method):
+    """Louvres and entrance doors (2.6), other roof elements (2.3). Returns (rows, glazed, opaque):
+    louvre area comes out of the opaque facade, door area out of the glazed facade."""
+    rows = []
+    L = EA["louvres"]
+    if L.get("source") == "supplied" and L.get("area_m2"):
+        a, meth, note = L["area_m2"], "Supplied", "Supplied louvre area %.0f m2" % L["area_m2"]
+    else:
+        a, meth = plant_facade_m2 * L["fraction_of_plant_facade"], method
+        note = ASSUMED + "Louvres = plant-level facade %.0f m2 (%s) x %.0f%%; taken out of the opaque facade" % (
+            plant_facade_m2, plant_src, 100 * L["fraction_of_plant_facade"])
+    a = min(a, opaque)
+    if a > 0.01:
+        rows.append(("2.6", "louvre", a, "m2", meth, note))
+        opaque -= a
+    D = EA["entrance_doors"]
+    if D.get("source") == "supplied" and D.get("area_m2"):
+        d, meth, note = D["area_m2"], "Supplied", "Supplied entrance door area %.0f m2" % D["area_m2"]
+    else:
+        d, meth = D["count"] * D["area_m2_each"], method
+        note = ASSUMED + "Entrance doors: %d entrances x %.0f m2 (doors + frames); taken out of the glazed facade" % (D["count"], D["area_m2_each"])
+    d = min(d, glazed)
+    if d > 0.01:
+        rows.append(("2.6", "door_ext", d, "m2", meth, note))
+        glazed -= d
+    R = EA["roof_other"]
+    if R.get("include", True) and roof_area > 0.01:
+        if R.get("source") == "supplied" and R.get("area_m2"):
+            rows.append(("2.3", "roof_other", R["area_m2"], "m2", "Supplied", "Supplied roof area for other roof elements"))
+        else:
+            rows.append(("2.3", "roof_other", roof_area, "m2", method,
+                         ASSUMED + "Other roof elements (plant supports, hatches, outlets) as an allowance per m2 of roof: %.0f m2" % roof_area))
+    return rows, glazed, opaque
 
 
 # ----------------------------------------------------------------------------- interchange rows
@@ -470,8 +596,8 @@ def build_rows(cfg, hz, roof_levels, hsrc, glazed, opaque, parapet_net, wwr, st_
         ("2.2.1", "roof_slab",     hz["podium"],   "m2", m, "Basement roof outside building footprint at ground (%s) - surface finishes are external works 8.1.1, not 2.5.3" % hsrc),
         ("2.5.3", "roof_finish",   hz["roof"],     "m2", m, "Roof coverings over roof slabs, excl. podium (BR-02)"),
         ("2.5.1", "soffit_finish", hz["soffit"],   "m2", m, "Insulated soffit under overhangs (%s)" % hsrc),
-        ("2.5.2", "facade_glazed", glazed,         "m2", m, "Storey facade (massing) x WWR %s" % ", ".join("%s %.0f%%" % (k, wwr[k] * 100) for k in ORIENTS)),
-        ("2.5.1", "facade_opaque", opaque,         "m2", m, "Envelope facade (massing) less glazing; incl. parapets/upstands (net %.0f m2)" % parapet_net),
+        ("2.5.2", "facade_glazed", glazed,         "m2", m, "Storey facade (massing) x WWR %s; less entrance doors (2.6) where derived" % ", ".join("%s %.0f%%" % (k, wwr[k] * 100) for k in ORIENTS)),
+        ("2.5.1", "facade_opaque", opaque,         "m2", m, "Envelope facade (massing) less glazing and plant louvres (2.6); incl. parapets/upstands (net %.0f m2)" % parapet_net),
     ] + list(st_rows)
     rows, n = [], 0
     for code, key, q, unit, method, note in spec:

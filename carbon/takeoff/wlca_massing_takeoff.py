@@ -1,6 +1,6 @@
 #! python3
 """
-WLCA massing take-off  v0.7  (draft for review)
+WLCA massing take-off  v0.8  (draft for review)
 Office WLCA template - build step 4a (massing route, RIBA 0-2)
 
 Drafted by an AI agent (Claude) - review before trusting. Quantity rules live in wlca_core.py
@@ -35,11 +35,17 @@ What it does
      hard/firm secant piles (v0.6: 1.0 m dia, hard piles at 1.2 m centres with a firm pile between,
      overlaps deducted), length = basement depth x (1 + embedment ratio), with an RC liner (v0.5).
 
+  8. Scope-gap allowances (v0.8): stairs (count and flight geometry from the plan extract), edge beams
+     on every slab edge, louvres on plant levels, entrance doors, other roof elements, pile caps.
+     Every rule takes the best information available - supplied figures > drawing / model > office
+     assumption - and rows resting on an assumption start their notes with [ASSUMED], so they can be
+     listed and replaced as project information arrives.
+
 Limits
   - Exact for prismatic massing (vertical walls, flat roofs). Sloped / curved roofs and
     raked walls are measured as plan-projected roof area and perimeter x height facade;
     the script warns when it finds non-vertical, non-horizontal faces.
-  - Not yet derived: stairs, guarding, pile caps / raft (engineer's volume only).
+  - Not yet derived: guarding / balustrades, lift pits, transfer structures.
 
 Run: Rhino 8 ScriptEditor (Python 3), with wlca_core.py in the same folder. Edit CONFIG, then run.
 When exec'd without __file__ (e.g. over MCP), put WLCA_LIB_DIR = <folder of wlca_core.py> in globals.
@@ -116,9 +122,26 @@ CONFIG = {
                   "diameter_m": 0.75, "per_column": 3, "length_m": 25.0,
                   "core_group": True, "core_spacing_x_dia": 3.0,   # piles under the core at 3 x dia centres over core area
                   "count": None},                    # engineer: count x diameter x length
-        "caps_raft": {"source": None, "volume_m3": None},                                # "engineer"
+        "caps_raft": {"source": "assumed",           # "assumed" (rule below) | "engineer" (volume_m3) | None
+                      "depth_m": 1.2, "edge_m": 0.15,  # column caps: piles_per_column at core_spacing_x_dia, edge beyond pile
+                      "core_thickness_m": 2.0, "core_margin_m": 0.5,   # core cap over core area + margin all round
+                      "volume_m3": None},
         "basement_depth_m": None,            # massing route only (schedule gives depth from basement FTFs)
     },
+    # --- scope-gap allowances (v0.8). source: "assumed" (office default) | "supplied" (your figure wins) ---
+    "stairs": {"source": "drawing",          # count + flights from plan_json; "supplied" uses volume_m3
+               "count": None,                # override the drawing count
+               "assumed_count": 2,           # used only with no drawing and no count
+               "flights_per_storey": 2, "treads_per_flight": 11, "flight_width_m": 1.2, "going_m": 0.25,   # no-drawing defaults
+               "waist_m": 0.20, "landing_thickness_m": 0.20, "flight_gap_m": 0.10,                          # always assumed
+               "volume_m3": None},
+    "edge_beams": {"source": "assumed", "include": True, "length_m": None},
+    "envelope_allowances": {
+        "louvres": {"source": "assumed", "fraction_of_plant_facade": 0.5, "area_m2": None},
+        "entrance_doors": {"source": "assumed", "count": 2, "area_m2_each": 15.0, "area_m2": None},
+        "roof_other": {"source": "assumed", "include": True, "area_m2": None},
+    },
+    "plant_levels": None,                    # massing route: storey names with plant (schedule route reads Use = Plant)
 
     # --- build-up codes (must exist in the build-up library) ---
     "build_ups": {
@@ -138,6 +161,11 @@ CONFIG = {
         "liner_wall":    "LINER-RC-200",      # RC liner to piled wall, per m2
         "pile":          "PILE-RC-600",       # per m3
         "cap_raft":      "CAP-RC-01",         # per m3
+        "stair":         "STAIR-RC-01",       # 2.4 in-situ RC stairs, per m3
+        "edge_beam":     "BEAM-RC-EDGE-DS",   # 2.1.2 downstand edge beam below the slab, per m
+        "louvre":        "LOUVRE-AL-01",      # 2.6 plant louvres, per m2
+        "door_ext":      "DOOR-EXT-GL-01",    # 2.6 entrance doors, per m2
+        "roof_other":    "ROOF-OTHER-01",     # 2.3 other roof elements, per m2 of roof
     },
 
     # --- output ---
@@ -524,6 +552,21 @@ def run(cfg):
     wwr = expand_wwr(cfg["wwr"])
     glazed = sum(fac_storey[k] * wwr[k] for k in ORIENTS)
     opaque = sum(fac_total[k] - fac_storey[k] * wwr[k] for k in ORIENTS)   # glazed + opaque = envelope
+
+    # ---- scope-gap allowances (rules in wlca_core)
+    gap_rows = core.stair_rows(lv_all, sinfo["typical_level"], plan, cfg["stairs"], cfg["method_label"], warnings)
+    above = [st for st in storeys if st["gea"] > 0]
+    gap_rows += core.edge_beam_rows([(st["name"], st["perimeter"]) for st in above], cfg["edge_beams"], cfg["method_label"])
+    if sched:
+        plant = [lv["name"] for lv in sched if "plant" in (lv.get("use") or "").lower()]
+        plant_src = "schedule Use = Plant: " + (", ".join(n for n in plant if n in [st["name"] for st in above]) or "none above ground")
+    else:
+        plant = cfg.get("plant_levels") or []
+        plant_src = "CONFIG plant_levels: " + (", ".join(plant) or "none")
+    plant_fac = sum(sum(st["facade_by_orient"].values()) for st in above if st["name"] in plant)
+    env_rows, glazed, opaque = core.envelope_allowance_rows(plant_fac, plant_src, glazed, opaque, hz["roof"],
+                                                            cfg["envelope_allowances"], cfg["method_label"])
+    st_rows = st_rows + gap_rows + env_rows
 
     # ---- bake
     if cfg["bake"]:

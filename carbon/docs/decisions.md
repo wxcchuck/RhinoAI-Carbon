@@ -53,7 +53,7 @@ Drafted by an AI agent (Claude) from the working sessions; review before relying
 | U5 | Secant wall length = basement depth × (1 + embedment ratio). Default ratio 0.5 (toe below formation level) | Assumed — confirm with engineer |
 | U6 | RC liner, 200 mm, inside the piled wall = perimeter × basement depth | Confirmed |
 | U7 | Firm piles use the C32/40 build-up as a placeholder; the real firm mix is lower strength | Open (needs a firm-mix factor) |
-| U8 | Pile caps / raft | Open |
+| U8 | Pile caps: one cap per column at the lowest level, sized for the piles per column (3 piles: equilateral triangle enclosing the piles at 3 × Ø, 0.15 m edge, corners not trimmed) × 1.2 m deep; plus a 2.0 m core cap over the core area + 0.5 m all round. The engineer's volume replaces both | Assumed |
 | U9 | Basement larger than the ground footprint: scale the perimeter? (the script warns) | Open |
 
 ## Calculation template (`calc/`)
@@ -76,4 +76,20 @@ Drafted by an AI agent (Claude) from the working sessions; review before relying
 | C14 | D is a memo only: per-kg values for metals where the library has them, 0 elsewhere. Concrete D values in the source were not adopted | Assumed |
 | C15 | Contingency: PS Table 10 percentage (15% at RIBA 0–2) on A–C as a separate row; not on D or biogenic carbon | Assumed |
 | C16 | Modelled layers whose element group is benchmarked are dropped, so there is one method per element (BR-14) | Confirmed |
-| C17 | Scope coverage in QA: any expected element with neither a quantity nor a benchmark is a GAP flag (PS 4.4.1). On the pilot: 2.1.2 beams, 2.3 roof other, 2.4 stairs, 2.5.1 soffit, 2.5.3 roof coverings, 2.6 doors | Open — needs build-ups or benchmarks |
+| C17 | Scope coverage in QA: any expected element with neither a quantity nor a benchmark is a GAP flag (PS 4.4.1). The pilot gaps are now covered by the allowances below (G1–G7) | Confirmed |
+| C18 | Rows that rest on an office assumption carry `[ASSUMED]` at the start of their notes. The workbook marks them (Takeoff column Z), counts them in QA and shows their share of A1–A5 in the Results headline | Confirmed |
+
+## Scope-gap allowances (take-off v0.8)
+
+All of these run on office assumptions until project information replaces them: drawings, model quantities or figures supplied by the engineer or the user. Each rule takes the best source available, in this order: supplied (`source: "supplied"`), then drawing or model, then assumption. Rows that still rest on an assumption are tagged `[ASSUMED]`.
+
+| # | Decision | Status |
+|---|---|---|
+| G1 | Stairs (2.4): count, flights, treads, width and going come from the plan drawing. The plan extractor v0.2 reads treads as thin rectangles; runs of 4 or more make a flight, and flights within 1 m make a stair. The stairs are in-situ RC, with the waist and landings assumed at 0.20 m. The volume per storey scales with storey height. Every storey except the top one is climbed | Assumed (geometry from drawing) |
+| G2 | Edge beams (2.1.2): a 400 × 350 downstand on every slab edge from level 1 up, plus the top roof edge (the larger of the storey's perimeter and the perimeter of the storey below). Transfer structures are not assumed | Assumed |
+| G3 | Louvres (2.6): 50% of the façade on plant levels above ground (from the schedule's Use column), taken out of the opaque façade | Assumed |
+| G4 | Entrance doors (2.6): 2 entrances × 15 m², taken out of the glazed façade | Assumed |
+| G5 | Other roof elements (2.3): an allowance per m² of roof covering plant supports, hatches and outlets | Assumed |
+| G6 | Inverted roof (2.5.3) and insulated soffit (2.5.1): placeholders adapted from the residential library types until there are practice details | Assumed |
+| G7 | Not yet allowed for: guarding and balustrades, lift pits | Open |
+

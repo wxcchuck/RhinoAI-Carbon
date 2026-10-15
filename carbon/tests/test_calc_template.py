@@ -84,7 +84,7 @@ def _export(path):
     lines = ["# project_id: TEST", "# use_class: Office", "# riba_stage: 2", "# gia_m2: %s" % GIA,
              "# existing_gia_demolished_m2: 0", "# schema_version: 0.1",
              "project_id,element_id,nrm_code,build_up_code,quantity,unit,method,stage,model_version,author,source_layer,include,notes",
-             "TEST,E1,2.2.1,SLAB,1000,m2,Derived,2,v,XX,L,Y,slab",
+             "TEST,E1,2.2.1,SLAB,1000,m2,Derived,2,v,XX,L,Y,[ASSUMED] slab",
              "TEST,E2,2.5.2,PANEL,500,m2,Derived,2,v,XX,L,Y,glazing",
              "TEST,E3,2.5.1,OPQ,200,m2,Derived,2,v,XX,L,Y,opaque facade",
              "TEST,E4,2.5.3,UNKNOWN,10,m2,Derived,2,v,XX,L,Y,roof"]
@@ -211,9 +211,14 @@ def test_numbers_against_hand_calculation(built, tmp_path):
     assert R["C5"].value == pytest.approx(R.cell(sub + 2, 9).value * 1000 / GIA, rel=1e-9)
     assert R.cell(sub, 16).value == pytest.approx(-0.5 * steel / 1000, rel=1e-9)         # D memo, steel only
     # QA: unknown build-up flagged; CW reference check computed
-    q = {Q.cell(r, 2).value: (Q.cell(r, 3).value, Q.cell(r, 4).value) for r in range(7, 20) if Q.cell(r, 2).value}
+    q = {Q.cell(r, 2).value: (Q.cell(r, 3).value, Q.cell(r, 4).value) for r in range(7, 25) if Q.cell(r, 2).value}
     assert q["Take-off rows whose build-up is not in the library (not counted)"] == (1, "FLAG")
     assert q["Opaque facade rows routed to the curtain wall build-up"][0] == 1
+    assert T["Z5"].value == "Assumed" and T["Z6"].value == "Derived"
+    assert q["Take-off rows resting on office assumptions ([ASSUMED] in notes; Takeoff column Z)"] == (1, "INFO")
+    share = T["U5"].value / 1000 / R.cell(sub, 9).value
+    assert q["Share of A1-A5 resting on assumed quantities (before contingency)"][0] == pytest.approx(share, rel=1e-9)
+    assert R["C10"].value == pytest.approx(share, rel=1e-9)
     cw = q["Curtain wall A1-A5 per m2 facade vs reference (kgCO2e/m2)"][0]
     assert cw == pytest.approx(g_a13 + st_a13 + off + p_a4 + p_a53, rel=1e-9)
 
