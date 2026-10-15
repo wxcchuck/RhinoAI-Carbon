@@ -816,6 +816,7 @@ def build(cfg):
     wb["QA"].sheet_properties.tabColor = "C00000"
     wb["Project"].sheet_properties.tabColor = "FFC000"
     wb.active = wb.sheetnames.index("Results")
+    wb.calculation.fullCalcOnLoad = True        # no cached values from openpyxl: Excel calculates on open
     return wb
 
 
