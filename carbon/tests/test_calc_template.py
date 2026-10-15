@@ -8,6 +8,8 @@ No office or third-party data: every factor below is made up to give round hand 
   Take-off: SLAB 1000 m2 (2.2.1), PANEL 500 m2 (2.5.2), OPQ 200 m2 (2.5.1 -> routed to PANEL),
             UNKNOWN 10 m2 (build-up not in library -> not counted, QA flag)
   Benchmark: Office '3 Finishes' 10 / 1 / 1 (A1-A3 / A4 / A5) kgCO2e/m2 GIA; GIA 2000 m2.
+  Targets (invented): UKNZCBS 2027 limit, LETI bands, RIBA 2025/2030, GLA benchmark/aspirational,
+  a GLA element breakdown and a Price & Myers style range - round numbers, no published values.
 
 The structural tests always run. The numeric tests need LibreOffice (soffice) to calculate the
 workbook; they are skipped without it.
@@ -121,14 +123,16 @@ def built(tmp_path):
 
 def test_structure(built):
     wb = openpyxl.load_workbook(built["out"])
-    for s in ["README", "Project", "Results", "QA", "Takeoff", "Lines", "Materials", "Layers", "Buildups", "Benchmarks",
-              "Rebar_Rates", "Offsite_Params", "REF_Vehicles"]:
+    for s in ["README", "Project", "Dashboard", "Compare", "O1_Results", "O1_QA", "O1_Takeoff", "O1_Lines", "O1_Mat",
+              "Materials", "Layers", "Buildups", "Benchmarks", "Targets", "Rebar_Rates", "Offsite_Params", "REF_Vehicles"]:
         assert s in wb.sheetnames
-    for nm in ["GIA", "RSP", "CONT", "USE", "FACADE", "CW_BU", "OPQ_BU", "V1_PAY", "V2_F50", "CWCT_ASM", "SEA_F"]:
+    for nm in ["O1_GIA", "O1_FACADE", "OPT_NAMES", "OPT_IDX", "RSP", "CONT", "USE", "CW_BU", "OPQ_BU", "V1_PAY", "V2_F50",
+               "CWCT_ASM", "SEA_F", "UK_LIM", "BUD_VAL", "BUD_KEY"]:
         assert nm in wb.defined_names
-    t = wb["Takeoff"]
+    t = wb["O1_Takeoff"]
     assert [t.cell(r, 3).value for r in range(5, 9)] == ["SLAB", "PANEL", "OPQ", "UNKNOWN"]
-    assert wb["Lines"].max_row == 4 + (4 + ct.SPARE_ROWS) * ct.SLOTS
+    assert wb["O1_Lines"].max_row == 4 + (4 + ct.SPARE_ROWS) * ct.SLOTS
+    assert len(wb["Dashboard"]._charts) == 7 and len(wb["Compare"]._charts) == 2
     k = wb["Benchmarks"]
     assert [k.cell(r, 3).value for r in (5, 6)] == ["3", "3"] and k.cell(7, 1).value is None
     assert wb["Layers"]["D9"].value == "=Rebar_Rates!$C$5"     # sorted OPQ, PANEL x2, SLAB x2; formulas copied verbatim
@@ -145,7 +149,7 @@ def _calc(path, outdir):
 
 def test_numbers_against_hand_calculation(built, tmp_path):
     wb = _calc(built["out"], str(tmp_path / "calc"))
-    T, R, Q = wb["Takeoff"], wb["Results"], wb["QA"]
+    T, R, Q = wb["O1_Takeoff"], wb["O1_Results"], wb["O1_QA"]
 
     # ---- hand values
     conc = 1000 * 0.25 * 2400                                     # OPQ is routed to PANEL, so only slab concrete
@@ -225,13 +229,103 @@ def test_numbers_against_hand_calculation(built, tmp_path):
 
 def test_facade_as_exported_keeps_split(built, tmp_path):
     src = openpyxl.load_workbook(built["out"])
-    p = src["Project"]
-    for r in range(5, 40):
-        if p.cell(r, 2).value == "Facade route":
-            p.cell(r, 3).value = "As exported"
+    sheet, cell = src.defined_names["O1_FACADE"].destinations.__next__()
+    src[sheet][cell.replace("$", "")] = "As exported"
     path = str(tmp_path / "as_exported.xlsx")
     src.save(path)
     wb = _calc(path, str(tmp_path / "calc2"))
-    T = wb["Takeoff"]
+    T = wb["O1_Takeoff"]
     assert T["K7"].value == "OPQ" and T["L7"].value == "2.5.1"
     assert T["R7"].value == pytest.approx(200 * 0.1 * 2400 * 0.1, rel=1e-9)
+
+
+# ------------------------------------------------------------------------- targets, options, dashboard
+TG_UK, TG_GLA_B, TG_GLA_A = 600.0, 900.0, 600.0             # invented
+LETI_UP = [("A++", 50), ("A+", 100), ("A", 150), ("B", 200), ("C", 250), ("D", 300), ("E", 350), ("F", 400), ("G", 450)]
+GLA_SHARE = [0.2, 0.3, 0.2, 0.1, 0.05, 0.1, 0.05]            # 7 GLA groups, sum 1
+
+
+def _targets(path):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Targets"
+    ws.append(["scheme", "target", "use_class", "year_or_band", "metric", "value", "unit", "source", "note"])
+    ws.append(["UKNZCBS", "UKNZCBS 2026", "Office", 2026, "UP_X8", 700, "", "invented", ""])
+    ws.append(["UKNZCBS", "UKNZCBS 2027", "Office", 2027, "UP_X8", TG_UK, "", "invented", ""])
+    ws.append(["UKNZCBS", "UKNZCBS 2027", "Residential", 2027, "UP_X8", 1, "", "invented", "other use - must be ignored"])
+    for b, v in LETI_UP:
+        ws.append(["LETI upfront", "LETI band " + b, "Office", b, "UP_X8", v, "", "invented", ""])
+        ws.append(["LETI life cycle", "LETI band " + b, "Office", b, "AC_X8", 2 * v, "", "invented", ""])
+    ws.append(["RIBA 2030", "RIBA 2025", "Office", 2025, "AC_X8", 800, "", "invented", ""])
+    ws.append(["RIBA 2030", "RIBA 2030", "Office", 2030, "AC_X8", 500, "", "invented", ""])
+    for t, up, bc in (("GLA benchmark", TG_GLA_B, 400), ("GLA aspirational", TG_GLA_A, 300)):
+        ws.append(["GLA", t, "Office", t.split()[1], "UP_ALL", up, "", "invented", ""])
+        ws.append(["GLA", t, "Office", t.split()[1], "BC_ALL", bc, "", "invented", ""])
+        ws.append(["GLA", t, "Office", t.split()[1], "AC_ALL", up + bc, "", "invented", ""])
+    g = wb.create_sheet("GLA_Breakdown")
+    g.append(["use_class", "metric"] + ct.GROUPS[:7])
+    g.append(["Office", "UP_ALL"] + GLA_SHARE)
+    g.append(["Residential", "UP_ALL"] + [1, 0, 0, 0, 0, 0, 0])
+    p = wb.create_sheet("PM_Structure")
+    p.append(["group", "use_class", "n", "p10", "p25", "p50", "p75", "p90"])
+    p.append(["Commercial", "Office", 10, 20, 30, 40, 50, 60])
+    wb.save(path)
+
+
+@pytest.fixture
+def built2(tmp_path, built):
+    exp2 = str(tmp_path / "export2.csv")
+    src = open(built["takeoff_csv"], encoding="utf-8").read().replace("TEST,E1,2.2.1,SLAB,1000,", "TEST,E1,2.2.1,SLAB,1500,")
+    open(exp2, "w", encoding="utf-8").write(src)
+    tg = str(tmp_path / "targets.xlsx")
+    _targets(tg)
+    cfg = dict(built)
+    cfg.pop("takeoff_csv")
+    cfg.update(options=[dict(name="Opt A", takeoff_csv=built["takeoff_csv"]), dict(name="Opt B", takeoff_csv=exp2)],
+               targets_xlsx=tg, out=str(tmp_path / "calc2.xlsx"))
+    wb = ct.build(cfg)
+    wb.save(cfg["out"])
+    return cfg
+
+
+def test_options_targets_dashboard(built2, tmp_path):
+    src = openpyxl.load_workbook(built2["out"])
+    assert "O2_Results" in src.sheetnames and len(src["Dashboard"]._charts) == 7
+    wb = _calc(built2["out"], str(tmp_path / "c2"))
+    y = lambda k, key: wb["O%d_Results" % k]["Y%d" % ct.SUM_ROW[key]].value      # noqa: E731
+    R1, R2 = wb["O1_Results"], wb["O2_Results"]
+
+    # option 2 differs by 500 m2 of slab at 80 kgCO2e/m2 A1-A3 (plus its A4/A5.3) - check A1-A3 exactly
+    assert y(2, "M_A13") - y(1, "M_A13") == pytest.approx(500 * 80 * 1.15 / GIA, rel=1e-9)
+    for k, R in ((1, R1), (2, R2)):
+        assert y(k, "UP_ALL") == pytest.approx(R["C5"].value, rel=1e-9)
+        assert y(k, "UP_X8") == pytest.approx(y(k, "UP_ALL"), rel=1e-9)               # no external works here
+        assert y(k, "MOD_UP_X8") + y(k, "BM_UP_X8") == pytest.approx(y(k, "UP_X8"), rel=1e-9)
+        assert y(k, "BMS_UP_ALL") == pytest.approx(y(k, "BM_UP_ALL") * TG_GLA_A / TG_GLA_B, rel=1e-9)
+        assert sum(y(k, "E_%d" % i) for i in range(8)) + y(k, "E_CONT") == pytest.approx(y(k, "UP_ALL"), rel=1e-9)
+        assert y(k, "B_MOD") + y(k, "B_ASM") + y(k, "B_BM") + y(k, "B_SITE") + y(k, "B_CONT") == pytest.approx(y(k, "UP_ALL"), rel=1e-9)
+        assert y(k, "UK_LIM") == TG_UK                                                  # 2027 default, Office only
+        band = next((b for b, v in LETI_UP if y(k, "UP_X8") <= v), "worse than G")
+        assert y(k, "LETI_UP") == band
+        assert y(k, "STRUCT") > 0
+
+    # Compare reads each option; Dashboard follows the selected option
+    C = wb["Compare"]
+    assert [C.cell(4, c).value for c in (2, 3)] == ["Opt A", "Opt B"]
+    assert C["C6"].value == pytest.approx(y(2, "UP_ALL"), rel=1e-9)
+    D = wb["Dashboard"]
+    assert D["U%d" % ct.SUM_ROW["UP_ALL"]].value == pytest.approx(y(1, "UP_ALL"), rel=1e-9)
+    assert D["G13"].value == TG_UK and D["F13"].value == pytest.approx(y(1, "UP_X8"), rel=1e-9)
+    # budget (UKNZCBS on UP_X8): target - modelled = what is left
+    assert D["Y53"].value == TG_UK
+    assert D["Y55"].value == pytest.approx(TG_UK - y(1, "MOD_UP_X8"), rel=1e-9)
+    # GLA element comparison: share x GLA total; project incl. contingency
+    assert D["Z46"].value == pytest.approx(GLA_SHARE[3] * TG_GLA_A, rel=1e-9)
+    assert D["AA46"].value == pytest.approx(GLA_SHARE[3] * TG_GLA_B, rel=1e-9)
+    assert D["Y46"].value == pytest.approx(y(1, "E_3") * 1.15, rel=1e-9)
+
+    src["Dashboard"]["N3"] = "Opt B"
+    path = str(tmp_path / "sel.xlsx")
+    src.save(path)
+    D2 = _calc(path, str(tmp_path / "c3"))["Dashboard"]
+    assert D2["U%d" % ct.SUM_ROW["UP_ALL"]].value == pytest.approx(y(2, "UP_ALL"), rel=1e-9)
