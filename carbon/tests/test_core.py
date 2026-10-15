@@ -190,7 +190,13 @@ def test_substructure_defaults(schedule, defaults):
     assert piles[0][2] == pytest.approx(round(n_cols * 3) * pile)
     assert piles[1][2] == pytest.approx(math.ceil(260 / 2.25 ** 2) * pile)
     assert all(r[4] == "Derived" for r in sub)
-    assert any("caps / raft" in m for m in w)
+    # caps (assumed): 3-pile triangle per column + core cap over core area + 0.5 m margin, 2.0 m thick
+    caps = by_key["cap_raft"]
+    side = 2.25 + math.sqrt(3) * (0.75 + 0.30)
+    assert caps[0][2] == pytest.approx(n_cols * math.sqrt(3) / 4 * side ** 2 * 1.2)
+    assert caps[1][2] == pytest.approx((math.sqrt(260) + 1.0) ** 2 * 2.0)
+    assert all(r[5].startswith(core.ASSUMED) for r in sub)
+    assert not any("caps / raft" in m for m in w)
     assert any("exceeds ground footprint" in m for m in w)   # basement 1200 > ground 1000 x 1.05
     assert got  # keeps the dict build exercised
 
@@ -235,3 +241,51 @@ def test_orientation_bins_and_wwr():
     assert core.orientation(0, 1, north_deg=90) == "W"
     w = core.expand_wwr({"N": 0.4, "E": 0.6, "S": 0.8, "W": 0.2})
     assert w["NE"] == pytest.approx(0.5) and w["SW"] == pytest.approx(0.5)
+
+
+# ----------------------------------------------------------------------------- scope-gap allowances (v0.8)
+def test_cap_plan_area_shapes():
+    assert core.cap_plan_area(1, 2.25, 0.75, 0.15) == pytest.approx(1.05 ** 2)
+    assert core.cap_plan_area(2, 2.25, 0.75, 0.15) == pytest.approx(3.30 * 1.05)
+    assert core.cap_plan_area(4, 2.25, 0.75, 0.15) == pytest.approx(3.30 ** 2)
+
+
+def test_stair_rows_from_drawing_and_defaults(schedule, defaults):
+    lv = _lv_all(schedule)
+    ST = dict(defaults["stairs"])
+    plan = {"source": "plan.pdf", "stairs": {"count": 2, "flights_per_stair": [2, 2], "treads_per_flight": [11, 11, 11, 11],
+                                             "flight_width_m": 1.25, "going_m": 0.25}}
+    rows = core.stair_rows(lv, "5", plan, ST, "Derived", [])
+    typ = 3.75
+    r = typ / (2 * 12)
+    L = math.hypot(11 * 0.25, 12 * r)
+    v_typ = 2 * 1.25 * (L * 0.20 + 11 * 0.25 * r / 2) + 1 * (2 * 1.25 + 0.10) * 1.25 * 0.20
+    climbed = sum(x[1] for x in lv[:-1])
+    assert rows[0][:4] == ("2.4", "stair", pytest.approx(2 * v_typ * climbed / typ), "m3")
+    assert rows[0][5].startswith(core.ASSUMED) and "drawing" in rows[0][5]
+    # no drawing -> assumed count and geometry; supplied volume wins over everything
+    rows = core.stair_rows(lv, "5", None, ST, "Derived", [])
+    assert "ASSUMED count" in rows[0][5]
+    rows = core.stair_rows(lv, "5", plan, dict(ST, source="supplied", volume_m3=123.0), "Derived", [])
+    assert rows == [("2.4", "stair", 123.0, "m3", "Supplied", "Supplied stair volume 123.0 m3")]
+
+
+def test_edge_beams_follow_slab_edges(defaults):
+    per = [("0", 100.0), ("1", 100.0), ("2", 120.0), ("3", 80.0)]
+    rows = core.edge_beam_rows(per, defaults["edge_beams"], "Derived")
+    assert rows[0][1:4] == ("edge_beam", pytest.approx(100 + 120 + 120 + 80), "m")
+    assert core.edge_beam_rows(per, dict(defaults["edge_beams"], include=False), "Derived") == []
+    sup = core.edge_beam_rows(per, dict(defaults["edge_beams"], source="supplied", length_m=50), "Derived")
+    assert sup[0][2] == 50 and sup[0][4] == "Supplied"
+
+
+def test_envelope_allowances_move_area_out_of_the_facade(defaults):
+    EA = {k: dict(v) for k, v in defaults["envelope_allowances"].items()}
+    rows, g, o = core.envelope_allowance_rows(1000.0, "test", 5000.0, 2000.0, 400.0, EA, "Derived")
+    got = dict((r[1], r[2]) for r in rows)
+    assert got == {"louvre": pytest.approx(500.0), "door_ext": pytest.approx(30.0), "roof_other": pytest.approx(400.0)}
+    assert g == pytest.approx(4970.0) and o == pytest.approx(1500.0)
+    assert all(r[5].startswith(core.ASSUMED) for r in rows)
+    EA["louvres"].update(source="supplied", area_m2=120.0)
+    rows, g, o = core.envelope_allowance_rows(1000.0, "test", 5000.0, 2000.0, 400.0, EA, "Derived")
+    assert [r for r in rows if r[1] == "louvre"][0][2:5] == (120.0, "m2", "Supplied") and o == pytest.approx(1880.0)

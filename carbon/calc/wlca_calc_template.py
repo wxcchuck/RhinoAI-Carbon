@@ -467,8 +467,8 @@ def build(cfg):
     t_hdr = ["element_id", "nrm_code", "build_up_code", "quantity", "unit", "method", "include", "source_layer", "notes",
              "Facade routed", "Build-up used", "RICS code used", "In library", "Declared unit", "Unit check", "Library check",
              "Active", "A1-A3 incl. offsite (kgCO2e)", "A4", "A5.3", "A1-A5 (kgCO2e)", "A1-A5 per unit", "B4", "C2-C4",
-             "Status"]
-    head(T, 4, t_hdr, [9, 7, 18, 11, 6, 9, 7, 20, 50, 7, 18, 8, 7, 7, 12, 22, 6, 13, 11, 11, 13, 10, 11, 11, 26])
+             "Status", "Basis"]
+    head(T, 4, t_hdr, [9, 7, 18, 11, 6, 9, 7, 20, 50, 7, 18, 8, 7, 7, 12, 22, 6, 13, 11, 11, 13, 10, 11, 11, 26, 12])
     t_first = 5
     t_last = t_first + len(rows) + SPARE_ROWS - 1
     for i in range(len(rows) + SPARE_ROWS):
@@ -500,6 +500,8 @@ def build(cfg):
                  '+SUMIF(Lines!$A:$A,ROW(),Lines!$AC:$AC)'),
             25: ('=IF(C{r}="","",IF(G{r}<>"Y","Excluded (include = N)",IF(M{r}="N","NOT IN LIBRARY - not counted",'
                  'IF(O{r}<>"OK","UNIT MISMATCH - not counted",IF(P{r}<>"OK","Build-up "&P{r},"OK")))))'),
+            26: ('=IF(C{r}="","",IF(F{r}="Supplied","Supplied",IF(LEFT(I{r},9)="[ASSUMED]","Assumed",'
+                 'IF(F{r}="Modelled","Modelled","Derived"))))'),
         }
         for c, f in fx.items():
             T.cell(r, c, f.format(r=r))
@@ -570,7 +572,7 @@ def build(cfg):
           "RICS WLCA PS 2nd ed., RSP from Project. A-C = A1-A5 + B4 + C1-C4 (B1-B3, B5 not assessed; B6/B7 not in this version). D and biogenic are reported separately.")
     rh = ["Code", "Element", "Method", "A1-A3", "A4", "A5.1", "A5.2", "A5.3", "A1-A5", "B4", "C1", "C2", "C3", "C4",
           "A-C", "D (memo)", "Biogenic stored (memo)", "A1-A5 kgCO2e/m2 GIA", "A-C kgCO2e/m2 GIA"]
-    head(R, 12, rh, [8, 46, 12] + [10] * 14 + [11, 11])
+    head(R, 13, rh, [8, 46, 12] + [10] * 14 + [11, 11])
     NR = lambda c: "Lines!$%s$%d:$%s$%d" % (c, n_first, c, n_last)     # noqa: E731
     line_cols = {"A1-A3": ["Q", "T"], "A4": ["U"], "A5.3": ["W"], "B4": ["Z"], "C2": ["AA"], "C3": ["AB"], "C4": ["AC"],
                  "D": ["AD"], "Bio": ["AE"]}
@@ -585,7 +587,7 @@ def build(cfg):
         for c in range(4, 20):
             R.cell(rr, c).number_format = "#,##0.0"
 
-    rr = 13
+    rr = 14
     R.cell(rr, 1, "Modelled (take-off x build-up library)").font = BOLD
     for c in range(1, 20):
         R.cell(rr, c).fill = SECTION
@@ -676,15 +678,17 @@ def build(cfg):
           ("A1-A5 total", "=I%d" % tot, "tCO2e"),
           ("Modelled share of A1-A5 (before contingency)", "=IF(I%d=0,0,SUM(I%d:I%d)/I%d)" % (sub, mod_first, mod_last, sub), ""),
           ("Benchmarked share of A1-A5", "=IF(I%d=0,0,SUM(I%d:I%d)/I%d)" % (sub, bm_first, bm_last, sub), ""),
+          ("Share of A1-A5 from [ASSUMED] quantities", "=IF(I%d=0,0,SUMIF(Takeoff!$Z$%d:$Z$%d,\"Assumed\",Takeoff!$U$%d:$U$%d)/1000/I%d)"
+           % (sub, t_first, t_last, t_first, t_last, sub), "replace as project information arrives"),
           ("Module D (memo, not in totals)", "=IF(GIA>0,P%d*1000/GIA,0)" % sub, "kgCO2e/m2 GIA"),
           ("QA flags open", "=QA!C4", "see QA")]
     for i, (lbl, f, unit) in enumerate(hl):
         R.cell(5 + i, 1, lbl)
         c = R.cell(5 + i, 3, f)
         c.font = BOLD
-        c.number_format = "0%" if "share" in lbl else "#,##0"
+        c.number_format = "0%" if "share" in lbl.lower() else "#,##0"
         R.cell(5 + i, 4, unit)
-    R.freeze_panes = "D13"
+    R.freeze_panes = "D14"
 
     # =================================================================================== QA
     Q = wb["QA"]
@@ -722,6 +726,13 @@ def build(cfg):
          ('=IF(C{r}="","INFO",IF(ABS(C{r}/%s-1)<=0.05,"OK","FLAG"))' % cw_ref) if cw_ref else '="INFO"',
          ("Reference %s kgCO2e/m2 FSA (ETPP-28 EWS-04A, CWCT). Within 5%% = OK. Differences come from A4 vehicles and Table 18 site waste." % cw_ref)
          if cw_ref else "No reference value configured."),
+        ("Take-off rows resting on office assumptions ([ASSUMED] in notes; Takeoff column Z)", '=COUNTIF(%s,"Assumed")' % TR("Z"),
+         '=IF(C{r}=0,"OK","INFO")',
+         "Expected at RIBA 0-2. Replace each with drawings, model quantities or supplied figures (engineer / user) as they arrive: "
+         "set the take-off CONFIG source to 'supplied' or re-run with the new drawing, then regenerate. Filter Takeoff column Z = Assumed for the list."),
+        ("Share of A1-A5 resting on assumed quantities (before contingency)",
+         '=IFERROR(SUMIF(%s,"Assumed",%s)/1000/Results!I%d,0)' % (TR("Z"), TR("U"), sub), '="INFO"',
+         "The part of the result that moves when assumptions are replaced."),
         ("Contingency at RIBA 0-2 at least 15%", "=CONT", '=IF(AND(STAGE<=2,CONT<0.15),"FLAG","OK")', "PS Table 10."),
         ("Scope elements with neither take-off nor benchmark (GAPS)", None, '=IF(C{r}=0,"OK","FLAG")',
          "RICS PS 4.4.1: all in-scope elements are included at every stage. Add a quantity, a benchmark, or mark the element not applicable in the coverage table below."),
@@ -737,7 +748,7 @@ def build(cfg):
             gap_row = r
         Q.cell(r, 4, st.format(r=r))
         Q.cell(r, 5, todo).alignment = WRAP
-        Q.cell(r, 3).number_format = "#,##0.0"
+        Q.cell(r, 3).number_format = "0%" if lbl.startswith("Share") else "#,##0.0"
         r += 1
     q_last = r - 1
     Q["C4"] = '=COUNTIF(D7:D%d,"FLAG")' % q_last
@@ -774,6 +785,7 @@ def build(cfg):
                         ("F%d:F%d" % (cov_first, cov_last), [("Modelled", GREEN), ("Benchmark", GREEN), ("GAP", RED)])):
         for txt, fill in rules:
             Q.conditional_formatting.add(rng_, CellIsRule(operator="equal", formula=['"%s"' % txt], fill=fill))
+    T.conditional_formatting.add("Z%d:Z%d" % (t_first, t_last), CellIsRule(operator="equal", formula=['"Assumed"'], fill=AMBER))
     T.conditional_formatting.add("Y%d:Y%d" % (t_first, t_last),
                                  FormulaRule(formula=['AND(Y%d<>"",Y%d<>"OK")' % (t_first, t_first)], fill=AMBER))
 
@@ -804,6 +816,8 @@ def build(cfg):
         ("D", "Memo only. Per-kg values where the library gives one (metals); otherwise 0."),
         ("Benchmarks", "Elements not taken off use kgCO2e/m2 GIA by use class (PS 4.5.2 method 2). Benchmark A5 is reported in A5.3. Modelled layers in a benchmarked group are dropped (no double counting)."),
         ("Contingency", "PS Table 10 percentage applied to A-C (not D, not biogenic) as a separate row."),
+        ("Assumptions", "Take-off rows whose notes start with [ASSUMED] rest on office defaults (no SI, no detail yet). Takeoff column Z marks them; QA and the Results headline show how many and "
+                        "what share of A1-A5 they carry. They are replaced by drawings, model quantities or supplied figures as the project develops - nothing in this workbook needs to change."),
     ]
     for i, (k, v) in enumerate(readme):
         D.cell(4 + i, 1, k).font = BOLD
