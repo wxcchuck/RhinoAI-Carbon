@@ -1,0 +1,30 @@
+{
+  "_comment": "Copy next to your private data and edit the paths. Keep the real config out of this public repo.",
+  "takeoff_csv": "C:\\path\\to\\Project_takeoff.csv",
+  "library_xlsx": "C:\\path\\to\\WLCA_Buildup_Library_v0.8.xlsx",
+  "benchmarks": {
+    "path": "C:\\path\\to\\benchmark_table.xlsx",
+    "sheet": "Benchmark Placeholders",
+    "source": "Name the benchmark source here - it is printed on the Benchmarks sheet"
+  },
+  "site": {
+    "A51": 35,
+    "A52": 40,
+    "C1": 12,
+    "C1_note": "Lump sum per m2 GIA - state the source"
+  },
+  "params": {
+    "contingency": 0.15,
+    "rsp": 60,
+    "facade_route": "Unitised curtain wall",
+    "facade_opaque_build_up": "EW-SFS-BRK-01",
+    "cw_build_up": "CW-UNIT-01",
+    "road_vehicle": "RV-17PLUS",
+    "eol_vehicle": "RV-17PLUS",
+    "sea_factor": 0.01592,
+    "eol_distances_km": [50, 50, 50],
+    "benchmark_c1": "Exclude",
+    "cw_reference_a1a5": null
+  },
+  "out": "C:\\path\\to\\Project_WLCA_calc.xlsx"
+}
