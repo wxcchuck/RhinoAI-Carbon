@@ -38,7 +38,11 @@ except NameError:
 
 STEPS = ["1  Project & options", "2  Drawings & schedule", "3  Facade", "4  Structure", "5  Targets & reporting", "6  Run"]
 USES = ["Office", "Residential", "Schools & Universities", "Retail"]
-FRAMES = ["RC flat slab"]                # further frame systems follow once their rates are agreed
+try:
+    import wlca_core as _core          # noqa: E402
+    FRAMES = list(_core.FRAME_SYSTEMS)
+except Exception:                      # dialog still opens if the take-off core is missing
+    FRAMES = ["RC flat slab"]
 SCENARIOS = ["GLA aspirational", "GLA benchmark", "None"]
 BUDGETS = ["UKNZCBS", "LETI 2030 (A)", "LETI 2020 (C)", "RIBA 2030", "GLA aspirational A1-A5", "GLA benchmark A1-A5"]
 ACCENT = drawing.Color.FromArgb(1, 100, 109)
@@ -438,7 +442,8 @@ class WLCAForm(forms.Form):
         section(L, "Frame")
         L.BeginVertical(None, drawing.Size(12, 6))
         L.AddRow(label("Frame system"), dropdown(FRAMES, s["frame"], self.setter(s, "frame"), width=260),
-                 label("Steel, timber and PT frames are added once their rates are agreed.", muted=True))
+                 label("Steel and timber frames use the PF Stage 1 rates per m² of floor; their columns are scaled with "
+                       "height (tagged [ASSUMED]). Cores stay RC.", muted=True))
         L.AddRow(label("Column grid x (m)"), textbox(s["grid_x_m"], self.setter(s, "grid_x_m", lambda v: num(v, 9.0)), width=80),
                  label("Column grid y (m)"), textbox(s["grid_y_m"], self.setter(s, "grid_y_m", lambda v: num(v, 8.0)), width=80))
         L.AddRow(label("Column size (m, square)"), textbox(s["column_size_m"], self.setter(s, "column_size_m", lambda v: num(v, 0.75)), width=80),

@@ -230,7 +230,7 @@ def takeoff_config(state, option, office, base_config):
         cfg["structure"]["plan_json"] = state["plan"]["pdf_json"]
     s = option["structure"]
     cfg["structure"].update({"grid_x_m": float(s["grid_x_m"]), "grid_y_m": float(s["grid_y_m"]),
-                             "column_size_m": float(s["column_size_m"])})
+                             "column_size_m": float(s["column_size_m"]), "frame": s.get("frame") or "RC flat slab"})
     # facade: the take-off writes one glazed and one opaque row; apply_facade_mix() re-splits them per option
     cfg["wwr"] = {"N": 0.5, "E": 0.5, "S": 0.5, "W": 0.5}
     defaults = (office or {}).get("takeoff_defaults") or {}

@@ -131,6 +131,12 @@ SUMMARY = [
 ]
 SUM_ROW = dict((k, 5 + i) for i, (k, _, _) in enumerate(SUMMARY))     # row of each key on O<k>_Results (cols X:Z)
 
+
+def sf(expr):
+    """Excel formula rounding `expr` to SIGFIG significant figures (RICS PS 6.1.4: 2 at RIBA 0-2, 3 from RIBA 3).
+    For building- / asset-level results only; text passes through, so 'not assessed' still reads."""
+    return ('IF(ISNUMBER({x}),IF({x}=0,0,ROUND({x},SIGFIG-1-INT(LOG10(ABS({x}))))),{x})'.format(x=expr))
+
 # Element groups the benchmark table can cover -> key used to drop overlapping modelled layers
 BENCH_KEYS = [("2.7/2.8", "2.7 + 2.8 Internal walls and doors"), ("3", "3 Finishes"),
               ("4", "4 FF&E (building-related, S&C + Cat A)"), ("5", "5 Services (MEP)"), ("8", "8 External works")]
@@ -598,6 +604,7 @@ def build(cfg):
         ("C2 50% laden factor", veh("VEH_C2", "H"), "kgCO2e/km", "V2_F50"),
         ("CWCT factory assembly (A3)", '=INDEX(Offsite_Params!$C:$C,MATCH("CWCT-A3-ASSEMBLY",Offsite_Params!$A:$A,0))', "kgCO2e/kg", "CWCT_ASM"),
         ("CWCT transport to fabricator (A2)", '=INDEX(Offsite_Params!$C:$C,MATCH("CWCT-A2-FAB",Offsite_Params!$A:$A,0))', "kgCO2e/kg", "CWCT_A2F"),
+        ("Reporting precision, building-level results (significant figures)", "=IF(STAGE<=2,2,3)", "s.f.", "SIGFIG"),
         ("UKNZCBS upfront limit", "=" + tsum("UKNZCBS", '"UKNZCBS "&UK_YEAR', "UP_X8"), "kgCO2e/m2", "UK_LIM"),
         ("Scenario factor A1-A5 (tier / GLA benchmark)",
          '=IF(SCN="None",1,IFERROR(IF(SCN="GLA aspirational",%s,%s)/%s,1))' % (gla("aspirational", "UP_ALL"), gla("benchmark", "UP_ALL"), gla("benchmark", "UP_ALL")), "", "SCN_FUP"),
@@ -963,11 +970,11 @@ def build_option(wb, ctx, o):
         R.cell(rr, c).font = BOLD
 
     # headline block
-    R["A4"] = "Headline (incl. contingency)"
+    R["A4"] = "Headline (incl. contingency; building-level figures to 2 s.f. at RIBA 0-2, 3 s.f. from RIBA 3 - PS 6.1.4)"
     R["A4"].font = BOLD
-    hl = [("Upfront carbon A1-A5", "=R%d" % tot, "kgCO2e/m2 GIA"),
-          ("Embodied carbon A-C (excl. B6/B7)", "=S%d" % tot, "kgCO2e/m2 GIA"),
-          ("A1-A5 total", "=I%d" % tot, "tCO2e"),
+    hl = [("Upfront carbon A1-A5", "=" + sf("R%d" % tot), "kgCO2e/m2 GIA"),
+          ("Embodied carbon A-C (excl. B6/B7)", "=" + sf("S%d" % tot), "kgCO2e/m2 GIA"),
+          ("A1-A5 total", "=" + sf("I%d" % tot), "tCO2e"),
           ("Modelled share of A1-A5 (before contingency)", "=IF(I%d=0,0,SUM(I%d:I%d)/I%d)" % (sub, mod_first, mod_last, sub), ""),
           ("Benchmarked share of A1-A5", "=IF(I%d=0,0,SUM(I%d:I%d)/I%d)" % (sub, bm_first, bm_last, sub), ""),
           ("Share of A1-A5 from [ASSUMED] quantities", "=IF(I%d=0,0,SUMIF(%s,\"Assumed\",%s)/1000/I%d)"

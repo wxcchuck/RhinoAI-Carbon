@@ -289,3 +289,46 @@ def test_envelope_allowances_move_area_out_of_the_facade(defaults):
     EA["louvres"].update(source="supplied", area_m2=120.0)
     rows, g, o = core.envelope_allowance_rows(1000.0, "test", 5000.0, 2000.0, 400.0, EA, "Derived")
     assert [r for r in rows if r[1] == "louvre"][0][2:5] == (120.0, "m2", "Supplied") and o == pytest.approx(1880.0)
+
+
+# ----------------------------------------------------------------------------- frame systems
+def _frame_rows():
+    B = dict(upper_floor="SLAB", roof_slab="SLAB", column="COL-RC", edge_beam="EB", core_wall="WALL")
+    base = dict(project_id="T", unit="m2", method="Derived", stage=2, model_version="v", author="XX", source_layer="L", include="Y")
+    rows = [dict(base, element_id="1", nrm_code="2.2.1", build_up_code="SLAB", quantity=1000.0, notes="Suspended floor slabs"),
+            dict(base, element_id="2", nrm_code="2.2.1", build_up_code="SLAB", quantity=200.0, notes="Roof slabs"),
+            dict(base, element_id="3", nrm_code="2.2.1", build_up_code="SLAB", quantity=50.0, notes="Basement roof outside building footprint"),
+            dict(base, element_id="4", nrm_code="2.1.1", build_up_code="COL-RC", quantity=300.0, unit="m", notes="Columns"),
+            dict(base, element_id="5", nrm_code="2.1.2", build_up_code="EB", quantity=400.0, unit="m", notes="Edge beams"),
+            dict(base, element_id="6", nrm_code="2.1.1", build_up_code="WALL", quantity=900.0, notes="Core walls")]
+    return rows, B
+
+
+def test_frame_height_factor_and_grid():
+    assert core.column_height_factor(30) == pytest.approx(31 / 9)
+    assert core.column_height_factor(4) == 1.0                      # never below PF's G+7 quantities
+    assert core.frame_grid(6, 7.5) == "S" and core.frame_grid(9, 8) == "L"
+
+
+def test_apply_frame_steel_swaps_floors_and_columns():
+    rows, B = _frame_rows()
+    out, info = core.apply_frame(rows, "Steel + composite deck", 9, 8, 30, B, "Derived")
+    codes = [(r["build_up_code"], r["quantity"]) for r in out]
+    assert ("FLR-STL-COMP-L", 1000.0) in codes and ("FLR-STL-COMP-L", 200.0) in codes
+    assert ("SLAB", 50.0) in codes                                  # podium slab stays RC
+    assert not any(c in ("COL-RC", "EB") for c, _ in codes)        # RC columns and edge beams removed
+    assert ("WALL", 900.0) in codes                                 # cores stay
+    col = next(r for r in out if r["build_up_code"] == "COL-STL-COMP-L")
+    assert col["quantity"] == pytest.approx(1200 * 31 / 9, abs=0.1) and col["notes"].startswith("[ASSUMED]")
+    assert info["floor_area"] == 1200.0
+
+
+def test_apply_frame_pt_and_rc():
+    rows, B = _frame_rows()
+    out, _ = core.apply_frame(rows, "PT flat slab", 9, 8, 30, B, "Derived")
+    assert sum(1 for r in out if r["build_up_code"] == core.PT_FLOOR) == 2
+    assert any(r["build_up_code"] == "COL-RC" for r in out) and any(r["build_up_code"] == "EB" for r in out)
+    same, _ = core.apply_frame(rows, "RC flat slab", 9, 8, 30, B, "Derived")
+    assert same == rows
+    with pytest.raises(ValueError):
+        core.apply_frame(rows, "Bamboo", 9, 8, 30, B, "Derived")
