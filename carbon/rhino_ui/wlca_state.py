@@ -31,7 +31,9 @@ def default_state():
                     "demolished_gia_m2": 0.0, "assessor": ""},
         "options": [],
         "schedule": {"path": "", "sheet": ""},
-        "plan": {"route": "none", "layer": "", "level": "", "pdf_json": ""},
+        # plan route (D5): "rhino" = typical floor read from Rhino layers (default), "pdf" = plan extract json, "none"
+        "plan": {"route": "rhino", "walls_layer": "", "columns_layer": "", "stairs_layer": "", "pdf_json": "",
+                 "json": "", "summary": []},
         "targets": {"show": {"UKNZCBS": True, "LETI": True, "RIBA": True, "GLA": True},
                     "sc_share": {"finishes": 1.0, "ffe": 1.0, "services": 1.0},
                     "catb_allowance": None, "scenario": "GLA aspirational", "budget_target": "UKNZCBS"},
@@ -133,7 +135,9 @@ def validate(state, office=None):
     sch = state["schedule"]
     if not sch.get("path"):
         out.append(("warning", "No area schedule: GIA and levels come from the massing and storey heights (step 2)."))
-    if state["plan"].get("route") == "none":
+    pl = state["plan"]
+    if pl.get("route") == "none" or (pl.get("route") == "rhino" and not pl.get("walls_layer") and not pl.get("columns_layer")) \
+            or (pl.get("route") == "pdf" and not pl.get("pdf_json")):
         out.append(("warning", "No plan: cores, columns and stairs use office defaults and are tagged [ASSUMED] (step 2)."))
     t = state["targets"]
     for k, v in t["sc_share"].items():
@@ -234,8 +238,11 @@ def takeoff_config(state, option, office, base_config):
     cfg["massing_layers"] = [option["layer"]] if option["source"] == "layer" and option.get("layer") else None
     if state["schedule"].get("path"):
         cfg["area_schedule"] = {"path": state["schedule"]["path"], "sheet": state["schedule"].get("sheet") or None}
-    if state["plan"].get("route") == "pdf" and state["plan"].get("pdf_json"):
-        cfg["structure"]["plan_json"] = state["plan"]["pdf_json"]
+    pl = state["plan"]
+    if pl.get("route") == "pdf" and pl.get("pdf_json"):
+        cfg["structure"]["plan_json"] = pl["pdf_json"]
+    elif pl.get("route") == "rhino" and pl.get("json"):
+        cfg["structure"]["plan_json"] = pl["json"]          # written by the dialog's plan reader before the take-off
     s = option["structure"]
     cfg["structure"].update({"grid_x_m": float(s["grid_x_m"]), "grid_y_m": float(s["grid_y_m"]),
                              "column_size_m": float(s["column_size_m"]), "frame": s.get("frame") or "RC flat slab"})
@@ -272,6 +279,18 @@ def calc_config(state, office, exports):
         "branding": office.get("branding") or {},
         "out": wb if os.path.isabs(wb) else os.path.join(out["folder"], wb),
     }
+
+
+def plan_summary(plan, notes):
+    """Lines the dialog shows after reading a plan (Rhino route)."""
+    c, k, st = plan["core"], plan["columns"], plan["stairs"]
+    lines = ["Core walls: %.0f m per floor, %s mm average (%d pieces)" % (
+                 c["wall_length_m_per_floor"] or 0, "%.0f" % (1000 * c["mean_thickness_m"]) if c["mean_thickness_m"] else "-", c["pieces"]),
+             "Columns: %d per floor%s" % (k["count_per_floor"], ", %.2f m %s" % (k["size_m"], "/".join(k["shapes"])) if k["size_m"] else ""),
+             "Stairs: %d%s" % (st["count"], " - %s flights, %s treads, %.2f m wide, going %.2f m" % (
+                 "/".join(str(x) for x in st["flights_per_stair"]), "/".join(str(x) for x in sorted(set(st["treads_per_flight"]))),
+                 st["flight_width_m"], st["going_m"]) if st["count"] else " (office defaults will be used)")]
+    return lines + list(notes)
 
 
 def safe_stem(name):

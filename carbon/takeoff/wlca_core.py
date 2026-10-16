@@ -320,10 +320,17 @@ def structure_rows(lv_all, plan, S, method, warnings, core_wall_build_up="WALL-R
     if wall_len:
         q = sum(wall_len * x[1] for x in lv_all)
         tag = ASSUMED if wl_src.startswith("core area") else ""
-        rows.append(("2.1.1", "core_wall", q, "m2", method,
-                     tag + "Core walls, all RC: %.1f m/floor (%s) x FTF, %d levels incl. basements" % (wall_len, wl_src, len(lv_all))))
-        if plan and plan["core"]["mean_thickness_m"] and abs(plan["core"]["mean_thickness_m"] - 0.25) > 0.05:
-            warnings.append("Plan core walls average %.2f m thick vs build-up %s" % (plan["core"]["mean_thickness_m"], core_wall_build_up))
+        note = "Core walls, all RC: %.1f m/floor (%s) x FTF, %d levels incl. basements" % (wall_len, wl_src, len(lv_all))
+        # walls measured on a plan: quantity scaled to the measured thickness, in m2 of the build-up's wall
+        # (XW 16/10/2026 - scale and warn, until the library has a build-up per thickness)
+        t_bu = S.get("core_wall_thickness_m") or 0.25
+        t_pl = (plan or {}).get("core", {}).get("mean_thickness_m") if wl_src.startswith("plan") else None
+        if t_pl and abs(t_pl - t_bu) > 0.02:
+            q *= t_pl / t_bu
+            note += "; scaled x %.2f to the measured %.0f mm (build-up %s is %.0f mm)" % (t_pl / t_bu, t_pl * 1000, core_wall_build_up, t_bu * 1000)
+            warnings.append("Plan core walls average %.0f mm thick vs %.0f mm in build-up %s - quantity scaled x %.2f; "
+                            "check the wall thickness with the engineer" % (t_pl * 1000, t_bu * 1000, core_wall_build_up, t_pl / t_bu))
+        rows.append(("2.1.1", "core_wall", q, "m2", method, tag + note))
     else:
         warnings.append("No core input (plan_json, wall length, core area or schedule NIA) - 2.1.1 core walls not derived")
 
