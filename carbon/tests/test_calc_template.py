@@ -476,28 +476,32 @@ def _b6_library(src, dst):
 
 
 def test_b6_b7_both_scenarios_and_routes(built, tmp_path):
-    """PS 5.3 / 5.4 / App. G: B6 and B7 over the RSP without and with grid decarbonisation, per option, no contingency."""
+    """PS 5.3 / 5.4 / App. G: B6 and B7 over the RSP without and with grid decarbonisation, per option, no contingency;
+    PS 4.11.5 Table 15 material decarbonisation in the decarbonised whole life figure; indicative EUI and water budget."""
     lib2, tg = str(tmp_path / "lib_b6.xlsx"), str(tmp_path / "tg_b6.xlsx")
     _b6_library(built["library_xlsx"], lib2)
     _targets(tg)
     t = openpyxl.load_workbook(tg)
-    t["Targets"].append(["UKNZCBS", "UKNZCBS 2027", "Office", 2027, "EUI", 80, "kWh/m2 GIA/yr", "invented", ""])
+    for row in (["UKNZCBS", "UKNZCBS 2027", "Office", 2027, "EUI", 80], ["RIBA 2030", "RIBA 2025", "Office", 2025, "EUI", 75],
+                ["RIBA 2030", "RIBA 2030", "Office", 2030, "EUI", 55], ["RIBA 2030", "RIBA 2025", "Office", 2025, "WATER_LPD", 13]):
+        t["Targets"].append(row + ["", "invented", ""])
     t.save(tg)
     op = dict(elec=100000, gas=20000, pv_self=5000, pv_export=2000, water=1000)
     got = {}
-    for route in ct.OP_ROUTES[:2]:
-        cfg = dict(built, library_xlsx=lib2, targets_xlsx=tg, out=str(tmp_path / ("b6_%s.xlsx" % route[:3])),
-                   params=dict(built["params"], op_route=route, op_year=2030, construction_start_year=2027))
+    for tag, route, opk, extra in (("eng", ct.OP_ROUTES[0], op, {}), ("ind", ct.OP_ROUTES[1], {}, {}),
+                                   ("est", ct.OP_ROUTES[1], dict(eui=60), dict(occupancy=100, occ_days=250))):
+        cfg = dict(built, library_xlsx=lib2, targets_xlsx=tg, out=str(tmp_path / ("b6_%s.xlsx" % tag)),
+                   params=dict(built["params"], op_route=route, op_year=2030, construction_start_year=2027, **extra))
         cfg.pop("takeoff_csv")
-        cfg["options"] = [dict(name="A", takeoff_csv=built["takeoff_csv"], operational=op)]
+        cfg["options"] = [dict(name="A", takeoff_csv=built["takeoff_csv"], operational=opk)]
         ct.build(cfg).save(cfg["out"])
-        w = _calc(cfg["out"], str(tmp_path / ("c_" + route[:3])))
-        got[route[:3]] = lambda key, w=w: w["O1_Results"]["Y%d" % ct.SUM_ROW[key]].value
+        w = _calc(cfg["out"], str(tmp_path / ("c_" + tag)))
+        got[tag] = (lambda key, w=w: w["O1_Results"]["Y%d" % ct.SUM_ROW[key]].value, w)
     fes = (5 * 0.10 + 16 * 0.02 + 39 * 0.02) / 60                       # 2030-2089: five years at 0.10, then 0.02
     dec = fes / 0.2
     f_e_nd, f_e_d = 0.2844, fes + 0.064 * dec + 0.0204 * 0.5
     f_g_nd, f_g_d, f_w_nd = 0.23, 0.2 + 0.03 * dec, 0.2 + 0.9 * 0.1
-    g = got["Eng"]
+    g, w = got["eng"]
     assert g("B6_ND") == pytest.approx(60 * (100000 * f_e_nd + 20000 * f_g_nd) / GIA, rel=1e-9)
     assert g("B6_D") == pytest.approx(60 * (100000 * f_e_d + 20000 * f_g_d) / GIA, rel=1e-9)
     assert g("B7_ND") == pytest.approx(60 * 1000 * f_w_nd / GIA, rel=1e-9)
@@ -505,7 +509,17 @@ def test_b6_b7_both_scenarios_and_routes(built, tmp_path):
     assert g("EUI") == pytest.approx(125000 / GIA, rel=1e-9) and g("EUI_LIM") == 80
     assert g("D2_PV") == pytest.approx(-60 * 2000 * fes / GIA, rel=1e-9)
     assert g("WLC_ND") == pytest.approx(g("AC_ALL") + g("B6_ND") + g("B7_ND"), rel=1e-12)
-    assert g("OP_STATUS").startswith("Predicted energy")
-    i = got["Ind"]                                                       # UKNZCBS EUI limit x GIA, all electric; gas and PV ignored
+    assert g("OP_STATUS") == "Energy: engineer prediction | water: engineer"
+    # Table 15: B2-B4 and C1-C2 halved, A1-A5, C3-C4 and biogenic unchanged (contingency on both)
+    R = w["O1_Results"]
+    tot = next(r for r in range(14, R.max_row + 1) if str(R.cell(r, 2).value or "").startswith("TOTAL"))
+    half = 0.5 * (R["J%d" % tot].value + R["K%d" % tot].value + R["L%d" % tot].value) * 1000 / GIA
+    assert half > 0 and g("AC_DEC") == pytest.approx(g("AC_ALL") - half, rel=1e-9)
+    assert g("WLC_D") == pytest.approx(g("AC_DEC") + g("B6_D") + g("B7_D"), rel=1e-12)
+    i, _ = got["ind"]                                                    # UKNZCBS EUI limit x GIA, all electric; gas and PV ignored
     assert i("B6_ND") == pytest.approx(60 * 80 * f_e_nd, rel=1e-9) and i("EUI") == pytest.approx(80)
-    assert "not a compliant WLC" in i("OP_STATUS")
+    assert i("OP_STATUS") == "Energy: indicative (UKNZCBS limit) | water: not assessed" and i("B7_ND") == 0
+    e, _ = got["est"]                                                    # option's own EUI estimate; water = 100 x 13 l x 250 days
+    assert e("B6_ND") == pytest.approx(60 * 60 * f_e_nd, rel=1e-9) and e("W_M3") == pytest.approx(100 * 13 * 250 / 1000)
+    assert e("B7_ND") == pytest.approx(60 * 325 * f_w_nd / GIA, rel=1e-9)
+    assert e("OP_STATUS") == "Energy: indicative (EUI estimate) | water: indicative budget (occupancy x RIBA 2025)"

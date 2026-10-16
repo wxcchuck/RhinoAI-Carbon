@@ -46,7 +46,7 @@ GROUP_LABELS = ["Substructure", "Superstructure", "Facade", "Internal finishes",
 
 # building- / asset-level results that are reported to SIGFIG significant figures (PS 6.1.4)
 BUILDING_LEVEL = {"UP_ALL", "AC_ALL", "UP_T", "UP_X8", "UP_SC", "UP_WB", "SCN_UP_ALL", "BIO_STORED",
-                  "B6_ND", "B6_D", "B7_ND", "B7_D", "WLC_ND", "WLC_D", "EUI"}
+                  "B6_ND", "B6_D", "B7_ND", "B7_D", "WLC_ND", "WLC_D", "EUI", "AC_DEC"}
 
 
 # --------------------------------------------------------------------------------------- styling helpers
@@ -522,10 +522,10 @@ def build_dashboard(wb, ctx, opts, branding):
     ws.cell(93, 1, '=%s&"  |  no contingency on B6 / B7"' % v("OP_STATUS")).font = _f(B, 9, True)
     ws.merge_cells("E94:F94")
     ws.merge_cells("G94:I94")
-    for j, h in zip((1, 5, 7), ["kgCO2e/m2 GIA over the RSP", "No decarbonisation", "Grid decarbonised (FES)"]):
+    for j, h in zip((1, 5, 7), ["kgCO2e/m2 GIA over the RSP", "Non-decarbonised", "Decarbonised (Table 15 / FES)"]):
         ws.cell(94, j, h).font = _f(B, 9, True, B["muted"])
         ws.cell(94, j).alignment = Alignment(horizontal="left" if j == 1 else "right")
-    for r, lbl, a_, b_ in ((95, "Embodied A-C (incl. contingency)", "AC_ALL", "AC_ALL"), (96, "B6 operational energy", "B6_ND", "B6_D"),
+    for r, lbl, a_, b_ in ((95, "Embodied A-C (incl. contingency)", "AC_ALL", "AC_DEC"), (96, "B6 operational energy", "B6_ND", "B6_D"),
                            (97, "B7 operational water", "B7_ND", "B7_D"), (98, "Whole life carbon A-C + B6 + B7", "WLC_ND", "WLC_D")):
         ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=4)
         ws.merge_cells(start_row=r, start_column=5, end_row=r, end_column=6)
@@ -537,9 +537,13 @@ def build_dashboard(wb, ctx, opts, branding):
             x.font = _f(B, 9, r == 98, B["project"] if r == 98 else None)
         for c in range(1, 10):
             ws.cell(r, c).border = Border(bottom=Side(style="hair", color=B["rule"]))
-    ws.cell(99, 1, ('=IF(ISNUMBER(%s),"Energy use intensity "&TEXT(%s,"#,##0")&" kWh/m2 GIA/yr vs UKNZCBS limit "&TEXT(%s,"#,##0")&" ("&UK_YEAR&"): "'
-                    '&IF(%s<=%s,"meets","above"),"Energy use intensity: not assessed")&IF(%s<0,"  |  D2 exported PV "&TEXT(%s,"#,##0")&" (memo)","")')
+    ws.cell(99, 1, ('=IF(ISNUMBER(%s),"Energy use intensity "&TEXT(%s,"#,##0")&" kWh/m2 GIA/yr - UKNZCBS limit "&TEXT(%s,"#,##0")&" ("&UK_YEAR&"): "'
+                    '&IF(%s<=%s,"meets","above")&IF(RIBA_EUI25>0,"; RIBA 2030 Climate Challenge 2025 <"&RIBA_EUI25&", 2030 <"&RIBA_EUI30,""),'
+                    '"Energy use intensity: not assessed")&IF(%s<0,"  |  D2 exported PV "&TEXT(%s,"#,##0")&" (memo)","")')
             % (v("EUI"), sf(v("EUI")), v("EUI_LIM"), v("EUI"), v("EUI_LIM"), v("D2_PV"), v("D2_PV"))).font = _f(B, 9)
+    ws.cell(100, 1, ('=IF(%s>0,"Water "&TEXT(%s,"#,##0")&" m3/yr"&IF(N(OCC)>0," for "&TEXT(OCC,"#,##0")&" occupants ("&TEXT(%s*1000/OCC/OCC_DAYS,"0.0")&" l/person/day; '
+                     'RIBA 2025 <"&RIBA_W_LPD&", budget "&TEXT(W_BUDGET,"#,##0")&" m3/yr)",""),"Water: not assessed - add occupancy (step 1) or the engineer\'s figure")')
+             % (v("W_M3"), v("W_M3"), v("W_M3"))).font = _f(B, 9)
 
     ws.cell(101, 1, "Notes").font = _f(B, 9, True)
     notes = ["Headline and targets include contingency (PS Table 10). The scenario and the budget re-use typical or tier benchmarks for elements not yet designed - "
@@ -584,8 +588,9 @@ def build_compare(wb, ctx, opts, branding):
             ("Energy use intensity (kWh/m2 GIA/yr)", "EUI", "#,##0"), ("UKNZCBS EUI limit (kWh/m2 GIA/yr)", "EUI_LIM", "#,##0"),
             ("B6 operational energy, without grid decarbonisation (kgCO2e/m2, RSP)", "B6_ND", "#,##0"),
             ("B7 operational water, without grid decarbonisation (kgCO2e/m2, RSP)", "B7_ND", "#,##0"),
-            ("Whole life A-C + B6 + B7, without grid decarbonisation", "WLC_ND", "#,##0"),
-            ("Whole life A-C + B6 + B7, with grid decarbonisation (FES)", "WLC_D", "#,##0"),
+            ("Embodied A-C, decarbonised (PS Table 15)", "AC_DEC", "#,##0"),
+            ("Whole life A-C + B6 + B7, non-decarbonised", "WLC_ND", "#,##0"),
+            ("Whole life A-C + B6 + B7, decarbonised", "WLC_D", "#,##0"),
             ("QA flags open", "QA_FLAGS", "0")]
     for j, o in enumerate(opts):
         ws.column_dimensions[chr(66 + j)].width = 18

@@ -28,7 +28,7 @@ def default_state():
     return {
         "version": 1,
         "project": {"name": "", "use_class": "Office", "riba_stage": 2, "start_year": 2027,
-                    "demolished_gia_m2": 0.0, "assessor": ""},
+                    "demolished_gia_m2": 0.0, "assessor": "", "occupancy": None, "occ_days": None},
         "options": [],
         "schedule": {"path": "", "sheet": ""},
         # plan route (D5): "rhino" = typical floor read from Rhino layers (default), "pdf" = plan extract json, "none"
@@ -49,7 +49,7 @@ def default_option(name, layer="", source="layer", file_path=""):
         "facade": [{"build_up": "CW-UNIT-01", "kind": FACADE_UNITISED, "share": 1.0, "wwr": None}],
         "structure": {"frame": "RC flat slab", "grid_x_m": 9.0, "grid_y_m": 8.0, "column_size_m": 0.75,
                       "sources": {}},
-        "operational": {"elec": None, "gas": None, "dh": None, "pv_self": None, "pv_export": None, "water": None},
+        "operational": {"elec": None, "gas": None, "dh": None, "pv_self": None, "pv_export": None, "water": None, "eui": None},
     }
 
 
@@ -280,7 +280,8 @@ def calc_config(state, office, exports):
     })
     options = []
     op = state.get("operational") or {}
-    params.update({"op_route": op.get("route") or "Not assessed", "dh_factor": float(op.get("dh_factor") or 0)})
+    params.update({"op_route": op.get("route") or "Not assessed", "dh_factor": float(op.get("dh_factor") or 0),
+                   "occupancy": state["project"].get("occupancy"), "occ_days": state["project"].get("occ_days")})
     if op.get("op_year"):
         params["op_year"] = int(op["op_year"])
     for o, csv in exports:      # facade rows are already split by apply_facade_mix: no routing in the workbook
