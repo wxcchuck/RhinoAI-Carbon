@@ -152,3 +152,18 @@ def test_plan_route_rhino_feeds_the_takeoff():
     lines = ws.plan_summary(plan, ["Floor plate: ..."])
     assert lines[0] == "Core walls: 137 m per floor, 291 mm average (30 pieces)"
     assert lines[1] == "Columns: 20 per floor, 0.75 m circle" and lines[2].startswith("Stairs: 2 - 2/2 flights, 11 treads")
+
+
+def test_operational_inputs_reach_the_workbook_config():
+    st = ws.default_state()
+    st["project"]["name"], st["output"]["folder"] = "P", "out"
+    o = ws.default_option("A", layer="L")
+    st["options"] = [o]
+    assert st["operational"]["route"] == "Not assessed"
+    st["operational"].update(route="Engineer prediction (TM54)", op_year=2031, dh_factor=0.05)
+    assert any("predicted annual energy" in m for lv, m in ws.validate(st, {}) if lv == "error")
+    o["operational"].update(elec=120000, water=900)
+    assert not [m for lv, m in ws.validate(st, {}) if lv == "error" and "energy" in m]
+    cc = ws.calc_config(st, {"library_xlsx": "lib", "benchmarks": {"path": "b"}}, [(o, "a.csv")])
+    assert cc["params"]["op_route"] == "Engineer prediction (TM54)" and cc["params"]["op_year"] == 2031
+    assert cc["params"]["dh_factor"] == 0.05 and cc["options"][0]["operational"] == {"elec": 120000, "water": 900}

@@ -38,6 +38,8 @@ def default_state():
                     "sc_share": {"finishes": 1.0, "ffe": 1.0, "services": 1.0},
                     "catb_allowance": None, "scenario": "GLA aspirational", "budget_target": "UKNZCBS"},
         "output": {"folder": "", "workbook": ""},
+        # B6 / B7 (PS 5.3 / 5.4): basis for the whole building; energy and water per option
+        "operational": {"route": "Not assessed", "op_year": None, "dh_factor": 0.0},
     }
 
 
@@ -47,6 +49,7 @@ def default_option(name, layer="", source="layer", file_path=""):
         "facade": [{"build_up": "CW-UNIT-01", "kind": FACADE_UNITISED, "share": 1.0, "wwr": None}],
         "structure": {"frame": "RC flat slab", "grid_x_m": 9.0, "grid_y_m": 8.0, "column_size_m": 0.75,
                       "sources": {}},
+        "operational": {"elec": None, "gas": None, "dh": None, "pv_self": None, "pv_export": None, "water": None},
     }
 
 
@@ -139,6 +142,13 @@ def validate(state, office=None):
     if pl.get("route") == "none" or (pl.get("route") == "rhino" and not pl.get("walls_layer") and not pl.get("columns_layer")) \
             or (pl.get("route") == "pdf" and not pl.get("pdf_json")):
         out.append(("warning", "No plan: cores, columns and stairs use office defaults and are tagged [ASSUMED] (step 2)."))
+    op = state.get("operational") or {}
+    if op.get("route", "").startswith("Engineer"):
+        for o in opts:
+            if not any((o.get("operational") or {}).get(k) for k in ("elec", "gas", "dh")):
+                out.append(("error", "Option '%s': enter the predicted annual energy (step 5), or change the B6 basis." % o["name"]))
+    if op.get("route", "Not assessed") != "Not assessed" and not any((o.get("operational") or {}).get("water") for o in opts):
+        out.append(("warning", "No water figure: B7 is reported as not assessed (step 5)."))
     t = state["targets"]
     for k, v in t["sc_share"].items():
         if not 0 <= float(v) <= 1:
@@ -269,8 +279,13 @@ def calc_config(state, office, exports):
         "catb_allowance": None if t.get("catb_allowance") in (None, "") else float(t["catb_allowance"]),
     })
     options = []
+    op = state.get("operational") or {}
+    params.update({"op_route": op.get("route") or "Not assessed", "dh_factor": float(op.get("dh_factor") or 0)})
+    if op.get("op_year"):
+        params["op_year"] = int(op["op_year"])
     for o, csv in exports:      # facade rows are already split by apply_facade_mix: no routing in the workbook
-        options.append({"name": o["name"], "takeoff_csv": csv, "facade_route": "As exported"})
+        options.append({"name": o["name"], "takeoff_csv": csv, "facade_route": "As exported",
+                        "operational": dict((k, v) for k, v in (o.get("operational") or {}).items() if v not in (None, ""))})
     out = state["output"]
     wb = out.get("workbook") or (safe_stem(state["project"]["name"]) + "_WLCA.xlsx")
     return {
