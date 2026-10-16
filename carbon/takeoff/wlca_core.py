@@ -609,3 +609,71 @@ def build_rows(cfg, hz, roof_levels, hsrc, glazed, opaque, parapet_net, wwr, st_
                          stage=cfg["riba_stage"], model_version=cfg["model_version"], author=cfg["author"],
                          source_layer=source_layer, include="Y", notes=note))
     return rows
+
+
+# ----------------------------------------------------------------------------- frame systems (v0.9)
+FRAME_SYSTEMS = {          # dialog name -> library key; None = RC flat slab as measured (slab + columns + edge beams)
+    "RC flat slab": None,
+    "PT flat slab": "PT",
+    "Steel + composite deck": "STL-COMP",
+    "Steel + CLT + concrete topping": "STL-CLTC",
+    "Steel + CLT": "STL-CLT",
+    "Glulam + CLT": "GLU-CLT",
+}
+FRAME_REF_STOREYS = 8      # PF Tables 8/9 quantities are for ground + 7 storeys
+PT_FLOOR = "SLAB-RC-PT-250"
+
+
+def frame_grid(grid_x, grid_y):
+    """PF table to use: S = 6 x 7.5 m (bays up to 56.25 m2), L = 7.5 x 9 m (larger bays)."""
+    return "S" if grid_x * grid_y <= 56.25 else "L"
+
+
+def column_height_factor(n_above):
+    """Column quantity relative to PF's G+7 building: average floors carried per column, (N + 1) / 2, over the
+    reference (8 + 1) / 2 - never below 1 (strict). Ground + 29 (30 storeys) -> 31 / 9 = 3.44."""
+    return max(1.0, (n_above + 1.0) / (FRAME_REF_STOREYS + 1.0))
+
+
+def apply_frame(rows, frame, grid_x, grid_y, n_above, B, method):
+    """Swap the RC flat-slab rows for the chosen frame system (rows = interchange dicts from build_rows).
+
+    RC flat slab: unchanged. PT flat slab: floor and roof slabs use the PT build-up; columns and edge beams stay.
+    Steel / timber frames (PF): floor and roof slabs above ground use the frame's floor build-up per m2 (beams and
+    connections included, reported to 2.1.2); RC columns and RC edge beams are removed; one column row is added
+    per m2 of those floors x the height factor. Cores, basement and lowest slabs, the podium slab and the
+    substructure stay as measured. Returns (rows, info)."""
+    key = FRAME_SYSTEMS.get(frame)
+    if frame not in FRAME_SYSTEMS:
+        raise ValueError("Unknown frame system %r" % frame)
+    if key is None:
+        return list(rows), {"frame": frame}
+    slab_codes = {B["upper_floor"], B["roof_slab"]}
+    is_floor = lambda r: (str(r["nrm_code"]) == "2.2.1" and r["build_up_code"] in slab_codes      # noqa: E731
+                          and not str(r["notes"]).startswith("Basement roof"))
+    out, floor_area = [], 0.0
+    g = frame_grid(grid_x, grid_y)
+    for r in rows:
+        r = dict(r)
+        if is_floor(r):
+            floor_area += float(r["quantity"])
+            if key == "PT":
+                r["build_up_code"] = PT_FLOOR
+                r["notes"] = "PT flat slab: " + str(r["notes"])
+            else:
+                r["build_up_code"] = "FLR-%s-%s" % (key, g)
+                r["notes"] = "%s floor zone (PF rate, %s grid): %s" % (frame, "6 x 7.5" if g == "S" else "7.5 x 9", r["notes"])
+        elif key != "PT" and r["build_up_code"] in (B["column"], B["edge_beam"]):
+            continue
+        out.append(r)
+    info = {"frame": frame, "grid": g, "floor_area": round(floor_area, 1)}
+    if key != "PT" and floor_area > 0:
+        f = column_height_factor(n_above)
+        tmpl = next(r for r in rows if is_floor(r))
+        out.append(dict(tmpl, element_id="MS-FRAME-C", nrm_code="2.1.1", build_up_code="COL-%s-%s" % (key, g),
+                        quantity=round(floor_area * f, 1), unit="m2", method=method,
+                        notes="[ASSUMED] %s columns: PF rate per m2 of floor at G+7 x height factor %.2f "
+                              "((%d storeys + 1) / 9) over %.0f m2 of floors and roofs" % (frame, f, n_above, floor_area)))
+        info["column_factor"] = round(f, 3)
+    return out, info
+

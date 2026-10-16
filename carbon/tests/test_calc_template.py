@@ -26,6 +26,15 @@ openpyxl = pytest.importorskip("openpyxl")
 import wlca_calc_template as ct  # noqa: E402
 
 GIA = 2000.0
+
+
+def sfround(x, n=2):
+    """Excel ROUND(x, n-1-INT(LOG10(ABS(x)))) - significant figures, halves away from zero (RICS PS 6.1.4)."""
+    from decimal import ROUND_HALF_UP, Decimal
+    if x == 0:
+        return 0.0
+    d = n - 1 - math.floor(math.log10(abs(x)))
+    return float(Decimal(repr(x)).quantize(Decimal(1).scaleb(-d), rounding=ROUND_HALF_UP))
 VEH = dict(pay=13.0, vol=65.0, c1=0.99156, erf=1.0, c2=0.774, f50=0.94152)
 ASM, A2F, SEA = 0.2, 0.04, 0.016
 
@@ -212,7 +221,7 @@ def test_numbers_against_hand_calculation(built, tmp_path):
     # totals and contingency
     sub = next(r for r in range(13, R.max_row + 1) if R.cell(r, 2).value == "Subtotal")
     assert R.cell(sub + 1, 9).value == pytest.approx(0.15 * R.cell(sub, 9).value, rel=1e-9)
-    assert R["C5"].value == pytest.approx(R.cell(sub + 2, 9).value * 1000 / GIA, rel=1e-9)
+    assert R["C5"].value == pytest.approx(sfround(R.cell(sub + 2, 9).value * 1000 / GIA), rel=1e-9)   # 2 s.f. at RIBA 2
     assert R.cell(sub, 16).value == pytest.approx(-0.5 * steel / 1000, rel=1e-9)         # D memo, steel only
     # QA: unknown build-up flagged; CW reference check computed
     q = {Q.cell(r, 2).value: (Q.cell(r, 3).value, Q.cell(r, 4).value) for r in range(7, 25) if Q.cell(r, 2).value}
@@ -299,7 +308,7 @@ def test_options_targets_dashboard(built2, tmp_path):
     # option 2 differs by 500 m2 of slab at 80 kgCO2e/m2 A1-A3 (plus its A4/A5.3) - check A1-A3 exactly
     assert y(2, "M_A13") - y(1, "M_A13") == pytest.approx(500 * 80 * 1.15 / GIA, rel=1e-9)
     for k, R in ((1, R1), (2, R2)):
-        assert y(k, "UP_ALL") == pytest.approx(R["C5"].value, rel=1e-9)
+        assert R["C5"].value == pytest.approx(sfround(y(k, "UP_ALL")), rel=1e-9)
         assert y(k, "UP_X8") == pytest.approx(y(k, "UP_ALL"), rel=1e-9)               # no external works here
         assert y(k, "MOD_UP_X8") + y(k, "BM_UP_X8") == pytest.approx(y(k, "UP_X8"), rel=1e-9)
         assert y(k, "BMS_UP_ALL") == pytest.approx(y(k, "BM_UP_ALL") * TG_GLA_A / TG_GLA_B, rel=1e-9)
@@ -320,16 +329,16 @@ def test_options_targets_dashboard(built2, tmp_path):
     # Compare reads each option; Dashboard follows the selected option
     C = wb["Compare"]
     assert [C.cell(4, c).value for c in (2, 3)] == ["Opt A", "Opt B"]
-    assert C["C6"].value == pytest.approx(y(2, "UP_ALL"), rel=1e-9)
+    assert C["C6"].value == pytest.approx(sfround(y(2, "UP_ALL")), rel=1e-9)
     D = wb["Dashboard"]
     assert D["U%d" % ct.SUM_ROW["UP_ALL"]].value == pytest.approx(y(1, "UP_ALL"), rel=1e-9)
-    assert D["H13"].value == TG_SC and D["G13"].value == pytest.approx(y(1, "UP_SC"), rel=1e-9)   # offices: shell & core limit
-    assert D["F13"].value == pytest.approx(y(1, "UP_SC") / 1.15, rel=1e-9)                       # before contingency
+    assert D["H13"].value == TG_SC and D["G13"].value == pytest.approx(sfround(y(1, "UP_SC")), rel=1e-9)   # offices: S&C limit
+    assert D["F13"].value == pytest.approx(sfround(y(1, "UP_SC") / 1.15), rel=1e-9)                       # before contingency
     assert D["H14"].value == TG_UK and D["J14"].value == "Not assessed"                          # whole building needs Cat B
-    assert C["C8"].value == pytest.approx(y(2, "UP_ALL") / 1.15, rel=1e-9)                       # Compare: before contingency
+    assert C["C8"].value == pytest.approx(sfround(y(2, "UP_ALL") / 1.15), rel=1e-9)               # Compare: before contingency
     # budget (UKNZCBS offices -> shell & core): target - modelled = what is left
     assert D["Y53"].value == TG_SC
-    assert D["Y55"].value == pytest.approx(TG_SC - y(1, "MOD_UP_SC"), rel=1e-9)
+    assert D["Y55"].value == pytest.approx(sfround(TG_SC - y(1, "MOD_UP_SC")), rel=1e-9)
     assert D["D76"].value == 30 and D["D77"].value == 35                                         # P&M A1-A5 / A1-C4 P25
     # GLA element comparison: share x GLA total; project incl. contingency
     assert D["Z46"].value == pytest.approx(GLA_SHARE[3] * TG_GLA_A, rel=1e-9)
@@ -353,6 +362,7 @@ def test_options_targets_dashboard(built2, tmp_path):
         src[sh][ref.replace("$", "")] = val
     setn("SC_FIN", 0.25)                     # 75% of finishes is Cat A
     setn("CATB", 50)                         # Cat B + loose FF&E allowance, before contingency
+    setn("STAGE", 3)                         # RIBA 3: building-level results to 3 significant figures
     path = str(tmp_path / "sel.xlsx")
     src.save(path)
     w3 = _calc(path, str(tmp_path / "c3"))
@@ -362,3 +372,4 @@ def test_options_targets_dashboard(built2, tmp_path):
     assert y3("UP_SC") == pytest.approx(y(1, "UP_X8") - 0.75 * y(1, "E_3") * 1.15, rel=1e-9)
     assert y3("BM_UP_SC") == pytest.approx(y(1, "BM_UP_X8") - 0.75 * y(1, "E_3") * 1.15, rel=1e-9)   # finishes are benchmarked
     assert y3("UP_WB") == pytest.approx(y(1, "UP_X8") + 50 * 1.15, rel=1e-9)
+    assert w3["O1_Results"]["C5"].value == pytest.approx(sfround(y(1, "UP_ALL"), 3), rel=1e-9)

@@ -118,3 +118,13 @@ All of these run on office assumptions until project information replaces them: 
 | D4 | Office settings (library, benchmarks, targets, branding, façade list, defaults) live in one JSON file kept by the carbon team; relative paths resolve against the file, so one file serves every user's OneDrive | Confirmed |
 | D5 | Plans: read from a Rhino layer (true scale, any position) is the default route - next release; the PDF plan extract stays as the fallback | Confirmed |
 
+## Frame systems, rebar rates and reporting precision (v0.9 take-off, library v0.11)
+
+| # | Decision | Status |
+|---|---|---|
+| F1 | Frame systems: RC flat slab (as measured), PT flat slab (PT build-up, columns and edge beams as RC), and four PF Stage 1 frames per m² of floor (steel + composite deck, steel + CLT + topping, steel + CLT, glulam + CLT). PF table by bay size: up to 56.25 m² uses 6 × 7.5 m, larger uses 7.5 × 9 m. Beams and connections are in the floor build-up (reported to 2.1.2); RC columns and edge beams are replaced; cores, basement, lowest and podium slabs stay RC | Confirmed |
+| F2 | Steel / timber column quantities scale with height: × (storeys + 1) / 9 relative to PF's ground + 7 building, never below 1; tagged [ASSUMED] for the engineer to check | Confirmed |
+| F3 | Rebar and PT rates are the average of the sources that give a rate for the element: consultant rates (07/10/2026), PF Stage 1 Report 7.3, HTS Default Embodied Carbon Rates V4.0. Placeholders and proxies are not counted. PT strand is per m³ of slab | Confirmed |
+| F4 | PF's C25/30 topping and deck concrete uses the C32/40 factor (no C25/30 in the library - slightly high) | Assumed |
+| P1 | Building-level results are reported to 2 significant figures at RIBA 0-2 and 3 from RIBA 3 (PS 6.1.4): Results headline, Dashboard tiles, targets table, budget, Compare totals. Element-level figures stay as calculated. Pass / fail against targets is judged on the unrounded values | Confirmed |
+

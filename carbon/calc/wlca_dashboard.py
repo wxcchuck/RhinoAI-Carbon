@@ -27,7 +27,7 @@ from openpyxl.formatting.rule import CellIsRule, FormulaRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.worksheet.datavalidation import DataValidation
 
-from wlca_calc_template import GROUPS, SUMMARY, SUM_ROW, name
+from wlca_calc_template import GROUPS, SUMMARY, SUM_ROW, name, sf
 
 DEFAULT = dict(
     font="Calibri", logo=None,
@@ -42,6 +42,10 @@ BOUNDARY_TEXT = {"UP_X8": "A1-A5 excl. ext. works", "UP_ALL": "A1-A5 all element
                  "UP_SC": "A1-A5 shell & core, excl. ext. works", "UP_WB": "A1-A5 incl. Cat B + loose FF&E",
                  "AC_X8": "A-C excl. ext. works", "AC_ALL": "A-C (excl. B6/B7)"}
 GROUP_LABELS = ["Substructure", "Superstructure", "Facade", "Internal finishes", "FF&E", "Services (MEP)", "External works", "Site (A5.1/A5.2)"]
+
+
+# building- / asset-level results that are reported to SIGFIG significant figures (PS 6.1.4)
+BUILDING_LEVEL = {"UP_ALL", "AC_ALL", "UP_T", "UP_X8", "UP_SC", "UP_WB", "SCN_UP_ALL"}
 
 
 # --------------------------------------------------------------------------------------- styling helpers
@@ -241,10 +245,10 @@ def build_dashboard(wb, ctx, opts, branding):
     tables["gla"] = table(42, "Elements vs GLA typical development (A1-A5, kgCO2e/m2, incl. contingency)", gla_rows,
                           ["Project", "GLA aspirational", "GLA benchmark"])
     bud = [("Target (no contingency)", "=BUD_VAL"),
-           ("Modelled + site, incl. contingency", "=%s" % pick('"MOD_"&BUD_KEY')),
-           ("Left for elements not yet designed", "=BUD_VAL-%s" % pick('"MOD_"&BUD_KEY')),
-           ("Not yet designed - typical benchmarks", "=%s" % pick('"BM_"&BUD_KEY')),
-           ("Not yet designed - scenario tier", "=%s" % pick('"BMS_"&BUD_KEY'))]
+           ("Modelled + site, incl. contingency", "=" + sf(pick('"MOD_"&BUD_KEY'))),
+           ("Left for elements not yet designed", "=" + sf("BUD_VAL-%s" % pick('"MOD_"&BUD_KEY'))),
+           ("Not yet designed - typical benchmarks", "=" + sf(pick('"BM_"&BUD_KEY'))),
+           ("Not yet designed - scenario tier", "=" + sf(pick('"BMS_"&BUD_KEY')))]
     tables["bud"] = table(52, "Carbon budget (kgCO2e/m2, incl. contingency)", bud)
 
     # ---- headline tiles (row 6-9)
@@ -255,13 +259,15 @@ def build_dashboard(wb, ctx, opts, branding):
     uk_lim = "IF(%s>0,%s,%s)" % (v("UK_LIM_SC"), v("UK_LIM_SC"), v("UK_LIM"))
     uk_val = "IF(%s>0,%s,%s)" % (v("UK_LIM_SC"), v("UP_SC"), v("UP_X8"))
     tiles = [
-        ("Upfront carbon A1-A5", "=%s" % v("UP_ALL"), "#,##0", '="kgCO2e/m2 GIA | "&TEXT(%s/(1+CONT),"#,##0")&" before contingency"' % v("UP_ALL")),
-        ("Embodied carbon A-C", "=%s" % v("AC_ALL"), "#,##0", '="excl. B6/B7 | "&TEXT(%s/(1+CONT),"#,##0")&" before contingency"' % v("AC_ALL")),
-        ("Upfront total", "=%s" % v("UP_T"), "#,##0", "tCO2e"),
+        ("Upfront carbon A1-A5", "=" + sf(v("UP_ALL")), "#,##0",
+         '="kgCO2e/m2 GIA | "&TEXT(%s,"#,##0")&" before contingency"' % sf(v("UP_ALL") + "/(1+CONT)")),
+        ("Embodied carbon A-C", "=" + sf(v("AC_ALL")), "#,##0",
+         '="excl. B6/B7 | "&TEXT(%s,"#,##0")&" before contingency"' % sf(v("AC_ALL") + "/(1+CONT)")),
+        ("Upfront total", "=" + sf(v("UP_T")), "#,##0", "tCO2e"),
         ("LETI upfront band", "=%s" % v("LETI_UP"), "@", '="life cycle: "&%s' % v("LETI_LC")),
         ("UKNZCBS upfront", '=IF({lim}=0,"n/a",IF({val}<={lim},"Meets","Above"))'.format(lim=uk_lim, val=uk_val), "@",
          '=IF({lim}=0,"no limit for this use",IF({sc}>0,"shell & core ","")&TEXT({val},"#,##0")&" vs limit "&TEXT({lim},"#,##0")&" ("&UK_YEAR&")")'
-         .format(lim=uk_lim, val=uk_val, sc=v("UK_LIM_SC"))),
+         .format(lim=uk_lim, val=sf(uk_val), sc=v("UK_LIM_SC"))),
         ("Resting on assumptions", "=%s" % v("SH_ASM"), "0%", "of A1-A5 - replace as information arrives"),
     ]
     for i, (lbl, val, fmt, sub) in enumerate(tiles):
@@ -308,12 +314,14 @@ def build_dashboard(wb, ctx, opts, branding):
         ws.cell(r, 1, '=IF(AND(%s="Y",N(%s)>0),%s,"")' % (sh, tgt, lbl))
         ws.cell(r, 4, '=IF(A%d="","",%s)' % (r, '"%s"' % BOUNDARY_TEXT[key]))
         # summary values include contingency on every target boundary, so "before" = value / (1 + CONT)
-        ws.cell(r, 6, '=IF(ISNUMBER(G{r}),G{r}/(1+CONT),NA())'.format(r=r))
-        ws.cell(r, 7, '=IF(A%d="",NA(),IF(ISNUMBER(%s),%s,NA()))' % (r, v(key), v(key)))
+        # shown to SIGFIG significant figures (PS 6.1.4); the result below is judged on the unrounded values
+        ws.cell(r, 6, '=IF(A%d="",NA(),IF(ISNUMBER(%s),%s,NA()))' % (r, v(key), sf(v(key) + "/(1+CONT)")))
+        ws.cell(r, 7, '=IF(A%d="",NA(),IF(ISNUMBER(%s),%s,NA()))' % (r, v(key), sf(v(key))))
         ws.cell(r, 8, '=IF(A%d="",NA(),%s)' % (r, tgt))
         ws.cell(r, 9, '=IF(A{r}="","",IF(ISNA(G{r}),"",H{r}-G{r}))'.format(r=r))
         # judged on the reportable figure (incl. contingency, PS 4.10); middle state shows what the contingency alone tips over
-        ws.cell(r, 10, '=IF(A{r}="","",IF(ISNA(G{r}),"Not assessed",IF(G{r}<=H{r},"Meets",IF(F{r}<=H{r},"Meets before contingency only","Above"))))'.format(r=r))
+        ws.cell(r, 10, '=IF(A{r}="","",IF(NOT(ISNUMBER({v})),"Not assessed",IF({v}<=H{r},"Meets",IF({v}/(1+CONT)<=H{r},"Meets before contingency only","Above"))))'
+                .format(r=r, v=v(key)))
         for c in range(1, 11):
             ws.cell(r, c).font = _f(B, 9)
             ws.cell(r, c).border = Border(bottom=Side(style="hair", color=B["rule"]))
@@ -325,8 +333,9 @@ def build_dashboard(wb, ctx, opts, branding):
                                                                     fill=PatternFill("solid", fgColor=B["warn"])))
     ws.conditional_formatting.add("J%d:J%d" % (t0, t1), CellIsRule(operator="equal", formula=['"Above"'], fill=PatternFill("solid", fgColor=B["bad"])))
     _note(ws, B, t1 + 1, "Targets and limits are bare thresholds (no contingency); the result uses the project figure incl. the PS Table 10 contingency, "
-                         "the figure the PS requires for reporting (4.10). UKNZCBS offices: shell & core = this result less the Cat A share of finishes, FF&E and services "
-                       "(Project inputs, 100% shell & core by default); whole building needs a Cat B + loose FF&E allowance. B1-B3, B5 not assessed.", h=24)
+                         "the figure the PS requires for reporting (4.10). Building-level results shown to 2 s.f. at RIBA 0-2 and 3 s.f. from RIBA 3 (PS 6.1.4); "
+                         "results are judged on the unrounded values. UKNZCBS offices: shell & core = this result less the Cat A share of finishes, FF&E and services "
+                       "(Project inputs, 100% shell & core by default); whole building needs a Cat B + loose FF&E allowance. B1-B3, B5 not assessed.", h=36)
     na = FormulaRule(formula=["ISNA(F%d)" % t0], font=Font(color="FFFFFF"))      # hide #N/A kept for the chart
     ws.conditional_formatting.add("F%d:H%d" % (t0, t1), na)
     # chart rows (X:AA from row 60): per target one stacked project bar (before + contingency) and one target bar
@@ -518,7 +527,7 @@ def build_compare(wb, ctx, opts, branding):
     n = len(opts)
     ws["A1"] = "Options compared"
     ws["A1"].font = _f(B, 18, True)
-    ws["A2"] = '=PROJ&"  |  "&USE&"  |  same library, benchmarks and inputs for every option; values incl. contingency unless stated"'
+    ws["A2"] = '=PROJ&"  |  "&USE&"  |  same library, benchmarks and inputs for every option; values incl. contingency unless stated; building-level results to "&SIGFIG&" s.f. (PS 6.1.4)"'
     ws["A2"].font = _f(B, 10, color=B["muted"])
     rows = [("Option", "NAME", "@"), ("GIA (m2)", "GIA", "#,##0"),
             ("Upfront A1-A5 (kgCO2e/m2, incl. contingency)", "UP_ALL", "#,##0"), ("Embodied A-C (kgCO2e/m2, incl. contingency)", "AC_ALL", "#,##0"),
@@ -543,7 +552,9 @@ def build_compare(wb, ctx, opts, branding):
         ws.cell(r, 1, lbl).font = _f(B, 10, i == 0)
         for j, o in enumerate(opts):
             ref = "%s!$Y$%d" % (o["RS"], SUM_ROW[key.rstrip("/")])
-            c = ws.cell(r, 2 + j, "=%s/(1+CONT)" % ref if key.endswith("/") else "=" + ref)
+            if key.endswith("/"):
+                ref = ref + "/(1+CONT)"
+            c = ws.cell(r, 2 + j, "=" + (sf(ref) if key.rstrip("/") in BUILDING_LEVEL else ref))
             c.number_format = fmt
             c.font = _f(B, 10, i == 0, B["project"] if i == 0 else None)
             c.alignment = Alignment(horizontal="right", wrap_text=(i == 0), vertical="bottom")

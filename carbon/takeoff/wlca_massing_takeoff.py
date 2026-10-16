@@ -1,6 +1,6 @@
 #! python3
 """
-WLCA massing take-off  v0.8  (draft for review)
+WLCA massing take-off  v0.9  (draft for review)
 Office WLCA template - build step 4a (massing route, RIBA 0-2)
 
 Drafted by an AI agent (Claude) - review before trusting. Quantity rules live in wlca_core.py
@@ -40,6 +40,10 @@ What it does
      Every rule takes the best information available - supplied figures > drawing / model > office
      assumption - and rows resting on an assumption start their notes with [ASSUMED], so they can be
      listed and replaced as project information arrives.
+
+  9. Frame systems (v0.9): RC flat slab as measured, PT flat slab, or a steel / timber frame from the PF Stage 1
+     rates per m2 of floor (beams and connections in the floor build-up); steel / timber columns are scaled by
+     (storeys + 1) / 9 relative to PF's ground + 7 building and tagged [ASSUMED] (core.apply_frame).
 
 Limits
   - Exact for prismatic massing (vertical walls, flat roofs). Sloped / curved roofs and
@@ -108,6 +112,8 @@ CONFIG = {
         "grid_x_m": 9.0, "grid_y_m": 8.0,
         "column_edge_factor": 1.42,          # columns vs pure grid count - calibrated on pilot tower (20 on 1,012 m2, 9x8 grid)
         "column_size_m": 0.75,
+        "frame": "RC flat slab",             # or PT flat slab / Steel + composite deck / Steel + CLT + concrete topping /
+                                             # Steel + CLT / Glulam + CLT (PF rates, columns scaled with height)
     },
     "substructure": {
         "retaining_walls": {"source": "footprint",   # "footprint" = ground-floor perimeter x basement depth; "engineer"
@@ -584,6 +590,9 @@ def run(cfg):
     src = " | ".join(src_layers) + (" + " + gia_source if sched else "")
     hsrc = "schedule" if sched else "massing"
     rows = core.build_rows(cfg, hz, roof_levels, hsrc, glazed, opaque, sum(fac_parapet.values()), wwr, st_rows, src)
+    S0 = cfg["structure"]
+    rows, frame_info = core.apply_frame(rows, S0.get("frame") or "RC flat slab", S0["grid_x_m"], S0["grid_y_m"],
+                                        len(above), cfg["build_ups"], cfg["method_label"])
 
     header = dict(project_id=cfg["project_id"], use_class=cfg["use_class"], target_tier=cfg["target_tier"],
                   riba_stage=cfg["riba_stage"], gia_m2=round(gia_total, 1),
@@ -604,7 +613,7 @@ def run(cfg):
         facade_total_m2=round(sum(fac_total.values()), 1),
         facade_to_gia=round(sum(fac_total.values()) / gia_total, 4),
         schedule_reconciliation=recon_rows,
-        structure=dict(sinfo, basement_depth_m=depth),
+        structure=dict(sinfo, basement_depth_m=depth, frame=frame_info),
         storeys=[dict(index=st["index"], name=st["name"], z=st["z"], height=st["height"], gea=round(st["gea"], 1),
                       gia=round(st["gia"], 1), perimeter=round(st["perimeter"], 1),
                       facade_by_orient=dict((k, round(v, 1)) for k, v in st["facade_by_orient"].items()))
