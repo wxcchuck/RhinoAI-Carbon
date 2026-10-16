@@ -167,3 +167,6 @@ def test_operational_inputs_reach_the_workbook_config():
     cc = ws.calc_config(st, {"library_xlsx": "lib", "benchmarks": {"path": "b"}}, [(o, "a.csv")])
     assert cc["params"]["op_route"] == "Engineer prediction (TM54)" and cc["params"]["op_year"] == 2031
     assert cc["params"]["dh_factor"] == 0.05 and cc["options"][0]["operational"] == {"elec": 120000, "water": 900}
+    st["project"].update(occupancy=850, occ_days=250)                   # asked on step 1: sets the water budget
+    cc = ws.calc_config(st, {"library_xlsx": "lib", "benchmarks": {"path": "b"}}, [(o, "a.csv")])
+    assert cc["params"]["occupancy"] == 850 and cc["params"]["occ_days"] == 250

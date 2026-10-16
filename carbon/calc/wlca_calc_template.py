@@ -150,10 +150,16 @@ SUMMARY = [
     ("WLC_ND", "Whole life carbon A-C + B6 + B7, without grid decarbonisation", "kgCO2e/m2"),
     ("WLC_D", "Whole life carbon A-C + B6 + B7, with grid decarbonisation (FES)", "kgCO2e/m2"),
     ("OP_STATUS", "Operational basis", ""),
+    # material decarbonisation (PS 4.11.5 Table 15): B2-B4 and C1-C2 x 0.5; A1-A5, C3-C4 and biogenic unchanged; D1 x 0.5 (memo)
+    ("AC_DEC", "Embodied A-C with material decarbonisation (PS Table 15), incl. contingency", "kgCO2e/m2"),
+    ("D_DEC", "D with material decarbonisation (memo)", "kgCO2e/m2"),
+    ("W_M3", "Water used (engineer, else occupancy x RIBA 2025 target)", "m3/yr"),
 ]
-OP_ROUTES = ("Engineer prediction (TM54)", "Indicative - UKNZCBS EUI limit", "Not assessed")
+OP_ROUTES = ("Engineer prediction (TM54)", "Indicative - EUI estimate or UKNZCBS limit", "Not assessed")
 OP_KEYS = (("elec", "Grid electricity (kWh/yr)", "E_ELEC"), ("gas", "Natural gas (kWh/yr)", "E_GAS"), ("dh", "District heat (kWh/yr)", "E_DH"),
-           ("pv_self", "PV used on site (kWh/yr)", "E_PVS"), ("pv_export", "PV exported (kWh/yr)", "E_PVX"), ("water", "Water (m3/yr)", "W"))
+           ("pv_self", "PV used on site (kWh/yr)", "E_PVS"), ("pv_export", "PV exported (kWh/yr)", "E_PVX"), ("water", "Water (m3/yr)", "W"),
+           ("eui", "Indicative EUI (kWh/m2 GIA/yr)", "EUI_IN"))
+OCC_DAYS = {"Office": 250, "Residential": 365, "Schools & Universities": 190, "Retail": 310}
 SUM_ROW = dict((k, 5 + i) for i, (k, _, _) in enumerate(SUMMARY))     # row of each key on O<k>_Results (cols X:Z)
 
 
@@ -284,6 +290,13 @@ def read_targets(path):
     return out
 
 
+def _num(v):
+    try:
+        return float(v) if v not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
 def grid_from_library(lib):
     """(factor, source) from the library's REF_T27_D1 'Grid carbon factor' row; (None, None) if absent."""
     if "REF_T27_D1" not in lib.sheetnames:
@@ -341,7 +354,7 @@ def build(cfg):
                   scenario="GLA aspirational", budget_target="UKNZCBS", pm_group=None,
                   sc_share=dict(finishes=1.0, ffe=1.0, services=1.0), catb_allowance=None,
                   efw_route=EFW_OPTS[0], bio_standin=STANDIN_OPTS[1], grid_d1=None, grid_d1_source=None,
-                  op_route=OP_ROUTES[2], op_year=None, dh_factor=0.0)
+                  op_route=OP_ROUTES[2], op_year=None, dh_factor=0.0, occupancy=None, occ_days=None)
     params.update(cfg.get("params", {}))
     if params["op_year"] is None:
         params["op_year"] = int(params["construction_start_year"]) + 3
@@ -560,6 +573,11 @@ def build(cfg):
         ("RIBA stage", int(float(header.get("riba_stage", 2))), "", "", "STAGE"),
         ("Fit-out scope", header.get("fitout_scope", "Shell & core + Cat A"), "",
          "Benchmarks cover building-related items (shell & core + Cat A, London Plan Guidance). Cat B loose items excluded.", None),
+        ("Estimated occupancy", _num(params["occupancy"] if params["occupancy"] is not None else header.get("occupancy")), "people",
+         "Peak occupants (offices: workplaces; homes: residents; schools: pupils). Sets the water budget (B7) when there is no "
+         "public health engineer's figure: occupancy x RIBA 2025 potable water target x occupied days", "OCC"),
+        ("Occupied days per year", params["occ_days"] or OCC_DAYS.get(header.get("use_class", "Office"), 250), "days",
+         "Office 250, homes 365, schools 190 (RIBA's school target is already per pupil per year)", "OCC_DAYS"),
         ("Reference study period", params["rsp"], "yrs", "PS 4.2", "RSP"),
         ("Contingency", params["contingency"], "", "PS Table 10 - 15% at RIBA 0-2. Applied to A-C (not D, not biogenic).", "CONT"),
         ("Opaque facade build-up to route", params["facade_opaque_build_up"], "",
@@ -605,8 +623,8 @@ def build(cfg):
         ("Price & Myers structure group", pm_default, "", "Structural A1-A5 range (structure only; RICS 2017 / IStructE v2 method, ICE v3)", "PM_GROUP"),
         ("OPERATIONAL", None, None, None, None),
         ("Operational energy (B6) basis", params["op_route"], "",
-         "PS 5.3: whole life carbon needs a predictive energy model (TM54 or equivalent, never Part L). 'Indicative' uses the UKNZCBS EUI limit "
-         "x GIA as all-electric use - an early estimate, not a compliant WLC. Energy and water per option are in the options table.", "OP_ROUTE"),
+         "PS 5.3: whole life carbon needs a predictive energy model (TM54 or equivalent, never Part L). 'Indicative' uses each option's EUI estimate "
+         "(options table), else the UKNZCBS limit, x GIA as all-electric use. Energy and water per option are in the options table.", "OP_ROUTE"),
         ("First full year of operation", params["op_year"], "", "Start of the 60-year FES grid average (PS G1-G2); default construction start + 3", "OP_YEAR"),
         ("District heating carbon factor", params["dh_factor"] or 0.0, "kgCO2e/kWh",
          "Network's published factor incl. losses (PS 5.3.5); used in both scenarios unless the network publishes a projection", "F_DH"),
@@ -733,6 +751,11 @@ def build(cfg):
          "=%s+%s*%s" % (rb("WATER-SUPPLY"), rb("WASTEWATER-SHARE"), rb("WATER-TREAT")), "kgCO2e/m3", "F_W_ND"),
         ("Water, with grid decarbonisation (x decarbonisation factor, PS G4)", "=F_W_ND*DECARB", "kgCO2e/m3", "F_W_D"),
         ("UKNZCBS energy use intensity limit (construction start year)", "=" + tsum("UKNZCBS", '"UKNZCBS "&UK_YEAR', "EUI"), "kWh/m2 GIA/yr", "UK_EUI"),
+        ("RIBA 2030 Climate Challenge EUI, 2025 target", "=" + tsum("RIBA 2030", '"RIBA 2025"', "EUI"), "kWh/m2 GIA/yr", "RIBA_EUI25"),
+        ("RIBA 2030 Climate Challenge EUI, 2030 target", "=" + tsum("RIBA 2030", '"RIBA 2030"', "EUI"), "kWh/m2 GIA/yr", "RIBA_EUI30"),
+        ("RIBA 2025 potable water target", "=" + tsum("RIBA 2030", '"RIBA 2025"', "WATER_LPD"), "l/person/day", "RIBA_W_LPD"),
+        ("RIBA 2025 potable water target (per pupil, schools)", "=" + tsum("RIBA 2030", '"RIBA 2025"', "WATER_M3PY"), "m3/person/yr", "RIBA_W_M3PY"),
+        ("Water budget: occupancy x RIBA 2025 target", "=N(OCC)*(RIBA_W_LPD*OCC_DAYS/1000+RIBA_W_M3PY)", "m3/yr", "W_BUDGET"),
     ]
     for lbl, f, unit, nm in derived:
         P.cell(r, 2, lbl)
@@ -790,8 +813,10 @@ def build(cfg):
                     "Without decarbonisation: kWh x (DESNZ generation + T&D + WTT + infrastructure) x RSP; gas incl. WTT (net CV, as the RICS tables). "
                     "With decarbonisation: the FES 'Falling Behind' (successor to 'Falling Short') average over the RSP from the first year of operation, "
                     "upstream and water x (FES average / current factor), infrastructure x 0.5 (PS G4). Water: m3 x (supply + 90% x treatment). "
-                    "Whole life carbon needs a predictive energy model (PS 5.3); the 'Indicative' basis uses the UKNZCBS EUI limit x GIA and is not a compliant WLC. "
-                    "PV exported is reported in D2 (memo)."),
+                    "Whole life carbon needs a predictive energy model (PS 5.3); the 'Indicative' basis uses each option's EUI estimate, else the UKNZCBS limit, x GIA. "
+                    "Water without an engineer's figure: occupancy x RIBA 2025 potable water target x occupied days (a budget). PV exported is reported in D2 (memo). "
+                    "Material decarbonisation (PS 4.11.5 Table 15): B2-B4 and C1-C2 x 0.5, A1-A5, C3-C4 and biogenic unchanged, D x 0.5; "
+                    "the decarbonised whole life figure = decarbonised A-C + decarbonised B6 + B7."),
         ("Benchmarks", "Elements not taken off use kgCO2e/m2 GIA by use class (PS 4.5.2 method 2). Benchmark A5 is reported in A5.3. Modelled layers in a benchmarked group are dropped (no double counting)."),
         ("Contingency", "PS Table 10 percentage applied to A-C (not D, not biogenic) as a separate row."),
         ("Assumptions", "Take-off rows whose notes start with [ASSUMED] rest on office defaults (no SI, no detail yet). Takeoff column Z marks them; QA, Results and the Dashboard show how many and "
@@ -1177,10 +1202,10 @@ def build_option(wb, ctx, o):
         F["E_%d" % i] = '=IF(%s>0,SUMIFS(%s,%s,"%s")*1000/%s,0)' % (GIA, RG("I"), RG("T"), g, GIA)
     # ---- B6 / B7 (PS 5.3 / 5.4, App. G): per option; no contingency; indicative route = UKNZCBS EUI limit x GIA, all electric
     eng, ind = 'LEFT(OP_ROUTE,8)="Engineer"', 'LEFT(OP_ROUTE,10)="Indicative"'
-    E_ = "IF(%s,N(O%d_E_ELEC),IF(%s,UK_EUI*%s,0))" % (eng, k, ind, GIA)
+    E_ = "IF(%s,N(O%d_E_ELEC),IF(%s,IF(N(O%d_EUI_IN)>0,O%d_EUI_IN,UK_EUI)*%s,0))" % (eng, k, ind, k, k, GIA)
     G_, DH_ = "IF(%s,N(O%d_E_GAS),0)" % (eng, k), "IF(%s,N(O%d_E_DH),0)" % (eng, k)
     PVS_, PVX_ = "IF(%s,N(O%d_E_PVS),0)" % (eng, k), "IF(%s,N(O%d_E_PVX),0)" % (eng, k)
-    W_ = "N(O%d_W)" % k
+    W_ = "Y%d" % SUM_ROW["W_M3"]                                            # engineer's water, else the occupancy budget
     y = lambda key: "Y%d" % SUM_ROW[key]                                     # noqa: E731
     F.update({
         "EUI": '=IF(OP_ROUTE="%s","not assessed",IF(%s>0,(%s+%s+%s+%s)/%s,0))' % (OP_ROUTES[2], GIA, E_, G_, DH_, PVS_, GIA),
@@ -1191,10 +1216,14 @@ def build_option(wb, ctx, o):
         "B7_D": "=IF(%s>0,RSP*%s*F_W_D/%s,0)" % (GIA, W_, GIA),
         "D2_PV": "=IF(%s>0,-RSP*%s*FES_AVG/%s,0)" % (GIA, PVX_, GIA),
         "WLC_ND": '=IF(OP_ROUTE="%s","not assessed",%s+%s+%s)' % (OP_ROUTES[2], y("AC_ALL"), y("B6_ND"), y("B7_ND")),
-        "WLC_D": '=IF(OP_ROUTE="%s","not assessed",%s+%s+%s)' % (OP_ROUTES[2], y("AC_ALL"), y("B6_D"), y("B7_D")),
-        "OP_STATUS": ('=IF(OP_ROUTE="%s","Not assessed - embodied carbon only (no energy model)",IF(%s,"Predicted energy - whole life carbon",'
-                      '"Indicative energy (UKNZCBS limit) - not a compliant WLC"))&IF(%s=0," | B7 not assessed (no water figure)","")'
-                      % (OP_ROUTES[2], eng, W_)),
+        "WLC_D": '=IF(OP_ROUTE="%s","not assessed",%s+%s+%s)' % (OP_ROUTES[2], y("AC_DEC"), y("B6_D"), y("B7_D")),
+        "W_M3": "=IF(N(O%d_W)>0,O%d_W,W_BUDGET)" % (k, k),
+        "AC_DEC": "=IF(%s>0,(I%d+0.5*J%d+0.5*(K%d+L%d)+M%d+N%d)*%s,0)+%s" % (GIA, sub, sub, sub, sub, sub, sub, G1, BIO),
+        "D_DEC": "=IF(%s>0,0.5*P%d*1000/%s,0)" % (GIA, sub, GIA),
+        "OP_STATUS": ('=IF(OP_ROUTE="%s","Energy not assessed - embodied carbon only",IF(%s,"Energy: engineer prediction",'
+                      'IF(N(O%d_EUI_IN)>0,"Energy: indicative (EUI estimate)","Energy: indicative (UKNZCBS limit)")))'
+                      '&IF(N(O%d_W)>0," | water: engineer",IF(W_BUDGET>0," | water: indicative budget (occupancy x RIBA 2025)"," | water: not assessed"))'
+                      % (OP_ROUTES[2], eng, k, k)),
     })
     R.cell(4, 24, "Summary (read by Dashboard and Compare - do not move)").font = BOLD
     R.column_dimensions["X"].width = 12

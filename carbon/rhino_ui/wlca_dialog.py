@@ -44,9 +44,9 @@ try:
 except Exception:                      # dialog still opens if the take-off core is missing
     FRAMES = ["RC flat slab"]
 SCENARIOS = ["GLA aspirational", "GLA benchmark", "None"]
-OP_ROUTES = ["Engineer prediction (TM54)", "Indicative - UKNZCBS EUI limit", "Not assessed"]
+OP_ROUTES = ["Engineer prediction (TM54)", "Indicative - EUI estimate or UKNZCBS limit", "Not assessed"]
 OP_FIELDS = [("elec", "Grid electricity kWh"), ("gas", "Gas kWh"), ("dh", "District heat kWh"), ("pv_self", "PV used on site kWh"),
-             ("pv_export", "PV exported kWh"), ("water", "Water m³")]
+             ("pv_export", "PV exported kWh"), ("water", "Water m³"), ("eui", "Indicative EUI kWh/m²")]
 BUDGETS = ["UKNZCBS", "LETI 2030 (A)", "LETI 2020 (C)", "RIBA 2030", "GLA aspirational A1-A5", "GLA benchmark A1-A5"]
 ACCENT = drawing.Color.FromArgb(1, 100, 109)
 MUTED = drawing.Color.FromArgb(95, 99, 104)
@@ -231,7 +231,11 @@ class WLCAForm(forms.Form):
                  label("Construction start year"), textbox(p["start_year"], self.setter(p, "start_year", lambda v: int(num(v, 2027)))))
         L.AddRow(label("Existing GIA demolished (m²)"), textbox(p["demolished_gia_m2"], self.setter(p, "demolished_gia_m2", lambda v: num(v, 0.0))),
                  label("Assessor"), textbox(p["assessor"], self.setter(p, "assessor")))
+        L.AddRow(label("Estimated occupancy (people)"), textbox(p.get("occupancy") or "", self.setter(p, "occupancy", lambda v: num(v, None))),
+                 label("Occupied days per year"), textbox(p.get("occ_days") or "", self.setter(p, "occ_days", lambda v: num(v, None))))
         L.EndVertical()
+        L.AddRow(label("Occupancy sets the project's water budget (B7) against the RIBA 2030 Climate Challenge potable water target: workplaces for "
+                       "offices, residents for homes, pupils for schools. Days default to 250 (office), 365 (homes), 190 (schools).", muted=True))
         section(L, "Design options")
         L.AddRow(label("Each option is one massing layer in this file, or another .3dm. Facade and structure are set per option "
                        "on steps 3 and 4, so options can share a massing.", muted=True))
@@ -546,13 +550,15 @@ class WLCAForm(forms.Form):
         section(L, "Operational energy and water (B6 / B7)")
         op = self.state.setdefault("operational", {"route": "Not assessed", "op_year": None, "dh_factor": 0.0})
         L.AddRow(label("Whole life carbon needs a predictive energy model (CIBSE TM54 or equivalent - never Part L). Without one, the "
-                       "'Indicative' basis uses the UKNZCBS energy limit x GIA (all electric) and is labelled not compliant.", muted=True))
+                       "'Indicative' basis uses each option's EUI estimate, else the UKNZCBS limit, x GIA (all electric).", muted=True))
+        if (op.get("route") or "").startswith("Indicative") and op["route"] != OP_ROUTES[1]:
+            op["route"] = OP_ROUTES[1]                     # older saves used a shorter label
         L.BeginVertical(None, drawing.Size(12, 6))
         L.AddRow(label("Basis"), dropdown(OP_ROUTES, op.get("route") or OP_ROUTES[2], self._set_op_route, width=300),
                  label("First year of operation"), textbox(op.get("op_year") or "", self.setter(op, "op_year", lambda v: num(v, None)), width=70),
                  label("District heat factor (kgCO2e/kWh)"), textbox(op.get("dh_factor") or "", self.setter(op, "dh_factor", lambda v: num(v, 0.0)), width=70))
         L.EndVertical()
-        if (op.get("route") or "").startswith("Engineer") or any(any((o.get("operational") or {}).values()) for o in self.state["options"]):
+        if (op.get("route") or "Not assessed") != "Not assessed" or any(any((o.get("operational") or {}).values()) for o in self.state["options"]):
             L.BeginVertical(None, drawing.Size(8, 4))
             L.AddRow(*([label("Per year", muted=True)] + [label(lbl_, muted=True) for _, lbl_ in OP_FIELDS] + [None]))
             for o in [o for o in self.state["options"] if o["include"]]:
@@ -561,8 +567,9 @@ class WLCAForm(forms.Form):
                                                                      self.setter(ov, k, lambda v: num(str(v).replace(",", ""), None)), width=95)
                                                              for k, _ in OP_FIELDS] + [None]))
             L.EndVertical()
-            L.AddRow(label("From the energy model (TM54 mid-range) and the public health engineer. PV used on site counts in the energy use "
-                           "intensity at no carbon; PV exported is reported in D2.", muted=True))
+            L.AddRow(label("Engineer basis: kWh from the energy model (TM54 mid-range). Indicative basis: only the EUI column is used (blank = "
+                           "UKNZCBS limit). Water from the public health engineer; blank = occupancy x RIBA 2025 target. PV used on site counts in "
+                           "the EUI at no carbon; PV exported is reported in D2.", muted=True))
         section(L, "Where to save")
         out = self.state["output"]
         L.BeginVertical(None, drawing.Size(8, 6))
