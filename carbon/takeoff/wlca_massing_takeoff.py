@@ -103,7 +103,8 @@ CONFIG = {
 
     # --- structure (v0.3): drawing route via plan_json, or numeric route; first match wins ---
     "structure": {
-        "plan_json": None,                   # output of WLCA_plan_extract (typical floor)
+        "plan_json": None,                   # typical floor plan: WLCA_plan_extract (PDF) or wlca_plan_rhino (Rhino layers)
+        "core_wall_thickness_m": 0.25,       # thickness of the core wall build-up; plan walls are scaled to their measured thickness
         "core_wall_length_m_per_floor": None,
         "core_area_m2": None,                # else core_area_pct_gia x typical GIA, else schedule typical GIA - NIA
         "core_area_pct_gia": None,

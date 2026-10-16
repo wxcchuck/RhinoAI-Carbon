@@ -303,8 +303,8 @@ class WLCAForm(forms.Form):
         L.AddRow(self.schedule_preview())
         section(L, "Typical floor plan (cores, columns, stairs)")
         pl = self.state["plan"]
-        routes = ["None - use office defaults", "PDF plan extract (.json)", "Plan in Rhino (next release)"]
-        cur = {"none": routes[0], "pdf": routes[1], "rhino": routes[2]}.get(pl["route"], routes[0])
+        routes = ["Plan in Rhino (layers)", "PDF plan extract (.json)", "None - use office defaults"]
+        cur = {"rhino": routes[0], "pdf": routes[1], "none": routes[2]}.get(pl["route"], routes[0])
         L.AddRow(dropdown(routes, cur, self._set_plan_route, width=320), None)
         if pl["route"] == "pdf":
             L.BeginVertical(None, drawing.Size(8, 6))
@@ -312,8 +312,70 @@ class WLCAForm(forms.Form):
             L.EndVertical()
             L.AddRow(label("Output of the plan extractor (WLCA_plan_extract). Check its overlay image before using it.", muted=True))
         elif pl["route"] == "rhino":
-            L.AddRow(label("Reading the plan straight from Rhino curves comes in the next release. Put the plan on its own layer "
-                           "at true scale in model units; it can sit anywhere in the model.", color=WARN))
+            L.AddRow(label("Import or paste the typical floor plan (DWG, DGN or .3dm linework) into this model at true scale - it can sit "
+                           "anywhere. The layers below fill themselves from the office layer names and the shapes on each layer; "
+                           "change one only if it is wrong. Walls and columns may share a layer.", muted=True))
+            if not (pl.get("walls_layer") or pl.get("columns_layer") or pl.get("stairs_layer")):
+                self.find_plan_layers(refresh=False)
+            names = ["(none)"] + self.all_layers()
+            L.BeginVertical(None, drawing.Size(8, 6))
+            for key, lbl in (("walls_layer", "Core walls"), ("columns_layer", "Columns"), ("stairs_layer", "Stairs")):
+                cur = pl.get(key) if pl.get(key) in names else "(none)"
+                L.AddRow(label(lbl), dropdown(names, cur, self._set_plan_layer(key), width=420), None)
+            L.EndVertical()
+            L.AddRow(button("Find layers again", self.find_plan_layers), button("Read plan", self.read_plan, primary=True), None)
+            for line in pl.get("summary") or []:
+                L.AddRow(label(line, color=WARN if line.startswith(("No ", "Units")) else MUTED))
+
+    def _set_plan_layer(self, key):
+        def f(v):
+            self.state["plan"][key] = "" if v == "(none)" else v
+            self.state["plan"]["summary"], self.state["plan"]["json"] = [], ""
+            self.save()
+        return f
+
+    def plan_module(self):
+        import wlca_plan_rhino as pr
+        return pr
+
+    def find_plan_layers(self, refresh=True):
+        try:
+            pr = self.plan_module()
+            pick, sc = pr.suggest_layers(pr.all_layer_shapes(self.doc), (self.office or {}).get("plan_layer_patterns"),
+                                         (self.office or {}).get("plan_reader"))
+            pl = self.state["plan"]
+            pl["walls_layer"], pl["columns_layer"], pl["stairs_layer"] = pick["walls"], pick["columns"], pick["stairs"]
+            pl["summary"] = ["Layers proposed: " + "; ".join("%s %s" % (r, "'%s' (%d)" % (pick[r], sc[pick[r]][i]) if pick[r] else "not found")
+                                                          for r, i in (("walls", 0), ("columns", 1), ("stairs", 2))) + ". Press Read plan to measure."]
+            pl["json"] = ""
+            self.save()
+        except Exception as e:
+            self.state["plan"]["summary"] = ["Plan layers could not be scanned: %s" % e]
+        if refresh:
+            self.refresh()
+
+    def read_plan(self, refresh=True):
+        """Measure the plan, highlight what was counted and write the json the take-off reads. Returns the path or None."""
+        pl = self.state["plan"]
+        try:
+            pr = self.plan_module()
+            plan, ids, notes = pr.read_plan(self.doc, pl.get("walls_layer"), pl.get("columns_layer") or None,
+                                            pl.get("stairs_layer") or None, cfg=(self.office or {}).get("plan_reader"))
+            folder = os.path.join(self.state["output"]["folder"] or os.path.dirname(self.doc.Path or "") or ".", "takeoff")
+            os.makedirs(folder, exist_ok=True)
+            path = os.path.join(folder, "plan_rhino.json")
+            import json
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(plan, f, indent=1)
+            pl["json"] = path
+            n = pr.highlight(self.doc, ids)
+            pl["summary"] = ws.plan_summary(plan, notes) + ["%d objects counted are selected in Rhino - check them. Saved: %s" % (n, path)]
+        except Exception as e:
+            pl["json"], pl["summary"] = "", ["Plan could not be read: %s" % e]
+        self.save()
+        if refresh:
+            self.refresh()
+        return pl["json"] or None
 
     def _set_plan_route(self, v):
         self.state["plan"]["route"] = "none" if v.startswith("None") else ("pdf" if v.startswith("PDF") else "rhino")
@@ -566,6 +628,10 @@ class WLCAForm(forms.Form):
             self.refresh()
             return
         os.makedirs(os.path.join(self.state["output"]["folder"], "takeoff"), exist_ok=True)
+        pl = self.state["plan"]
+        if pl.get("route") == "rhino" and (pl.get("walls_layer") or pl.get("columns_layer")):
+            if not self.read_plan(refresh=False):         # re-read: the plan may have changed since step 2
+                self.messages.append("Plan: " + " ".join(pl.get("summary") or []))
         cols = []
         for o in [o for o in self.state["options"] if o["include"]]:
             tmp_ids = []
@@ -581,7 +647,8 @@ class WLCAForm(forms.Form):
                                          opaque_code=cfg["build_ups"]["facade_opaque"])
                 ws.write_export(csv, h2, r2)
                 self.exports.append((o, csv))
-                glaz = sum(float(r["quantity"]) for r in r2 if str(r["nrm_code"]) == "2.5.2" and r["unit"] == "m2")
+                glaz = sum(float(r["quantity"]) for r in r2 if r["unit"] == "m2" and (str(r["nrm_code"]) == "2.5.2" or
+                           (str(r["nrm_code"]) == "2.6" and "windows:" in str(r.get("notes", "")))))
                 asm = sum(1 for r in r2 if str(r.get("notes", "")).startswith("[ASSUMED]"))
                 cols.append([geom["gia_m2"], geom["facade_total_m2"], glaz, geom["horizontals"].get("upper", 0), "%d of %d" % (asm, len(r2))])
                 for w in geom.get("warnings", []):

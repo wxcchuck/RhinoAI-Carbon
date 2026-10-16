@@ -111,7 +111,9 @@ def test_structure_plan_route_and_overrides(schedule, defaults):
     rows, info = core.structure_rows(_lv_all(schedule), plan, S, "Derived", w)
     assert info["core_wall_m_per_floor"] == 150.0
     assert info["columns_per_m2"] == round(12 / (1100 - 260), 5)
-    assert any("0.35 m thick" in m for m in w)       # thicker than the 250 mm build-up
+    assert any("350 mm thick vs 250 mm" in m for m in w)   # thicker than the 250 mm build-up: warned and scaled
+    q = [r for r in rows if r[1] == "core_wall"][0][2]
+    assert q == pytest.approx(150.0 * sum(x[1] for x in _lv_all(schedule)) * 0.35 / 0.25)
     assert any("Plan columns 0.60" in m for m in w)  # smaller than column_size_m 0.75
     S.update(core_wall_length_m_per_floor=99.0, column_count_per_floor=10)
     rows, info = core.structure_rows(_lv_all(schedule), plan, S, "Derived", [])

@@ -134,3 +134,21 @@ def test_mixed_export_builds_workbook(tmp_path):
     got = sorted((T.cell(r, 3).value, T.cell(r, 2).value, T.cell(r, 4).value) for r in range(5, 12) if T.cell(r, 3).value)
     # net facade = 500 (PANEL) + 200 (OPQ) = 700: PANEL 350 + 0.5 x 0.2 x 700 = 70 (windows -> 2.6); OPQ 0.5 x 0.8 x 700 = 280
     assert ("OPQ", "2.5.1", 280.0) in got and ("PANEL", "2.5.2", 350.0) in got and ("PANEL", "2.6", 70.0) in got
+
+
+def test_plan_route_rhino_feeds_the_takeoff():
+    st = ws.default_state()
+    assert st["plan"]["route"] == "rhino"                                  # D5: Rhino layers are the default route
+    st["project"]["name"], st["output"]["folder"] = "P", "out"
+    st["options"] = [ws.default_option("A", layer="L")]
+    assert any("No plan" in m for lv, m in ws.validate(st, {}))           # nothing picked yet: office defaults, warned
+    st["plan"].update(walls_layer="EF_25 walls", json="out/takeoff/plan_rhino.json")
+    assert not any("No plan" in m for lv, m in ws.validate(st, {}))
+    cfg = ws.takeoff_config(st, st["options"][0], {}, {"structure": {}, "build_ups": {}})
+    assert cfg["structure"]["plan_json"] == "out/takeoff/plan_rhino.json"
+    plan = {"core": {"wall_length_m_per_floor": 137.1, "mean_thickness_m": 0.291, "pieces": 30},
+            "columns": {"count_per_floor": 20, "size_m": 0.75, "shapes": ["circle"]},
+            "stairs": {"count": 2, "flights_per_stair": [2, 2], "treads_per_flight": [11] * 4, "flight_width_m": 1.25, "going_m": 0.25}}
+    lines = ws.plan_summary(plan, ["Floor plate: ..."])
+    assert lines[0] == "Core walls: 137 m per floor, 291 mm average (30 pieces)"
+    assert lines[1] == "Columns: 20 per floor, 0.75 m circle" and lines[2].startswith("Stairs: 2 - 2/2 flights, 11 treads")
