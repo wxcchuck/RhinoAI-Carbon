@@ -140,7 +140,20 @@ SUMMARY = [
     ("UK_LIM", "UKNZCBS upfront limit, whole building (construction start year)", "kgCO2e/m2"),
     ("UK_LIM_SC", "UKNZCBS upfront limit, offices shell & core", "kgCO2e/m2"), ("LETI_UP", "LETI upfront band", ""),
     ("LETI_LC", "LETI life-cycle band", ""), ("QA_FLAGS", "QA flags open", ""), ("NAME", "Option", ""),
+    # operational energy and water (PS 5.3 / 5.4): no contingency; both grid scenarios always reported (PS 4.11.4)
+    ("EUI", "Energy use intensity incl. on-site PV used", "kWh/m2 GIA/yr"), ("EUI_LIM", "UKNZCBS EUI limit (construction start year)", "kWh/m2 GIA/yr"),
+    ("B6_ND", "B6 operational energy over the RSP, without grid decarbonisation", "kgCO2e/m2"),
+    ("B6_D", "B6 operational energy over the RSP, with grid decarbonisation (FES)", "kgCO2e/m2"),
+    ("B7_ND", "B7 operational water over the RSP, without grid decarbonisation", "kgCO2e/m2"),
+    ("B7_D", "B7 operational water over the RSP, with grid decarbonisation (FES)", "kgCO2e/m2"),
+    ("D2_PV", "D2 exported PV over the RSP (memo, decarbonised grid)", "kgCO2e/m2"),
+    ("WLC_ND", "Whole life carbon A-C + B6 + B7, without grid decarbonisation", "kgCO2e/m2"),
+    ("WLC_D", "Whole life carbon A-C + B6 + B7, with grid decarbonisation (FES)", "kgCO2e/m2"),
+    ("OP_STATUS", "Operational basis", ""),
 ]
+OP_ROUTES = ("Engineer prediction (TM54)", "Indicative - UKNZCBS EUI limit", "Not assessed")
+OP_KEYS = (("elec", "Grid electricity (kWh/yr)", "E_ELEC"), ("gas", "Natural gas (kWh/yr)", "E_GAS"), ("dh", "District heat (kWh/yr)", "E_DH"),
+           ("pv_self", "PV used on site (kWh/yr)", "E_PVS"), ("pv_export", "PV exported (kWh/yr)", "E_PVX"), ("water", "Water (m3/yr)", "W"))
 SUM_ROW = dict((k, 5 + i) for i, (k, _, _) in enumerate(SUMMARY))     # row of each key on O<k>_Results (cols X:Z)
 
 
@@ -293,7 +306,8 @@ def options_from_cfg(cfg):
     for i, o in enumerate(opts, start=1):
         header, rows = read_export(o["takeoff_csv"])
         out.append(dict(k=i, name=o.get("name") or header.get("model_version") or "Option %d" % i,
-                        csv=o["takeoff_csv"], header=header, rows=rows, facade_route=o.get("facade_route")))
+                        csv=o["takeoff_csv"], header=header, rows=rows, facade_route=o.get("facade_route"),
+                        operational=o.get("operational") or {}))
     return out
 
 
@@ -326,8 +340,11 @@ def build(cfg):
                   construction_start_year=2027, show_targets=dict(UKNZCBS="Y", LETI="Y", RIBA="Y", GLA="Y"),
                   scenario="GLA aspirational", budget_target="UKNZCBS", pm_group=None,
                   sc_share=dict(finishes=1.0, ffe=1.0, services=1.0), catb_allowance=None,
-                  efw_route=EFW_OPTS[0], bio_standin=STANDIN_OPTS[1], grid_d1=None, grid_d1_source=None)
+                  efw_route=EFW_OPTS[0], bio_standin=STANDIN_OPTS[1], grid_d1=None, grid_d1_source=None,
+                  op_route=OP_ROUTES[2], op_year=None, dh_factor=0.0)
     params.update(cfg.get("params", {}))
+    if params["op_year"] is None:
+        params["op_year"] = int(params["construction_start_year"]) + 3
     if params["grid_d1"] is None:
         # the library's REF_T27_D1 carries the grid factor next to Table 27 ("Grid carbon factor" row)
         params["grid_d1"], params["grid_d1_source"] = grid_from_library(lib)
@@ -342,7 +359,7 @@ def build(cfg):
     for nm in ["Materials", "Layers", "Buildups", "Benchmarks", "Targets"]:
         wb.create_sheet(nm)
     for nm in ["Rebar_Rates", "Offsite_Params", "REF_T17_Transport", "REF_T18_Waste", "REF_T20_ServiceLife",
-               "REF_T23_EoL", "REF_T28_C4", "REF_T27_D1", "REF_Vehicles"]:
+               "REF_T23_EoL", "REF_T28_C4", "REF_T27_D1", "REF_B6B7", "REF_Vehicles"]:
         if nm not in lib.sheetnames:
             if nm == "Offsite_Params":
                 raise ValueError("Library has no Offsite_Params sheet (needs library v0.8+)")
@@ -586,16 +603,24 @@ def build(cfg):
          "Scenario only - never the headline. Benchmarked elements re-run at GLA aspirational / GLA benchmark per module group", "SCN"),
         ("Budget target", params["budget_target"], "", "Carbon budget chart: target minus modelled + site = what is left for elements not yet designed", "BUD"),
         ("Price & Myers structure group", pm_default, "", "Structural A1-A5 range (structure only; RICS 2017 / IStructE v2 method, ICE v3)", "PM_GROUP"),
+        ("OPERATIONAL", None, None, None, None),
+        ("Operational energy (B6) basis", params["op_route"], "",
+         "PS 5.3: whole life carbon needs a predictive energy model (TM54 or equivalent, never Part L). 'Indicative' uses the UKNZCBS EUI limit "
+         "x GIA as all-electric use - an early estimate, not a compliant WLC. Energy and water per option are in the options table.", "OP_ROUTE"),
+        ("First full year of operation", params["op_year"], "", "Start of the 60-year FES grid average (PS G1-G2); default construction start + 3", "OP_YEAR"),
+        ("District heating carbon factor", params["dh_factor"] or 0.0, "kgCO2e/kWh",
+         "Network's published factor incl. losses (PS 5.3.5); used in both scenarios unless the network publishes a projection", "F_DH"),
     ]
     head(P, 4, ["", "Input", "Value", "Unit", "Note / source"], [3, 44, 24, 22, 110])
     r = 5
     lists = {"USE": ",".join(use_classes), "BM_C1": "Exclude,Include",
              "SH_UK": "Y,N", "SH_LETI": "Y,N", "SH_RIBA": "Y,N", "SH_GLA": "Y,N", "SCN": "GLA aspirational,GLA benchmark,None",
              "BUD": "UKNZCBS,LETI 2030 (A),LETI 2020 (C),RIBA 2030,GLA aspirational A1-A5,GLA benchmark A1-A5",
-             "PM_GROUP": ",".join(pm_groups), "EFW": ",".join(EFW_OPTS), "BIO_STANDIN": ",".join(STANDIN_OPTS)}
+             "PM_GROUP": ",".join(pm_groups), "EFW": ",".join(EFW_OPTS), "BIO_STANDIN": ",".join(STANDIN_OPTS),
+             "OP_ROUTE": ",".join(OP_ROUTES)}
     for lbl, val, unit, note, nm in items:
-        if lbl == "TARGETS":
-            P.cell(r, 2, "Targets and benchmarking").font = BOLD
+        if lbl in ("TARGETS", "OPERATIONAL"):
+            P.cell(r, 2, {"TARGETS": "Targets and benchmarking", "OPERATIONAL": "Operational energy and water (B6 / B7)"}[lbl]).font = BOLD
             r += 1
             continue
         P.cell(r, 2, lbl)
@@ -621,7 +646,8 @@ def build(cfg):
                      "build-up (CW_BU), reported in 2.5.2 (spandrels are part of the system); 'As exported' keeps the take-off split.")
     fv = DataValidation(type="list", formula1='"Unitised curtain wall,As exported"')
     P.add_data_validation(fv)
-    for c, h in enumerate(["#", "Option name", "GIA (m2)", "Existing GIA demolished (m2)", "Facade route", "Take-off export / GIA source"], start=1):
+    for c, h in enumerate(["#", "Option name", "GIA (m2)", "Existing GIA demolished (m2)", "Facade route", "Take-off export / GIA source"]
+                          + [lbl_ for _, lbl_, _ in OP_KEYS], start=1):
         x = P.cell(r, c, h)
         x.font, x.fill = BOLD, HEAD
     r += 1
@@ -639,6 +665,12 @@ def build(cfg):
         name(wb, "O%d_GIA" % o["k"], "Project!$C$%d" % r)
         name(wb, "O%d_GIA_DEMO" % o["k"], "Project!$D$%d" % r)
         name(wb, "O%d_FACADE" % o["k"], "Project!$E$%d" % r)
+        for j, (key_, _, nm_) in enumerate(OP_KEYS):          # B6 / B7 inputs per option (engineer's prediction route)
+            v_ = o["operational"].get(key_)
+            c_ = P.cell(r, 7 + j, float(v_) if v_ not in (None, "") else None)
+            c_.fill = INPUT
+            c_.number_format = "#,##0"
+            name(wb, "O%d_%s" % (o["k"], nm_), "Project!$%s$%d" % (get_column_letter(7 + j), r))
         r += 1
     opt_last = r - 1
     name(wb, "OPT_NAMES", "Project!$B$%d:$B$%d" % (opt_first, opt_last))
@@ -650,6 +682,13 @@ def build(cfg):
     tsum = lambda scheme, target, metric: ('SUMIFS(%s,%s,"%s",%s,%s,%s,USE,%s,"%s")'                          # noqa: E731
                                           % (TGc("F"), TGc("A"), scheme, TGc("B"), target, TGc("C"), TGc("E"), metric))
     gla = lambda tier, metric: tsum("GLA", '"GLA %s"' % tier, metric)                                         # noqa: E731
+    rb = lambda id_: 'IFERROR(INDEX(REF_B6B7!$C:$C,MATCH("%s",REF_B6B7!$A:$A,0))*1,0)' % id_                    # noqa: E731
+    # FES average over the RSP (PS G1-G2): years before the series take its first value, after 2050 its last
+    fy, fv = "REF_B6B7!$G$5:$G$60", "REF_B6B7!$H$5:$H$60"
+    FES_AVG_F = ("=IFERROR((SUMPRODUCT((%s>=OP_YEAR)*(%s<=OP_YEAR+RSP-1)*%s)"
+                 "+MAX(0,OP_YEAR+RSP-1-MAX(%s))*INDEX(%s,MATCH(MAX(%s),%s,0))"
+                 "+MAX(0,MIN(%s)-OP_YEAR)*INDEX(%s,MATCH(MIN(%s),%s,0)))/RSP,0)"
+                 % (fy, fy, fv, fy, fv, fy, fy, fy, fv, fy, fy))
     derived = [
         ("A4 vehicle payload", veh("VEH_A4", "C"), "t", "V1_PAY"),
         ("A4 vehicle volume", veh("VEH_A4", "D"), "m3", "V1_VOL"),
@@ -680,6 +719,20 @@ def build(cfg):
         ("P&M structure A1-C4 P25", '=SUMIFS(%s,%s,PM_GROUP)' % (TGp("AE"), TGp("W")), "kgCO2e/m2", "PM_C25"),
         ("P&M structure A1-C4 median", '=SUMIFS(%s,%s,PM_GROUP)' % (TGp("AF"), TGp("W")), "kgCO2e/m2", "PM_C50"),
         ("P&M structure A1-C4 P75", '=SUMIFS(%s,%s,PM_GROUP)' % (TGp("AG"), TGp("W")), "kgCO2e/m2", "PM_C75"),
+        # ---- B6 / B7 factor sets (RICS set 1; REF_B6B7 from the library)
+        ("FES grid factor, average over the RSP from the first year of operation", FES_AVG_F, "kgCO2/kWh", "FES_AVG"),
+        ("Energy decarbonisation factor (FES average / current generation factor)", "=IFERROR(FES_AVG/%s,0)" % rb("ELEC-GEN"), "", "DECARB"),
+        ("Electricity, without grid decarbonisation (gen + T&D + WTT + infrastructure)",
+         "=%s+%s+%s+%s+%s+%s" % tuple(rb(x) for x in ("ELEC-GEN", "ELEC-TD", "ELEC-WTT-GEN", "ELEC-WTT-TD", "ELEC-INFRA", "ELEC-INFRA-TD")), "kgCO2e/kWh", "F_E_ND"),
+        ("Electricity, with grid decarbonisation (FES; upstream x decarbonisation; infrastructure x 0.5)",
+         "=FES_AVG+(%s+%s+%s)*DECARB+(%s+%s)*%s" % tuple(rb(x) for x in ("ELEC-TD", "ELEC-WTT-GEN", "ELEC-WTT-TD", "ELEC-INFRA", "ELEC-INFRA-TD", "EMB-DECARB")),
+         "kgCO2e/kWh", "F_E_D"),
+        ("Natural gas, without grid decarbonisation (combustion + WTT)", "=%s+%s" % (rb("GAS"), rb("GAS-WTT")), "kgCO2e/kWh", "F_G_ND"),
+        ("Natural gas, with grid decarbonisation (WTT decarbonised)", "=%s+%s*DECARB" % (rb("GAS"), rb("GAS-WTT")), "kgCO2e/kWh", "F_G_D"),
+        ("Water, without grid decarbonisation (supply + wastewater share x treatment)",
+         "=%s+%s*%s" % (rb("WATER-SUPPLY"), rb("WASTEWATER-SHARE"), rb("WATER-TREAT")), "kgCO2e/m3", "F_W_ND"),
+        ("Water, with grid decarbonisation (x decarbonisation factor, PS G4)", "=F_W_ND*DECARB", "kgCO2e/m3", "F_W_D"),
+        ("UKNZCBS energy use intensity limit (construction start year)", "=" + tsum("UKNZCBS", '"UKNZCBS "&UK_YEAR', "EUI"), "kWh/m2 GIA/yr", "UK_EUI"),
     ]
     for lbl, f, unit, nm in derived:
         P.cell(r, 2, lbl)
@@ -733,6 +786,12 @@ def build(cfg):
                   "Library C3 / C4 values replace the defaults and must already be adjusted to the project route shares."),
         ("D", "Memo only, never in A-C. Library value per kg where given (metals); otherwise D1 energy recovery = "
               "-incinerated share x Table 27 electricity (kWh/t) x grid factor (PS Annex K example 2c; heat not counted)."),
+        ("B6 / B7", "Operational energy and water per option (options table), both grid scenarios always reported (PS 4.11.4), no contingency. "
+                    "Without decarbonisation: kWh x (DESNZ generation + T&D + WTT + infrastructure) x RSP; gas incl. WTT (net CV, as the RICS tables). "
+                    "With decarbonisation: the FES 'Falling Behind' (successor to 'Falling Short') average over the RSP from the first year of operation, "
+                    "upstream and water x (FES average / current factor), infrastructure x 0.5 (PS G4). Water: m3 x (supply + 90% x treatment). "
+                    "Whole life carbon needs a predictive energy model (PS 5.3); the 'Indicative' basis uses the UKNZCBS EUI limit x GIA and is not a compliant WLC. "
+                    "PV exported is reported in D2 (memo)."),
         ("Benchmarks", "Elements not taken off use kgCO2e/m2 GIA by use class (PS 4.5.2 method 2). Benchmark A5 is reported in A5.3. Modelled layers in a benchmarked group are dropped (no double counting)."),
         ("Contingency", "PS Table 10 percentage applied to A-C (not D, not biogenic) as a separate row."),
         ("Assumptions", "Take-off rows whose notes start with [ASSUMED] rest on office defaults (no SI, no detail yet). Takeoff column Z marks them; QA, Results and the Dashboard show how many and "
@@ -1116,6 +1175,27 @@ def build_option(wb, ctx, o):
     }
     for i, g in enumerate(GROUPS):
         F["E_%d" % i] = '=IF(%s>0,SUMIFS(%s,%s,"%s")*1000/%s,0)' % (GIA, RG("I"), RG("T"), g, GIA)
+    # ---- B6 / B7 (PS 5.3 / 5.4, App. G): per option; no contingency; indicative route = UKNZCBS EUI limit x GIA, all electric
+    eng, ind = 'LEFT(OP_ROUTE,8)="Engineer"', 'LEFT(OP_ROUTE,10)="Indicative"'
+    E_ = "IF(%s,N(O%d_E_ELEC),IF(%s,UK_EUI*%s,0))" % (eng, k, ind, GIA)
+    G_, DH_ = "IF(%s,N(O%d_E_GAS),0)" % (eng, k), "IF(%s,N(O%d_E_DH),0)" % (eng, k)
+    PVS_, PVX_ = "IF(%s,N(O%d_E_PVS),0)" % (eng, k), "IF(%s,N(O%d_E_PVX),0)" % (eng, k)
+    W_ = "N(O%d_W)" % k
+    y = lambda key: "Y%d" % SUM_ROW[key]                                     # noqa: E731
+    F.update({
+        "EUI": '=IF(OP_ROUTE="%s","not assessed",IF(%s>0,(%s+%s+%s+%s)/%s,0))' % (OP_ROUTES[2], GIA, E_, G_, DH_, PVS_, GIA),
+        "EUI_LIM": "=UK_EUI",
+        "B6_ND": "=IF(%s>0,RSP*(%s*F_E_ND+%s*F_G_ND+%s*F_DH)/%s,0)" % (GIA, E_, G_, DH_, GIA),
+        "B6_D": "=IF(%s>0,RSP*(%s*F_E_D+%s*F_G_D+%s*F_DH)/%s,0)" % (GIA, E_, G_, DH_, GIA),
+        "B7_ND": "=IF(%s>0,RSP*%s*F_W_ND/%s,0)" % (GIA, W_, GIA),
+        "B7_D": "=IF(%s>0,RSP*%s*F_W_D/%s,0)" % (GIA, W_, GIA),
+        "D2_PV": "=IF(%s>0,-RSP*%s*FES_AVG/%s,0)" % (GIA, PVX_, GIA),
+        "WLC_ND": '=IF(OP_ROUTE="%s","not assessed",%s+%s+%s)' % (OP_ROUTES[2], y("AC_ALL"), y("B6_ND"), y("B7_ND")),
+        "WLC_D": '=IF(OP_ROUTE="%s","not assessed",%s+%s+%s)' % (OP_ROUTES[2], y("AC_ALL"), y("B6_D"), y("B7_D")),
+        "OP_STATUS": ('=IF(OP_ROUTE="%s","Not assessed - embodied carbon only (no energy model)",IF(%s,"Predicted energy - whole life carbon",'
+                      '"Indicative energy (UKNZCBS limit) - not a compliant WLC"))&IF(%s=0," | B7 not assessed (no water figure)","")'
+                      % (OP_ROUTES[2], eng, W_)),
+    })
     R.cell(4, 24, "Summary (read by Dashboard and Compare - do not move)").font = BOLD
     R.column_dimensions["X"].width = 12
     R.column_dimensions["Y"].width = 12

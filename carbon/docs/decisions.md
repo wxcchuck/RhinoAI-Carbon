@@ -138,3 +138,13 @@ All of these run on office assumptions until project information replaces them: 
 | F4 | PF's C25/30 topping and deck concrete uses the C32/40 factor (no C25/30 in the library - slightly high) | Assumed |
 | P1 | Building-level results are reported to 2 significant figures at RIBA 0-2 and 3 from RIBA 3 (PS 6.1.4): Results headline, Dashboard tiles, targets table, budget, Compare totals. Element-level figures stay as calculated. Pass / fail against targets is judged on the unrounded values | Confirmed |
 
+
+## Operational energy and water (B6 / B7, calculation template)
+
+| # | Decision | Status |
+|---|---|---|
+| O1 | B6 needs a predictive energy model (PS 5.3: CIBSE TM54 or equivalent, never Part L): annual kWh by fuel per option (grid electricity, gas, district heat, PV used on site, PV exported) and water m³/yr. Without one, the "Indicative" basis takes the UKNZCBS EUI limit for the construction start year × GIA as all-electric use, and the workbook labels the whole-life figure "not a compliant WLC" (PS 3.8 / 4.1). Default: not assessed (embodied only) | Confirmed (XW 16/10/2026) |
+| O2 | RICS factor set 1, both scenarios always reported (PS 4.11.4). Without decarbonisation: electricity = generation + T&D + WTT (generation and T&D) + infrastructure (0.020 + 0.0004); gas = combustion + WTT on net CV (as the RICS supplementary tables); latest DESNZ set. With decarbonisation: NESO FES most conservative pathway (FES 2025 "Falling Behind", successor to "Falling Short"), excl. BECCS, averaged over the RSP from the first year of operation and held at 2050 beyond (PS G2); upstream, T&D and gas WTT × energy decarbonisation factor (FES average / current generation factor); infrastructure × 0.5 (PS G4). District heat uses the network's factor in both scenarios | Confirmed (XW 16/10/2026) |
+| O3 | B7 = water m³/yr × (supply + 90% × treatment) × RSP, and × the energy decarbonisation factor with decarbonisation (PS 4.11.4, G4). Without a water figure, B7 is reported "not assessed"; office water defaults (BSRIA / BREEAM) to follow when the documents are in Resources | Confirmed (XW 16/10/2026) |
+| O4 | No contingency on B6 / B7 (the PS Table 10 contingency covers embodied carbon); whole life = A-C (incl. contingency) + B6 + B7. PV used on site counts in the EUI at zero carbon; PV exported is reported in D2 (memo) at the decarbonised grid factor | Confirmed (XW 16/10/2026) |
+| O5 | Energy use intensity is compared with the UKNZCBS limit for the year construction starts (Table OE-1, New Building; offices "General", residential "Flats", schools "Secondary"). LETI / RIBA operational targets to follow when their documents are in Resources | Confirmed (XW 16/10/2026) |

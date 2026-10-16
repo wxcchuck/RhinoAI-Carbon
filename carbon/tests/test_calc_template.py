@@ -458,3 +458,54 @@ def test_end_of_life_routes_ps_5_6_4(built, tmp_path):
     assert y("efw", "M_D") < y("disp", "M_D")
     assert "energy recovery assumed (R1" in got["efw"]["w"]["Dashboard"]["A10"].value
     assert "treated as disposal" in got["disp"]["w"]["Dashboard"]["A10"].value
+
+
+def _b6_library(src, dst):
+    """Invented REF_B6B7: factors, and an FES series of 0.10 kgCO2/kWh to 2034 then 0.02 to 2050 (held after 2050)."""
+    wb = openpyxl.load_workbook(src)
+    ws = wb.create_sheet("REF_B6B7")
+    for i, (k_, v_) in enumerate([("ELEC-GEN", 0.2), ("ELEC-TD", 0.02), ("ELEC-WTT-GEN", 0.04), ("ELEC-WTT-TD", 0.004),
+                                  ("ELEC-INFRA", 0.02), ("ELEC-INFRA-TD", 0.0004), ("GAS", 0.2), ("GAS-WTT", 0.03),
+                                  ("WATER-SUPPLY", 0.2), ("WATER-TREAT", 0.1), ("WASTEWATER-SHARE", 0.9), ("EMB-DECARB", 0.5)]):
+        ws.cell(5 + i, 1, k_)
+        ws.cell(5 + i, 3, v_)
+    for i, y_ in enumerate(range(2024, 2051)):
+        ws.cell(5 + i, 7, y_)
+        ws.cell(5 + i, 8, 0.10 if y_ <= 2034 else 0.02)
+    wb.save(dst)
+
+
+def test_b6_b7_both_scenarios_and_routes(built, tmp_path):
+    """PS 5.3 / 5.4 / App. G: B6 and B7 over the RSP without and with grid decarbonisation, per option, no contingency."""
+    lib2, tg = str(tmp_path / "lib_b6.xlsx"), str(tmp_path / "tg_b6.xlsx")
+    _b6_library(built["library_xlsx"], lib2)
+    _targets(tg)
+    t = openpyxl.load_workbook(tg)
+    t["Targets"].append(["UKNZCBS", "UKNZCBS 2027", "Office", 2027, "EUI", 80, "kWh/m2 GIA/yr", "invented", ""])
+    t.save(tg)
+    op = dict(elec=100000, gas=20000, pv_self=5000, pv_export=2000, water=1000)
+    got = {}
+    for route in ct.OP_ROUTES[:2]:
+        cfg = dict(built, library_xlsx=lib2, targets_xlsx=tg, out=str(tmp_path / ("b6_%s.xlsx" % route[:3])),
+                   params=dict(built["params"], op_route=route, op_year=2030, construction_start_year=2027))
+        cfg.pop("takeoff_csv")
+        cfg["options"] = [dict(name="A", takeoff_csv=built["takeoff_csv"], operational=op)]
+        ct.build(cfg).save(cfg["out"])
+        w = _calc(cfg["out"], str(tmp_path / ("c_" + route[:3])))
+        got[route[:3]] = lambda key, w=w: w["O1_Results"]["Y%d" % ct.SUM_ROW[key]].value
+    fes = (5 * 0.10 + 16 * 0.02 + 39 * 0.02) / 60                       # 2030-2089: five years at 0.10, then 0.02
+    dec = fes / 0.2
+    f_e_nd, f_e_d = 0.2844, fes + 0.064 * dec + 0.0204 * 0.5
+    f_g_nd, f_g_d, f_w_nd = 0.23, 0.2 + 0.03 * dec, 0.2 + 0.9 * 0.1
+    g = got["Eng"]
+    assert g("B6_ND") == pytest.approx(60 * (100000 * f_e_nd + 20000 * f_g_nd) / GIA, rel=1e-9)
+    assert g("B6_D") == pytest.approx(60 * (100000 * f_e_d + 20000 * f_g_d) / GIA, rel=1e-9)
+    assert g("B7_ND") == pytest.approx(60 * 1000 * f_w_nd / GIA, rel=1e-9)
+    assert g("B7_D") == pytest.approx(60 * 1000 * f_w_nd * dec / GIA, rel=1e-9)
+    assert g("EUI") == pytest.approx(125000 / GIA, rel=1e-9) and g("EUI_LIM") == 80
+    assert g("D2_PV") == pytest.approx(-60 * 2000 * fes / GIA, rel=1e-9)
+    assert g("WLC_ND") == pytest.approx(g("AC_ALL") + g("B6_ND") + g("B7_ND"), rel=1e-12)
+    assert g("OP_STATUS").startswith("Predicted energy")
+    i = got["Ind"]                                                       # UKNZCBS EUI limit x GIA, all electric; gas and PV ignored
+    assert i("B6_ND") == pytest.approx(60 * 80 * f_e_nd, rel=1e-9) and i("EUI") == pytest.approx(80)
+    assert "not a compliant WLC" in i("OP_STATUS")

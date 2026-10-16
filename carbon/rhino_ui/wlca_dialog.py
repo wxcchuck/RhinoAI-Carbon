@@ -44,6 +44,9 @@ try:
 except Exception:                      # dialog still opens if the take-off core is missing
     FRAMES = ["RC flat slab"]
 SCENARIOS = ["GLA aspirational", "GLA benchmark", "None"]
+OP_ROUTES = ["Engineer prediction (TM54)", "Indicative - UKNZCBS EUI limit", "Not assessed"]
+OP_FIELDS = [("elec", "Grid electricity kWh"), ("gas", "Gas kWh"), ("dh", "District heat kWh"), ("pv_self", "PV used on site kWh"),
+             ("pv_export", "PV exported kWh"), ("water", "Water m³")]
 BUDGETS = ["UKNZCBS", "LETI 2030 (A)", "LETI 2020 (C)", "RIBA 2030", "GLA aspirational A1-A5", "GLA benchmark A1-A5"]
 ACCENT = drawing.Color.FromArgb(1, 100, 109)
 MUTED = drawing.Color.FromArgb(95, 99, 104)
@@ -540,6 +543,26 @@ class WLCAForm(forms.Form):
         L.AddRow(label("Elements not yet designed - scenario"), dropdown(SCENARIOS, t["scenario"], self.setter(t, "scenario")),
                  label("Carbon budget against"), dropdown(BUDGETS, t["budget_target"], self.setter(t, "budget_target")))
         L.EndVertical()
+        section(L, "Operational energy and water (B6 / B7)")
+        op = self.state.setdefault("operational", {"route": "Not assessed", "op_year": None, "dh_factor": 0.0})
+        L.AddRow(label("Whole life carbon needs a predictive energy model (CIBSE TM54 or equivalent - never Part L). Without one, the "
+                       "'Indicative' basis uses the UKNZCBS energy limit x GIA (all electric) and is labelled not compliant.", muted=True))
+        L.BeginVertical(None, drawing.Size(12, 6))
+        L.AddRow(label("Basis"), dropdown(OP_ROUTES, op.get("route") or OP_ROUTES[2], self._set_op_route, width=300),
+                 label("First year of operation"), textbox(op.get("op_year") or "", self.setter(op, "op_year", lambda v: num(v, None)), width=70),
+                 label("District heat factor (kgCO2e/kWh)"), textbox(op.get("dh_factor") or "", self.setter(op, "dh_factor", lambda v: num(v, 0.0)), width=70))
+        L.EndVertical()
+        if (op.get("route") or "").startswith("Engineer") or any(any((o.get("operational") or {}).values()) for o in self.state["options"]):
+            L.BeginVertical(None, drawing.Size(8, 4))
+            L.AddRow(*([label("Per year", muted=True)] + [label(lbl_, muted=True) for _, lbl_ in OP_FIELDS] + [None]))
+            for o in [o for o in self.state["options"] if o["include"]]:
+                ov = o.setdefault("operational", {})
+                L.AddRow(*([label(o["name"], bold=True)] + [textbox("" if ov.get(k) in (None, "") else "{:,.0f}".format(ov[k]),
+                                                                     self.setter(ov, k, lambda v: num(str(v).replace(",", ""), None)), width=95)
+                                                             for k, _ in OP_FIELDS] + [None]))
+            L.EndVertical()
+            L.AddRow(label("From the energy model (TM54 mid-range) and the public health engineer. PV used on site counts in the energy use "
+                           "intensity at no carbon; PV exported is reported in D2.", muted=True))
         section(L, "Where to save")
         out = self.state["output"]
         L.BeginVertical(None, drawing.Size(8, 6))
@@ -547,6 +570,11 @@ class WLCAForm(forms.Form):
         L.EndVertical()
         L.AddRow(label("Take-off exports go to a 'takeoff' folder inside it; the workbook is saved there too. Everything set in "
                        "this dialog is written into the workbook - nothing has to be typed in Excel.", muted=True))
+
+    def _set_op_route(self, v):
+        self.state["operational"]["route"] = v
+        self.save()
+        self.refresh()
 
     def _set_share(self, key):
         def g(v):
