@@ -430,7 +430,7 @@ def test_end_of_life_routes_ps_5_6_4(built, tmp_path):
     _eol_library(built["library_xlsx"], lib2)
     assert ct.grid_from_library(openpyxl.load_workbook(lib2)) == (0.2, "invented")
     got = {}
-    for mode, extra in (("efw", {}), ("disp", {"efw_route": ct.EFW_OPTS[1]}), ("inert", {"bio_standin": ct.STANDIN_OPTS[1]})):
+    for mode, extra in (("efw", {}), ("disp", {"efw_route": ct.EFW_OPTS[1]}), ("wood", {"bio_standin": ct.STANDIN_OPTS[0]})):
         cfg = dict(built, library_xlsx=lib2, out=str(tmp_path / ("eol_%s.xlsx" % mode)),
                    params=dict(built["params"], **extra))
         ct.build(cfg).save(cfg["out"])
@@ -438,7 +438,7 @@ def test_end_of_life_routes_ps_5_6_4(built, tmp_path):
         M = w["Materials"]
         row = {M.cell(r, 1).value: r for r in range(5, 8)}
         got[mode] = dict(w=w, g=lambda c, m, M=M, row=row: M["%s%d" % (c, row[m])].value)
-    efw, disp, inert = (got[k]["g"] for k in ("efw", "disp", "inert"))
+    efw, disp, wood = (got[k]["g"] for k in ("efw", "disp", "wood"))
     # glass: 95% burnt x 2.0 in C3 + D1 = -0.95 x 560/1000 x 0.2; 5% landfilled x 1.234/1000 in C4
     assert efw("AM", "GLASS") == pytest.approx(0.95 * 2.0, rel=1e-12)
     assert efw("AN", "GLASS") == pytest.approx(0.05 * 1.234e-3, rel=1e-12)
@@ -446,10 +446,11 @@ def test_end_of_life_routes_ps_5_6_4(built, tmp_path):
     assert disp("AM", "GLASS") == pytest.approx(0, abs=1e-15)
     assert disp("AN", "GLASS") == pytest.approx(0.95 * 2.0 + 0.05 * 1.234e-3, rel=1e-12)
     assert disp("AO", "GLASS") == pytest.approx(0, abs=1e-15)
-    # bio-based stand-in on the recovered 97.5%: Table 28 wood (default) or inert; landfilled 2.5% always wood in C4
-    assert efw("AM", "CONC") == pytest.approx(0.975 * 0.9, rel=1e-12)
-    assert inert("AM", "CONC") == pytest.approx(0.975 * 1.234e-3, rel=1e-12)
-    assert efw("AN", "CONC") == inert("AN", "CONC") == pytest.approx(0.025 * 0.9, rel=1e-12)
+    # bio-based: Table 28 wood (landfill methane) on the landfilled 2.5% only; the recovered 97.5% takes the inert
+    # stand-in by default, or the wood factor with the switch
+    assert efw("AM", "CONC") == pytest.approx(0.975 * 1.234e-3, rel=1e-12)
+    assert wood("AM", "CONC") == pytest.approx(0.975 * 0.9, rel=1e-12)
+    assert efw("AN", "CONC") == wood("AN", "CONC") == pytest.approx(0.025 * 0.9, rel=1e-12)
     # library D replaces the energy-recovery estimate (steel keeps its -0.5)
     assert efw("AO", "STEEL") == pytest.approx(-0.5)
     y = lambda k, key: got[k]["w"]["O1_Results"]["Y%d" % ct.SUM_ROW[key]].value      # noqa: E731

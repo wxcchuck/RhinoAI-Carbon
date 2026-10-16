@@ -326,7 +326,7 @@ def build(cfg):
                   construction_start_year=2027, show_targets=dict(UKNZCBS="Y", LETI="Y", RIBA="Y", GLA="Y"),
                   scenario="GLA aspirational", budget_target="UKNZCBS", pm_group=None,
                   sc_share=dict(finishes=1.0, ffe=1.0, services=1.0), catb_allowance=None,
-                  efw_route=EFW_OPTS[0], bio_standin=STANDIN_OPTS[0], grid_d1=None, grid_d1_source=None)
+                  efw_route=EFW_OPTS[0], bio_standin=STANDIN_OPTS[1], grid_d1=None, grid_d1_source=None)
     params.update(cfg.get("params", {}))
     if params["grid_d1"] is None:
         # the library's REF_T27_D1 carries the grid factor next to Table 27 ("Grid carbon factor" row)
@@ -396,7 +396,7 @@ def build(cfg):
             # ---- PS 5.6.4 / 5.6.5 end of life per route (XW 16/10/2026)
             33: '=N(W{r})',
             # reuse + recycling share: processing emissions; with no EPD C3 the PS fallback is the landfill default (Table 28).
-            # Bio-based: Table 28 wood (fugitive methane) unless Project switches the stand-in to the inert factor
+            # Bio-based: the inert factor by default - Table 28 wood is landfill methane, charged on the landfilled share only
             34: ('=(AB{r}+AC{r})*IF(AND(O{r}="%s",BIO_STANDIN="%s"),'
                  'IFERROR(INDEX(REF_T28_C4!$C:$C,MATCH("%s",REF_T28_C4!$A:$A,0))*1,0),AF{r})/1000'
                  % (T28_BIO, STANDIN_OPTS[1], T28_INERT)),
@@ -567,8 +567,9 @@ def build(cfg):
         ("Grid electricity factor for D1 energy recovery", params["grid_d1"], "kgCO2e/kWh",
          params.get("grid_d1_source") or "DESNZ GHG conversion factors, UK electricity generation (excl. T&D) - latest year", "GRID_D1"),
         ("C3 stand-in for recovered bio-based material", params["bio_standin"], "",
-         "PS 5.6.4: no EPD processing data -> landfill default (Table 28). Reuse / recycling share of wood and bio-based "
-         "products: Table 28 wood factor (stricter) or the inert factor. Landfilled share always takes the wood factor in C4.", "BIO_STANDIN"),
+         "Wood and bio-based products follow the Table 23 split (e.g. engineered timber 5/35/59/1%). The Table 28 wood factor is fugitive "
+         "methane from landfill, so it applies to the landfilled share only (C4). Reused / recycled share: inert factor as the processing "
+         "stand-in (default, XW 16/10/2026); 'wood' charges methane on it too.", "BIO_STANDIN"),
         ("TARGETS", None, None, None, None),
         ("Construction start year (UKNZCBS limit year)", params["construction_start_year"], "", "UKNZCBS 4.2.5.3: limits for the year construction commences", "UK_YEAR"),
         ("Show UKNZCBS", show.get("UKNZCBS", "Y"), "", "Upfront A1-A5 excl. external works. Offices: shell & core limit (5.1.6.2) and whole-building limit (incl. Cat B + loose FF&E)", "SH_UK"),
