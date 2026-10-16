@@ -1,0 +1,118 @@
+"""Dialog state: checks, facade mix and config builders (no Rhino). Drafted by an AI agent (Claude) - review before trusting."""
+import json
+import os
+
+import pytest
+
+import wlca_state as ws
+
+OFFICE = {"facade_types": [
+    {"code": "CW", "label": "Unitised CW", "kind": ws.FACADE_UNITISED},
+    {"code": "SFS", "label": "SFS + brick", "kind": ws.FACADE_PUNCHED, "glazing_build_up": "WIN"},
+]}
+
+
+def _rows():
+    base = dict(project_id="T", method="Derived", stage="2", model_version="v", author="XX", source_layer="L", include="Y", unit="m2")
+    return [dict(base, element_id="MS-0008", nrm_code="2.5.2", build_up_code="CW", quantity="600.0", notes="glazed"),
+            dict(base, element_id="MS-0009", nrm_code="2.5.1", build_up_code="SFS", quantity="400.0", notes="opaque"),
+            dict(base, element_id="MS-0007", nrm_code="2.5.1", build_up_code="SOFFIT", quantity="83.0", notes="soffit")]
+
+
+def _option(mix):
+    o = ws.default_option("A", layer="L")
+    o["facade"] = mix
+    return o
+
+
+def test_facade_mix_splits_net_facade():
+    o = _option([{"build_up": "CW", "kind": ws.FACADE_UNITISED, "share": 0.7},
+                 {"build_up": "SFS", "kind": ws.FACADE_PUNCHED, "share": 0.3, "wwr": 0.4}])
+    out = ws.apply_facade_mix(_rows(), o, OFFICE, glazed_code="CW", opaque_code="SFS")
+    q = dict(((r["build_up_code"], r["nrm_code"]), r["quantity"]) for r in out)
+    assert q[("CW", "2.5.2")] == pytest.approx(700.0)          # 0.7 x 1000
+    assert q[("SFS", "2.5.1")] == pytest.approx(180.0)         # 0.3 x 0.6 x 1000
+    assert q[("WIN", "2.5.2")] == pytest.approx(120.0)         # 0.3 x 0.4 x 1000
+    assert q[("SOFFIT", "2.5.1")] == "83.0"                    # untouched
+    assert sum(float(r["quantity"]) for r in out if r["build_up_code"] != "SOFFIT") == pytest.approx(1000.0)
+
+
+def test_validate_flags_bad_mix_and_missing_inputs():
+    st = ws.default_state()
+    st["project"]["name"] = "P"
+    st["output"]["folder"] = "x"
+    st["options"] = [_option([{"build_up": "CW", "kind": ws.FACADE_UNITISED, "share": 0.6},
+                              {"build_up": "SFS", "kind": ws.FACADE_PUNCHED, "share": 0.3, "wwr": 0.4}])]
+    errs = [m for lv, m in ws.validate(st, OFFICE) if lv == "error"]
+    assert any("90%" in m for m in errs)
+    st["options"][0]["facade"][0]["share"] = 0.7
+    assert [m for lv, m in ws.validate(st, OFFICE) if lv == "error"] == []
+    st["options"].append(dict(ws.default_option("A"), layer=""))
+    errs = [m for lv, m in ws.validate(st, OFFICE) if lv == "error"]
+    assert any("different" in m for m in errs) and any("massing layer" in m for m in errs)
+
+
+def test_state_roundtrip_fills_new_keys():
+    st = ws.loads(json.dumps({"project": {"name": "P"}}))
+    assert st["project"]["name"] == "P" and st["project"]["use_class"] == "Office"
+    assert st["targets"]["sc_share"]["services"] == 1.0
+    assert ws.loads(ws.dumps(st)) == st
+
+
+def test_office_paths_resolve_relative_to_settings(tmp_path):
+    p = tmp_path / "07_Settings" / "office.json"
+    p.parent.mkdir()
+    p.write_text(json.dumps({"library_xlsx": "../03/lib.xlsx", "benchmarks": {"path": "b.xlsx", "sheet": "S"}}))
+    off = ws.load_office(str(p))
+    assert off["library_xlsx"] == os.path.normpath(str(tmp_path / "03" / "lib.xlsx"))
+    assert off["benchmarks"]["path"] == str(p.parent / "b.xlsx")
+
+
+def test_configs(defaults, tmp_path):
+    st = ws.default_state()
+    st["project"].update(name="2109 Test", start_year=2028)
+    st["output"]["folder"] = str(tmp_path)
+    st["schedule"].update(path="s.xlsx", sheet="Office")
+    st["targets"]["show"]["RIBA"] = False
+    st["targets"]["catb_allowance"] = "50"
+    o = ws.default_option("A - CW", layer="01::Opt")
+    tk = ws.takeoff_config(st, o, {}, defaults)
+    assert tk["massing_layers"] == ["01::Opt"] and tk["area_schedule"]["sheet"] == "Office"
+    assert tk["output_dir"] == os.path.join(str(tmp_path), "takeoff") and tk["file_stem"] == "A_-_CW_takeoff"
+    assert defaults["massing_layers"] is None                   # base CONFIG not mutated
+    off = {"library_xlsx": "lib", "benchmarks": {"path": "b"}, "params": {"rsp": 60}}
+    cc = ws.calc_config(st, off, [(o, "a.csv")])
+    assert cc["params"]["construction_start_year"] == 2028 and cc["params"]["show_targets"]["RIBA"] == "N"
+    assert cc["params"]["catb_allowance"] == 50.0 and cc["params"]["rsp"] == 60
+    assert cc["options"][0]["facade_route"] == "As exported"
+    assert cc["out"] == os.path.join(str(tmp_path), "2109_Test_WLCA.xlsx")
+
+
+def test_mixed_export_builds_workbook(tmp_path):
+    """Take-off export -> facade mix -> CSV -> workbook generator (invented library from the calc tests)."""
+    openpyxl = pytest.importorskip("openpyxl")
+    import wlca_calc_template as ct
+    from test_calc_template import _bench, _export, _library
+    lib, exp, bm = str(tmp_path / "lib.xlsx"), str(tmp_path / "e.csv"), str(tmp_path / "bm.xlsx")
+    _library(lib), _export(exp), _bench(bm)
+    header, rows = ws.read_export(exp)
+    office = {"facade_types": [{"code": "PANEL", "label": "Panel", "kind": ws.FACADE_UNITISED},
+                               {"code": "OPQ", "label": "Opaque", "kind": ws.FACADE_PUNCHED, "glazing_build_up": "PANEL"}],
+              "library_xlsx": lib, "benchmarks": {"path": bm, "sheet": "Bench", "source": "invented"},
+              "site": {"A51": 35, "A52": 40, "C1": 12},
+              "params": {"road_vehicle": "HGV", "eol_vehicle": "HGV", "sea_factor": 0.016, "eol_distances_km": [50, 60, 70],
+                         "facade_opaque_build_up": "OPQ", "cw_build_up": "PANEL"}}
+    o = _option([{"build_up": "PANEL", "kind": ws.FACADE_UNITISED, "share": 0.5},
+                 {"build_up": "OPQ", "kind": ws.FACADE_PUNCHED, "share": 0.5, "wwr": 0.2}])
+    mixed = ws.apply_facade_mix(rows, o, office, glazed_code="PANEL", opaque_code="OPQ")
+    out = str(tmp_path / "mixed.csv")
+    ws.write_export(out, header, mixed)
+    st = ws.default_state()
+    st["project"]["name"] = "T"
+    st["output"]["folder"] = str(tmp_path)
+    cfg = ws.calc_config(st, office, [(o, out)])
+    wb = ct.build(cfg)
+    T = wb["O1_Takeoff"]
+    got = sorted((T.cell(r, 3).value, T.cell(r, 2).value, T.cell(r, 4).value) for r in range(5, 12) if T.cell(r, 3).value)
+    # net facade = 500 (PANEL) + 200 (OPQ) = 700: PANEL 350 + 0.5 x 0.2 x 700 = 70; OPQ 0.5 x 0.8 x 700 = 280
+    assert ("OPQ", "2.5.1", 280.0) in got and ("PANEL", "2.5.2", 350.0) in got and ("PANEL", "2.5.2", 70.0) in got
