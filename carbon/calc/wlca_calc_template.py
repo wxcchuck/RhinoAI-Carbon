@@ -102,8 +102,8 @@ STRUCTURE = {"1.1", "1.2.1", "1.2.2", "1.2.3", "2.1.1", "2.1.2", "2.2.1", "2.4"}
 SUMMARY = [
     ("GIA", "GIA", "m2"), ("UP_T", "A1-A5 total incl. contingency", "tCO2e"), ("AC_T", "A-C total incl. contingency", "tCO2e"),
     ("UP_ALL", "A1-A5, all categories (GLA)", "kgCO2e/m2"), ("UP_X8", "A1-A5 excl. external works (UKNZCBS, LETI)", "kgCO2e/m2"),
-    ("BC_ALL", "B-C excl. B6/B7 (GLA)", "kgCO2e/m2"), ("AC_ALL", "A-C incl. sequestration (GLA)", "kgCO2e/m2"),
-    ("AC_X8", "A-C excl. external works (LETI life cycle, RIBA)", "kgCO2e/m2"),
+    ("BC_ALL", "B-C excl. B6/B7 (GLA)", "kgCO2e/m2"), ("AC_ALL", "A-C incl. biogenic stored and released (GLA)", "kgCO2e/m2"),
+    ("AC_X8", "A-C incl. biogenic, excl. external works (LETI life cycle, RIBA)", "kgCO2e/m2"),
     ("M_A13", "A1-A3 incl. contingency", "kgCO2e/m2"), ("M_A4", "A4", "kgCO2e/m2"), ("M_A5", "A5", "kgCO2e/m2"),
     ("M_B4", "B4", "kgCO2e/m2"), ("M_C", "C1-C4", "kgCO2e/m2"), ("M_D", "D (memo)", "kgCO2e/m2"),
 ] + [("E_%d" % i, "A1-A5 %s (before contingency)" % g, "kgCO2e/m2") for i, g in enumerate(GROUPS)] + [
@@ -121,6 +121,8 @@ SUMMARY = [
     ("SCN_AC_ALL", "Scenario: A-C with non-modelled at the scenario tier", "kgCO2e/m2"),
     ("BMS_UP_ALL", "Benchmarked at scenario tier, A1-A5", "kgCO2e/m2"), ("BMS_UP_X8", "Benchmarked at scenario tier, A1-A5 excl. cat 8", "kgCO2e/m2"),
     ("BMS_AC_ALL", "Benchmarked at scenario tier, A-C", "kgCO2e/m2"), ("BMS_AC_X8", "Benchmarked at scenario tier, A-C excl. cat 8", "kgCO2e/m2"),
+    ("BIO_STORED", "Biogenic carbon stored in products, A1-A3 (reported separately; not in A1-A5)", "kgCO2e/m2"),
+    ("BIO_RELEASED", "Biogenic carbon released at end of life (in A-C)", "kgCO2e/m2"),
     ("UP_SC", "A1-A5 shell & core excl. external works (UKNZCBS offices)", "kgCO2e/m2"),
     ("MOD_UP_SC", "Modelled + site, A1-A5 shell & core", "kgCO2e/m2"), ("BM_UP_SC", "Benchmarked, A1-A5 shell & core", "kgCO2e/m2"),
     ("BMS_UP_SC", "Benchmarked at scenario tier, A1-A5 shell & core", "kgCO2e/m2"),
@@ -333,7 +335,7 @@ def build(cfg):
     rng = lambda c: "Materials!$%s$%d:$%s$%d" % (c, m_first, c, m_last)   # noqa: E731
     mcols = mh[:22] + [None]
     calc_hdr = ["Life (yrs, T20)", "Site waste rate (T18)", "Road km (T17)", "Sea km (T17)", "Reuse", "Recycling",
-                "Incineration", "Disposal", "T28 (kgCO2e/t)"] + [""] * 6 + ["C3 (kgCO2e/kg)", "C4 (kgCO2e/kg)", "D (kgCO2e/kg)"]
+                "Incineration", "Disposal", "T28 (kgCO2e/t)"] + [""] * 6 + ["C3 (kgCO2e/kg) - library override only", "C4 (kgCO2e/kg) - landfill share x T28", "D (kgCO2e/kg)"]
     head(M, 4, [h if h is not None else "" for h in mcols] + calc_hdr,
          [20, 34, 8, 9, 9, 10, 10, 11, 30, 7, 11, 13, 13, 13, 16, 12, 18, 10, 10, 10, 10, 24, 2] + [9] * len(calc_hdr))
     for i, m in enumerate(mats):
@@ -357,7 +359,7 @@ def build(cfg):
             30: '=IFERROR(INDEX(REF_T23_EoL!$F:$F,MATCH(N{r},REF_T23_EoL!$A:$A,0))/100,0)',
             31: '=IFERROR(INDEX(REF_T23_EoL!$G:$G,MATCH(N{r},REF_T23_EoL!$A:$A,0))/100,1)',
             32: '=IFERROR(INDEX(REF_T28_C4!$C:$C,MATCH(O{r},REF_T28_C4!$A:$A,0))*1,0)',
-            39: '=IF(S{r}<>"",S{r},(1-AE{r})*AF{r}/1000)',
+            39: '=IF(S{r}<>"",S{r},0)',      # C3: processing data from the library only - Table 28 is landfill (XW 16/10/2026)
             40: '=IF(T{r}<>"",T{r},AE{r}*AF{r}/1000)',
             41: '=N(U{r})',
         }
@@ -865,7 +867,7 @@ def build_option(wb, ctx, o):
     title(R, "%s - whole life carbon by RICS element and module (tCO2e unless stated)" % o["name"],
           "RICS WLCA PS 2nd ed., RSP from Project. A-C = A1-A5 + B4 + C1-C4 (B1-B3, B5 not assessed; B6/B7 not in this version). D and biogenic are reported separately.")
     rh = ["Code", "Element", "Method", "A1-A3", "A4", "A5.1", "A5.2", "A5.3", "A1-A5", "B4", "C1", "C2", "C3", "C4",
-          "A-C", "D (memo)", "Biogenic stored (memo)", "A1-A5 kgCO2e/m2 GIA", "A-C kgCO2e/m2 GIA", "Group (GLA)", "Kind", "Structure (P&M)"]
+          "A-C excl. biogenic", "D (memo)", "Biogenic stored, A1-A3 (reported separately)", "A1-A5 kgCO2e/m2 GIA", "A-C excl. biogenic kgCO2e/m2 GIA", "Group (GLA)", "Kind", "Structure (P&M)"]
     head(R, 13, rh, [8, 46, 12] + [10] * 14 + [11, 11, 16, 11, 9])
     line_cols = {"A1-A3": ["Q", "T"], "A4": ["U"], "A5.3": ["W"], "B4": ["Z"], "C2": ["AA"], "C3": ["AB"], "C4": ["AC"],
                  "D": ["AD"], "Bio": ["AE"]}
@@ -973,7 +975,7 @@ def build_option(wb, ctx, o):
     R["A4"] = "Headline (incl. contingency; building-level figures to 2 s.f. at RIBA 0-2, 3 s.f. from RIBA 3 - PS 6.1.4)"
     R["A4"].font = BOLD
     hl = [("Upfront carbon A1-A5", "=" + sf("R%d" % tot), "kgCO2e/m2 GIA"),
-          ("Embodied carbon A-C (excl. B6/B7)", "=" + sf("S%d" % tot), "kgCO2e/m2 GIA"),
+          ("Embodied carbon A-C incl. biogenic (excl. B6/B7)", "=" + sf("Y%d" % SUM_ROW["AC_ALL"]), "kgCO2e/m2 GIA"),
           ("A1-A5 total", "=" + sf("I%d" % tot), "tCO2e"),
           ("Modelled share of A1-A5 (before contingency)", "=IF(I%d=0,0,SUM(I%d:I%d)/I%d)" % (sub, mod_first, mod_last, sub), ""),
           ("Benchmarked share of A1-A5", "=IF(I%d=0,0,SUM(I%d:I%d)/I%d)" % (sub, bm_first, bm_last, sub), ""),
@@ -993,6 +995,7 @@ def build_option(wb, ctx, o):
     RG = lambda c: "$%s$%d:$%s$%d" % (c, mod_first, c, site_last)        # noqa: E731
     G1 = "(1+CONT)*1000/%s" % GIA
     I_, O_ = "I%d" % sub, "O%d" % sub
+    BIO = "(Y%d+Y%d)" % (SUM_ROW["BIO_STORED"], SUM_ROW["BIO_RELEASED"])     # nets to zero unless products stay stored
     ext = lambda c, kind=None: ('SUMIFS(%s,%s,"External works"%s)' % (RG(c), RG("T"), ',%s,"%s"' % (RG("U"), kind) if kind else ""))  # noqa: E731
     kind = lambda c, k_: 'SUMIFS(%s,%s,"%s")' % (RG(c), RG("U"), k_)       # noqa: E731
     asm = 'SUMIF(%s,"Assumed",%s)/1000' % (TR("Z"), TR("U"))
@@ -1011,8 +1014,11 @@ def build_option(wb, ctx, o):
         "UP_ALL": "=IF(%s>0,%s*%s,0)" % (GIA, I_, G1),
         "UP_X8": "=IF(%s>0,(%s-%s)*%s,0)" % (GIA, I_, ext("I"), G1),
         "BC_ALL": "=IF(%s>0,(%s-%s)*%s,0)" % (GIA, O_, I_, G1),
-        "AC_ALL": "=IF(%s>0,%s*%s,0)" % (GIA, O_, G1),
-        "AC_X8": "=IF(%s>0,(%s-%s)*%s,0)" % (GIA, O_, ext("O"), G1),
+        # A-C includes biogenic carbon (PS glossary): stored in A1-A3 (negative) and released at end of life; no contingency on it
+        "BIO_STORED": "=IF(%s>0,Q%d*1000/%s,0)" % (GIA, sub, GIA),
+        "BIO_RELEASED": "=IF(%s>0,SUM(%s)/%s,0)" % (GIA, NR("AF"), GIA),
+        "AC_ALL": "=IF(%s>0,%s*%s,0)+%s" % (GIA, O_, G1, BIO),
+        "AC_X8": "=IF(%s>0,(%s-%s)*%s,0)+%s" % (GIA, O_, ext("O"), G1, BIO),
         "M_A13": "=IF(%s>0,D%d*1000/%s,0)" % (GIA, tot, GIA), "M_A4": "=IF(%s>0,E%d*1000/%s,0)" % (GIA, tot, GIA),
         "M_A5": "=IF(%s>0,SUM(F%d:H%d)*1000/%s,0)" % (GIA, tot, tot, GIA), "M_B4": "=IF(%s>0,J%d*1000/%s,0)" % (GIA, tot, GIA),
         "M_C": "=IF(%s>0,SUM(K%d:N%d)*1000/%s,0)" % (GIA, tot, tot, GIA), "M_D": "=IF(%s>0,P%d*1000/%s,0)" % (GIA, sub, GIA),
@@ -1032,8 +1038,8 @@ def build_option(wb, ctx, o):
         "UK_LIM_SC": "=UK_LIM_SC",
         "MOD_UP_ALL": "=IF(%s>0,(%s-%s)*%s,0)" % (GIA, I_, bm_up, G1),
         "MOD_UP_X8": "=IF(%s>0,(%s-%s-%s)*%s,0)" % (GIA, I_, bm_up, ext("I", "Modelled"), G1),
-        "MOD_AC_ALL": "=IF(%s>0,(%s-%s)*%s,0)" % (GIA, O_, bm_ac, G1),
-        "MOD_AC_X8": "=IF(%s>0,(%s-%s-%s)*%s,0)" % (GIA, O_, bm_ac, ext("O", "Modelled"), G1),
+        "MOD_AC_ALL": "=IF(%s>0,(%s-%s)*%s,0)+%s" % (GIA, O_, bm_ac, G1, BIO),
+        "MOD_AC_X8": "=IF(%s>0,(%s-%s-%s)*%s,0)+%s" % (GIA, O_, bm_ac, ext("O", "Modelled"), G1, BIO),
         "BM_UP_ALL": "=IF(%s>0,%s*%s,0)" % (GIA, bm_up, G1), "BM_UP_X8": "=IF(%s>0,%s*%s,0)" % (GIA, bm_up8, G1),
         "BM_AC_ALL": "=IF(%s>0,%s*%s,0)" % (GIA, bm_ac, G1), "BM_AC_X8": "=IF(%s>0,%s*%s,0)" % (GIA, bm_ac8, G1),
         "BMS_UP_ALL": "=IF(%s>0,%s*SCN_FUP*%s,0)" % (GIA, bm_up, G1), "BMS_UP_X8": "=IF(%s>0,%s*SCN_FUP*%s,0)" % (GIA, bm_up8, G1),
