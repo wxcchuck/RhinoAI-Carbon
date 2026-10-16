@@ -108,3 +108,13 @@ All of these run on office assumptions until project information replaces them: 
 | G6 | Inverted roof (2.5.3) and insulated soffit (2.5.1): placeholders adapted from the residential library types until there are practice details | Assumed |
 | G7 | Not yet allowed for: guarding and balustrades, lift pits | Open |
 
+## Rhino dialog (v0.1)
+
+| # | Decision | Status |
+|---|---|---|
+| D1 | Designers work in one Rhino 8 dialog (toolbar button / `WLCA` alias); no inputs in Excel. Two clicks: Run take-off (quantities and warnings to check), then Create workbook. Dialog settings are saved in the .3dm | Confirmed |
+| D2 | Options: one massing layer per option in the same file (recommended), or another .3dm read without opening it. Options may share a massing and differ in façade or structure | Confirmed |
+| D3 | Façade mix: up to three types per option from the office list, each with a share of the net façade (after louvres and doors) and, for punched types, a glazing ratio; shares must add to 100%. The take-off's single glazed / opaque split is replaced by one row per type and part, so the workbook needs no façade routing. Windows in punched types use the curtain wall build-up until a window build-up is in the library (likely high) | Confirmed (windows proxy: Assumed) |
+| D4 | Office settings (library, benchmarks, targets, branding, façade list, defaults) live in one JSON file kept by the carbon team; relative paths resolve against the file, so one file serves every user's OneDrive | Confirmed |
+| D5 | Plans: read from a Rhino layer (true scale, any position) is the default route - next release; the PDF plan extract stays as the fallback | Confirmed |
+

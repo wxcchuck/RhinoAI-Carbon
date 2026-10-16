@@ -21,6 +21,9 @@ this repo. Upstream McNeel code is untouched; everything here sits under `carbon
 | `takeoff/wlca_plan_extract.py` | Measures core walls (m per floor, thickness), columns (count, size) and stairs (count, flights, treads, width, going) from a vector plan PDF, and writes an overlay image to review | Python 3 (`pymupdf`, `shapely`, `matplotlib`) |
 | `calc/wlca_calc_template.py` | Builds the Excel calculation workbook from one take-off export per design option, the build-up library, a benchmark table and (optionally) a targets table. Live formulas: modules A1–A5, B4, C1–C4, D (memo), biogenic (memo), contingency, RICS reporting, QA, target boundaries | Python 3 (`openpyxl`) |
 | `calc/wlca_dashboard.py` | Dashboard (one option at a time, picked from a drop-down) and Compare (all options) sheets with native Excel charts on live formulas: targets on their own boundaries, modules, element groups, basis of the number, top 10 materials, GLA element comparison, structure range, carbon budget | Python 3 (`openpyxl`) |
+| `rhino_ui/wlca_dialog.py` | The WLCA dialog in Rhino 8: project and options, area schedule and plan, façade mix (up to three types with shares and glazing ratios), structure, targets, then **Run take-off** and **Create workbook**. Settings are saved in the .3dm | Rhino 8 (Python 3, Eto) |
+| `rhino_ui/wlca_state.py` | The dialog's state, checks, façade mix and config builders - plain Python, unit-tested | anywhere |
+| `rhino_ui/install_wlca.py` | One-time install per PC: adds the `WLCA` command alias and a WLCA toolbar button pointing at the shared package folder | Rhino 8 |
 | `calc/config.example.json` | Config template for the generator (paths, options, targets, branding; keep real configs private) | — |
 | `tests/` | pytest suite on an invented test tower and an invented library; pilot regression on private data (opt-in) | Python 3 (+ LibreOffice for the workbook number checks) |
 | `docs/decisions.md` | Methodology decisions and defaults, with their status | — |
@@ -52,6 +55,8 @@ their notes with `[ASSUMED]`, and the calculation workbook lists them and shows 
 result.
 
 ## Run
+
+**Designers (dialog):** put `wlca_*.py`, `install_wlca.py` in a shared package folder and the office settings file (`wlca_office_settings.json`: library, benchmarks, targets, branding, façade types; relative paths allowed) in `..\07_Settings\` next to it. Each user drags `install_wlca.py` onto Rhino once; after that the WLCA button (or typing `WLCA`) opens the dialog.
 
 **In Rhino 8:** open `takeoff/wlca_massing_takeoff.py` in ScriptEditor, with `wlca_core.py` next to
 it. Edit `CONFIG` (project header, area schedule or storey heights, structure and substructure

@@ -17,6 +17,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "takeoff"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "calc"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "rhino_ui"))
 
 
 def test_levels():
