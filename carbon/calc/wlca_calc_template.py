@@ -23,7 +23,12 @@ Calculation (RICS WLCA PS 2nd ed., module logic ported from the office dwelling 
             B4 = replacements x (A1-A3 + A3 offsite + A4 + A5.3), replacements = ROUNDUP(RSP/life) - 1;
             C2-C4 and D = mass x per-kg factor x (1 + replacements)
   Materials per material: lorry loads for A4 (T17 distances, REF_Vehicles) and C2 (Table 26
-            distances, 50% laden); C3/C4 = PS default (Table 23 route x Table 28) unless overridden
+            distances, 50% laden); end of life per Table 23 route (PS 5.6.4 / 5.6.5):
+              reuse + recycling -> C3 = share x Table 28 stand-in (no EPD processing data)
+              incineration      -> share x fossil combustion CO2, in C3 (energy recovery, UK Table 27
+                                   simplification) or C4 (disposal); D1 = -share x Table 27 kWh/t x grid
+              landfill          -> C4 = share x Table 28
+            library C3 / C4 / D values (EPD, adjusted to the project route) replace the defaults
   Results   RICS element categories x modules; site lumps A5.1 / A5.2 / C1; contingency; per m2 GIA
   QA        checks with OK / FLAG / INFO, and a scope coverage table
 
@@ -50,6 +55,11 @@ from openpyxl.worksheet.datavalidation import DataValidation
 VERSION = "0.2"
 SLOTS = 16                      # layers per build-up the Lines sheet can expand (library max is 15)
 SPARE_ROWS = 30                 # blank Takeoff rows for manual additions
+
+# end of life (PS 5.6.4 / 5.6.5). Category IDs are the library's REF_T28_C4 keys.
+T28_BIO, T28_INERT = "C4-WOOD-BIOBASED", "C4-AGG-CONC-BRICK-INSUL"
+EFW_OPTS = ("Energy recovery - C3 + D1", "Disposal - C4, no D1")
+STANDIN_OPTS = ("Table 28 wood and biobased", "Table 28 inert")
 
 INPUT = PatternFill("solid", fgColor="FFF2CC")
 HEAD = PatternFill("solid", fgColor="D9E1F2")
@@ -261,6 +271,21 @@ def read_targets(path):
     return out
 
 
+def grid_from_library(lib):
+    """(factor, source) from the library's REF_T27_D1 'Grid carbon factor' row; (None, None) if absent."""
+    if "REF_T27_D1" not in lib.sheetnames:
+        return None, None
+    ws = lib["REF_T27_D1"]
+    for r in range(1, ws.max_row + 1):
+        a = ws.cell(r, 1).value
+        if isinstance(a, str) and a.lower().startswith("grid carbon factor"):
+            try:
+                return float(ws.cell(r, 3).value), ws.cell(r, 4).value
+            except (TypeError, ValueError):
+                return None, None
+    return None, None
+
+
 def options_from_cfg(cfg):
     """v0.2: cfg["options"] = [{"name", "takeoff_csv", "facade_route" (optional)}]; v0.1 configs with a single takeoff_csv still work."""
     opts = cfg.get("options") or [{"name": None, "takeoff_csv": cfg["takeoff_csv"]}]
@@ -300,8 +325,12 @@ def build(cfg):
                   eol_distances_km=[50, 50, 50], benchmark_c1="Exclude", cw_reference_a1a5=None,
                   construction_start_year=2027, show_targets=dict(UKNZCBS="Y", LETI="Y", RIBA="Y", GLA="Y"),
                   scenario="GLA aspirational", budget_target="UKNZCBS", pm_group=None,
-                  sc_share=dict(finishes=1.0, ffe=1.0, services=1.0), catb_allowance=None)
+                  sc_share=dict(finishes=1.0, ffe=1.0, services=1.0), catb_allowance=None,
+                  efw_route=EFW_OPTS[0], bio_standin=STANDIN_OPTS[0], grid_d1=None, grid_d1_source=None)
     params.update(cfg.get("params", {}))
+    if params["grid_d1"] is None:
+        # the library's REF_T27_D1 carries the grid factor next to Table 27 ("Grid carbon factor" row)
+        params["grid_d1"], params["grid_d1_source"] = grid_from_library(lib)
 
     wb = Workbook()
     wb.remove(wb.active)
@@ -329,25 +358,30 @@ def build(cfg):
     mh, mats = read_sheet(lib, "Materials")
     M = wb["Materials"]
     title(M, "Materials - factors (from the library) and per-kg module factors",
-          "Columns A-V copied from %s. X onwards: formulas. Project-mass-dependent A4 / C2 per kg are on each O<k>_Mat sheet. "
+          "Columns A-W copied from %s. X onwards: formulas. Project-mass-dependent A4 / C2 per kg are on each O<k>_Mat sheet. "
           "Yellow = may be overridden for this project." % lib_src)
     m_first, m_last = 5, 5 + len(mats) - 1
     rng = lambda c: "Materials!$%s$%d:$%s$%d" % (c, m_first, c, m_last)   # noqa: E731
-    mcols = mh[:22] + [None]
+    # col W (23) = fossil CO2 released on combustion, per kg (library v0.12+); blank on older libraries -> 0
+    mcols = (mh + [None])[:22] + [mh[22] if len(mh) > 22 and mh[22] else "Combustion CO2, fossil (kgCO2e/kg)"]
     calc_hdr = ["Life (yrs, T20)", "Site waste rate (T18)", "Road km (T17)", "Sea km (T17)", "Reuse", "Recycling",
-                "Incineration", "Disposal", "T28 (kgCO2e/t)"] + [""] * 6 + ["C3 (kgCO2e/kg) - library override only", "C4 (kgCO2e/kg) - landfill share x T28", "D (kgCO2e/kg)"]
+                "Incineration", "Disposal", "T28 (kgCO2e/t)",
+                "Combustion CO2 used (kgCO2e/kg)", "C3 reuse + recycling: T28 stand-in (kgCO2e/kg)",
+                "Incineration: share x combustion CO2 (kgCO2e/kg)", "EfW electricity (kWh/t, T27)",
+                "D1 energy recovery (kgCO2e/kg)", "",
+                "C3 (kgCO2e/kg)", "C4 (kgCO2e/kg)", "D (kgCO2e/kg)"]
     head(M, 4, [h if h is not None else "" for h in mcols] + calc_hdr,
-         [20, 34, 8, 9, 9, 10, 10, 11, 30, 7, 11, 13, 13, 13, 16, 12, 18, 10, 10, 10, 10, 24, 2] + [9] * len(calc_hdr))
+         [20, 34, 8, 9, 9, 10, 10, 11, 30, 7, 11, 13, 13, 13, 16, 12, 18, 10, 10, 10, 10, 24, 11] + [9] * len(calc_hdr))
     for i, m in enumerate(mats):
         r = m_first + i
-        for c in range(1, 23):
+        for c in range(1, 24):
             v = m[c - 1] if c - 1 < len(m) else None
             if c == 18:
                 v = "=COUNTIF(Layers!$C:$C,A%d)" % r
             if isinstance(v, str) and v.startswith("=") and c != 18:
                 v = None
             M.cell(r, c, v)
-        for c in (6, 7, 19, 20, 21):
+        for c in (6, 7, 19, 20, 21, 23):
             M.cell(r, c).fill = INPUT
         f = {
             24: '=IFERROR(INDEX(REF_T20_ServiceLife!$D:$D,MATCH(M{r},REF_T20_ServiceLife!$A:$A,0))*1,RSP)',
@@ -359,9 +393,20 @@ def build(cfg):
             30: '=IFERROR(INDEX(REF_T23_EoL!$F:$F,MATCH(N{r},REF_T23_EoL!$A:$A,0))/100,0)',
             31: '=IFERROR(INDEX(REF_T23_EoL!$G:$G,MATCH(N{r},REF_T23_EoL!$A:$A,0))/100,1)',
             32: '=IFERROR(INDEX(REF_T28_C4!$C:$C,MATCH(O{r},REF_T28_C4!$A:$A,0))*1,0)',
-            39: '=IF(S{r}<>"",S{r},0)',      # C3: processing data from the library only - Table 28 is landfill (XW 16/10/2026)
-            40: '=IF(T{r}<>"",T{r},AE{r}*AF{r}/1000)',
-            41: '=N(U{r})',
+            # ---- PS 5.6.4 / 5.6.5 end of life per route (XW 16/10/2026)
+            33: '=N(W{r})',
+            # reuse + recycling share: processing emissions; with no EPD C3 the PS fallback is the landfill default (Table 28).
+            # Bio-based: Table 28 wood (fugitive methane) unless Project switches the stand-in to the inert factor
+            34: ('=(AB{r}+AC{r})*IF(AND(O{r}="%s",BIO_STANDIN="%s"),'
+                 'IFERROR(INDEX(REF_T28_C4!$C:$C,MATCH("%s",REF_T28_C4!$A:$A,0))*1,0),AF{r})/1000'
+                 % (T28_BIO, STANDIN_OPTS[1], T28_INERT)),
+            35: '=AD{r}*AG{r}',                                     # fossil CO2 from burning the incinerated share
+            36: ('=IFERROR(INDEX(REF_T27_D1!$C:$C,MATCH(IF(O{r}="%s","EFW-BIOMASS","EFW-NONBIOMASS"),'
+                 'REF_T27_D1!$A:$A,0))*1,0)' % T28_BIO),
+            37: '=IF(EFW="%s",-AD{r}*AJ{r}/1000*GRID_D1,0)' % EFW_OPTS[0],   # Annex K ex. 2c: electricity only
+            39: '=IF(S{r}<>"",S{r},AH{r}+IF(EFW="%s",AI{r},0))' % EFW_OPTS[0],
+            40: '=IF(T{r}<>"",T{r},AE{r}*AF{r}/1000+IF(EFW="%s",0,AI{r}))' % EFW_OPTS[0],
+            41: '=IF(U{r}<>"",N(U{r}),AK{r})',     # a library / EPD D value replaces the EfW estimate (no double counting)
         }
         for c, ftxt in f.items():
             M.cell(r, c, ftxt.format(r=r))
@@ -515,6 +560,15 @@ def build(cfg):
          "PS Table 26: average of the two closest facilities - PLACEHOLDER, replace per site", "D_PROC"),
         ("C2 distance - energy from waste", params["eol_distances_km"][1], "km", "PLACEHOLDER, replace per site", "D_EFW"),
         ("C2 distance - landfill", params["eol_distances_km"][2], "km", "PLACEHOLDER, replace per site", "D_LAND"),
+        ("Incineration (Table 23 route) reported as", params["efw_route"], "",
+         "PS 5.6.4: energy recovery only in R1 plants. Default uses the PS UK simplification - Table 27 generic EfW data, "
+         "reported in C3 with the energy benefit in D1 - although the PS notes typical UK plants run slightly below R1. "
+         "'Disposal' moves the combustion emissions to C4 and drops D1. A-C is the same either way.", "EFW"),
+        ("Grid electricity factor for D1 energy recovery", params["grid_d1"], "kgCO2e/kWh",
+         params.get("grid_d1_source") or "DESNZ GHG conversion factors, UK electricity generation (excl. T&D) - latest year", "GRID_D1"),
+        ("C3 stand-in for recovered bio-based material", params["bio_standin"], "",
+         "PS 5.6.4: no EPD processing data -> landfill default (Table 28). Reuse / recycling share of wood and bio-based "
+         "products: Table 28 wood factor (stricter) or the inert factor. Landfilled share always takes the wood factor in C4.", "BIO_STANDIN"),
         ("TARGETS", None, None, None, None),
         ("Construction start year (UKNZCBS limit year)", params["construction_start_year"], "", "UKNZCBS 4.2.5.3: limits for the year construction commences", "UK_YEAR"),
         ("Show UKNZCBS", show.get("UKNZCBS", "Y"), "", "Upfront A1-A5 excl. external works. Offices: shell & core limit (5.1.6.2) and whole-building limit (incl. Cat B + loose FF&E)", "SH_UK"),
@@ -537,7 +591,7 @@ def build(cfg):
     lists = {"USE": ",".join(use_classes), "BM_C1": "Exclude,Include",
              "SH_UK": "Y,N", "SH_LETI": "Y,N", "SH_RIBA": "Y,N", "SH_GLA": "Y,N", "SCN": "GLA aspirational,GLA benchmark,None",
              "BUD": "UKNZCBS,LETI 2030 (A),LETI 2020 (C),RIBA 2030,GLA aspirational A1-A5,GLA benchmark A1-A5",
-             "PM_GROUP": ",".join(pm_groups)}
+             "PM_GROUP": ",".join(pm_groups), "EFW": ",".join(EFW_OPTS), "BIO_STANDIN": ",".join(STANDIN_OPTS)}
     for lbl, val, unit, note, nm in items:
         if lbl == "TARGETS":
             P.cell(r, 2, "Targets and benchmarking").font = BOLD
@@ -669,9 +723,15 @@ def build(cfg):
                "A layer may carry its own site waste rate (e.g. unitised curtain wall). A5.4 not assessed."),
         ("B4", "Replacements = ROUNDUP(RSP / life) - 1 (PS 5.2.4: whole replacements, rounded up). Life = layer override, else Table 20 by material. "
                "B4 = replacements x (A1-A3 + A3 offsite + A4 + A5.3). End of life of replaced items is counted in C2-C4 (x (1 + replacements))."),
-        ("C1-C4", "C1 = GIA x lump rate. C2 = lorry loads to processing / EfW / landfill (Table 26 distances, 50% laden). C3 / C4: PS default - Table 23 route x Table 28 landfill factor "
-                  "(PS 5.6.4: landfill emissions when processing data is absent) - unless the library gives an override."),
-        ("D", "Memo only. Per-kg values where the library gives one (metals); otherwise 0."),
+        ("C1-C4", "C1 = GIA x lump rate. C2 = lorry loads to processing / EfW / landfill (Table 26 distances, 50% laden). "
+                  "C3 / C4 follow each material's Table 23 route (a material with no route counts as 100% landfill): "
+                  "reuse + recycling -> C3 = share x Table 28 (PS 5.6.4: landfill default when no EPD processing data); "
+                  "incineration -> share x fossil CO2 released on combustion (Materials col W: EPD C3 where known, else carbon content x 44/12), "
+                  "in C3 as energy recovery or in C4 as disposal (Project input); landfill -> C4 = share x Table 28. "
+                  "Biogenic CO2 released at end of life is in the biogenic line; Table 28 wood adds the fugitive methane on the landfilled share (PS 5.6.5 example). "
+                  "Library C3 / C4 values replace the defaults and must already be adjusted to the project route shares."),
+        ("D", "Memo only, never in A-C. Library value per kg where given (metals); otherwise D1 energy recovery = "
+              "-incinerated share x Table 27 electricity (kWh/t) x grid factor (PS Annex K example 2c; heat not counted)."),
         ("Benchmarks", "Elements not taken off use kgCO2e/m2 GIA by use class (PS 4.5.2 method 2). Benchmark A5 is reported in A5.3. Modelled layers in a benchmarked group are dropped (no double counting)."),
         ("Contingency", "PS Table 10 percentage applied to A-C (not D, not biogenic) as a separate row."),
         ("Assumptions", "Take-off rows whose notes start with [ASSUMED] rest on office defaults (no SI, no detail yet). Takeoff column Z marks them; QA, Results and the Dashboard show how many and "
