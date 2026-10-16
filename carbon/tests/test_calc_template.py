@@ -173,10 +173,11 @@ def test_numbers_against_hand_calculation(built, tmp_path):
     def c2(m, shares):  # loads per route x distance x 2 x 50% laden factor
         return sum(math.ceil(s * m / 1000 / 13) * d for s, d in zip(shares, (50, 60, 70))) * 2 * VEH["f50"] / m
 
-    # C3 = 0 without processing data in the library; C4 = landfilled share x Table 28 (Table 28 is landfill only)
-    eol = {"CONC": c2(conc, (0.975, 0, 0.025)) + 0.025 * 1.234e-3,
-           "STEEL": c2(steel, (0.98, 0, 0.02)) + 0.02 * 1.264e-3,
-           "GLASS": c2(glass, (0.61, 0, 0.39)) + 0.39 * 1.234e-3}
+    # PS 5.6.4: C3 = reused + recycled share x Table 28 stand-in (no EPD processing data); C4 = landfilled share x Table 28.
+    # Together they cover the whole mass once: share_C3 x T28 + share_C4 x T28 = T28
+    eol = {"CONC": c2(conc, (0.975, 0, 0.025)) + 0.975 * 1.234e-3 + 0.025 * 1.234e-3,
+           "STEEL": c2(steel, (0.98, 0, 0.02)) + 0.98 * 1.264e-3 + 0.02 * 1.264e-3,
+           "GLASS": c2(glass, (0.61, 0, 0.39)) + 0.61 * 1.234e-3 + 0.39 * 1.234e-3}
 
     # slab per m2
     s_a13 = 0.25 * 2400 * 0.1 + 20 * 1.0
@@ -397,3 +398,63 @@ def test_biogenic_reported_separately_and_nets_to_zero_in_ac(built, tmp_path):
     assert y(w, "UP_ALL") == pytest.approx(y(base, "UP_ALL"), rel=1e-12)       # not in upfront
     assert y(w, "AC_ALL") == pytest.approx(y(base, "AC_ALL"), rel=1e-12)       # in A-C, nets to zero
     assert "Biogenic carbon stored" in w["Dashboard"]["A10"].value
+
+
+def _eol_library(src, dst):
+    """Invented end-of-life data: GLASS re-routed to 95% incineration / 5% landfill with 2.0 kgCO2e/kg fossil CO2 on
+    combustion; CONC treated as bio-based (Table 28 'wood' 900 kg/t); Table 27 + grid factor rows."""
+    wb = openpyxl.load_workbook(src)
+    M = wb["Materials"]
+    M.cell(4, 23, "Combustion CO2, fossil (kgCO2e/kg)")
+    for r in range(5, 8):
+        if M.cell(r, 1).value == "GLASS":
+            M.cell(r, 14).value, M.cell(r, 23).value = "PLAS", 2.0
+        if M.cell(r, 1).value == "CONC":
+            M.cell(r, 15).value = ct.T28_BIO
+    T23 = wb["REF_T23_EoL"]
+    T23.append(["PLAS", "", "", 0, 0, 95, 5])
+    wb["REF_T28_C4"].append([ct.T28_BIO, "", 900])
+    wb["REF_T28_C4"].append([ct.T28_INERT, "", 1.234])
+    t27 = wb.create_sheet("REF_T27_D1")
+    for row in (["Category ID", "EfW type", "kWh/t"], ["EFW-BIOMASS", "", 880], ["EFW-NONBIOMASS", "", 560], [],
+                ["Grid carbon factor (kgCO2e/kWh)", "", 0.2, "invented"]):
+        t27.append(row)
+    wb.save(dst)
+
+
+def test_end_of_life_routes_ps_5_6_4(built, tmp_path):
+    """C3 / C4 / D per Table 23 route: recovered share x Table 28 stand-in in C3; incinerated share x combustion CO2
+    in C3 (energy recovery) or C4 (disposal) with D1 = -share x Table 27 kWh/t x grid only for energy recovery;
+    landfill share x Table 28 in C4. The route choice moves carbon between C3 and C4, never in or out of A-C."""
+    lib2 = str(tmp_path / "lib_eol.xlsx")
+    _eol_library(built["library_xlsx"], lib2)
+    assert ct.grid_from_library(openpyxl.load_workbook(lib2)) == (0.2, "invented")
+    got = {}
+    for mode, extra in (("efw", {}), ("disp", {"efw_route": ct.EFW_OPTS[1]}), ("wood", {"bio_standin": ct.STANDIN_OPTS[0]})):
+        cfg = dict(built, library_xlsx=lib2, out=str(tmp_path / ("eol_%s.xlsx" % mode)),
+                   params=dict(built["params"], **extra))
+        ct.build(cfg).save(cfg["out"])
+        w = _calc(cfg["out"], str(tmp_path / ("e_" + mode)))
+        M = w["Materials"]
+        row = {M.cell(r, 1).value: r for r in range(5, 8)}
+        got[mode] = dict(w=w, g=lambda c, m, M=M, row=row: M["%s%d" % (c, row[m])].value)
+    efw, disp, wood = (got[k]["g"] for k in ("efw", "disp", "wood"))
+    # glass: 95% burnt x 2.0 in C3 + D1 = -0.95 x 560/1000 x 0.2; 5% landfilled x 1.234/1000 in C4
+    assert efw("AM", "GLASS") == pytest.approx(0.95 * 2.0, rel=1e-12)
+    assert efw("AN", "GLASS") == pytest.approx(0.05 * 1.234e-3, rel=1e-12)
+    assert efw("AO", "GLASS") == pytest.approx(-0.95 * 560 / 1000 * 0.2, rel=1e-12)
+    assert disp("AM", "GLASS") == pytest.approx(0, abs=1e-15)
+    assert disp("AN", "GLASS") == pytest.approx(0.95 * 2.0 + 0.05 * 1.234e-3, rel=1e-12)
+    assert disp("AO", "GLASS") == pytest.approx(0, abs=1e-15)
+    # bio-based: Table 28 wood (landfill methane) on the landfilled 2.5% only; the recovered 97.5% takes the inert
+    # stand-in by default, or the wood factor with the switch
+    assert efw("AM", "CONC") == pytest.approx(0.975 * 1.234e-3, rel=1e-12)
+    assert wood("AM", "CONC") == pytest.approx(0.975 * 0.9, rel=1e-12)
+    assert efw("AN", "CONC") == wood("AN", "CONC") == pytest.approx(0.025 * 0.9, rel=1e-12)
+    # library D replaces the energy-recovery estimate (steel keeps its -0.5)
+    assert efw("AO", "STEEL") == pytest.approx(-0.5)
+    y = lambda k, key: got[k]["w"]["O1_Results"]["Y%d" % ct.SUM_ROW[key]].value      # noqa: E731
+    assert y("efw", "AC_ALL") == pytest.approx(y("disp", "AC_ALL"), rel=1e-12)
+    assert y("efw", "M_D") < y("disp", "M_D")
+    assert "energy recovery assumed (R1" in got["efw"]["w"]["Dashboard"]["A10"].value
+    assert "treated as disposal" in got["disp"]["w"]["Dashboard"]["A10"].value

@@ -288,6 +288,9 @@ def build_dashboard(wb, ctx, opts, branding):
     # biogenic carbon reported separately alongside the upfront figures (PS: not in A1-A5; included in A-C)
     ws["A10"] = ('=IF(%s=0,"No biogenic carbon stored in the modelled products.","Biogenic carbon stored in products (A1-A3, reported separately, '
                  'not in A1-A5): "&TEXT(%s,"#,##0")&" kgCO2e/m2 GIA. It is released at end of life, so it nets to zero within A-C.")'
+                 # PS 5.6.4: state the R1 assumption behind the incineration route
+                 '&" Incineration: "&IF(LEFT(EFW,6)="Energy","energy recovery assumed (R1; PS 5.6.4 UK Table 27 data) - C3, '
+                 'electricity benefit in D.","treated as disposal (not R1) - C4, no D1.")'
                  % (v("BIO_STORED"), sf(v("BIO_STORED"))))
     ws["A10"].font = _f(B, 9, color=B["muted"])
     ws.conditional_formatting.add("M8", CellIsRule(operator="equal", formula=['"Above"'], font=Font(name=B["font"], size=20, bold=True, color="C0392B")))
