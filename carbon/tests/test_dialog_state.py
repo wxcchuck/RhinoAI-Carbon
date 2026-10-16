@@ -9,6 +9,8 @@ import wlca_state as ws
 OFFICE = {"facade_types": [
     {"code": "CW", "label": "Unitised CW", "kind": ws.FACADE_UNITISED},
     {"code": "SFS", "label": "SFS + brick", "kind": ws.FACADE_PUNCHED, "glazing_build_up": "WIN"},
+    {"id": "SFS-T", "code": "SFS", "label": "SFS + brick, timber windows", "kind": ws.FACADE_PUNCHED, "glazing_build_up": "WIN-T"},
+    {"code": "OLD", "label": "Punched, no window build-up", "kind": ws.FACADE_PUNCHED},
 ]}
 
 
@@ -32,9 +34,25 @@ def test_facade_mix_splits_net_facade():
     q = dict(((r["build_up_code"], r["nrm_code"]), r["quantity"]) for r in out)
     assert q[("CW", "2.5.2")] == pytest.approx(700.0)          # 0.7 x 1000
     assert q[("SFS", "2.5.1")] == pytest.approx(180.0)         # 0.3 x 0.6 x 1000
-    assert q[("WIN", "2.5.2")] == pytest.approx(120.0)         # 0.3 x 0.4 x 1000
+    assert q[("WIN", "2.6")] == pytest.approx(120.0)           # 0.3 x 0.4 x 1000, windows report to 2.6
     assert q[("SOFFIT", "2.5.1")] == "83.0"                    # untouched
     assert sum(float(r["quantity"]) for r in out if r["build_up_code"] != "SOFFIT") == pytest.approx(1000.0)
+
+
+def test_facade_types_sharing_a_wall_keep_their_own_windows():
+    """Two catalogue types on the same wall build-up (ids differ) route to different window build-ups; a punched
+    type without a window build-up keeps the curtain wall stand-in at 2.5.2."""
+    o = _option([{"build_up": "SFS", "kind": ws.FACADE_PUNCHED, "share": 0.5, "wwr": 0.4},
+                 {"build_up": "SFS-T", "kind": ws.FACADE_PUNCHED, "share": 0.3, "wwr": 0.5},
+                 {"build_up": "OLD", "kind": ws.FACADE_PUNCHED, "share": 0.2, "wwr": 0.5}])
+    out = ws.apply_facade_mix(_rows(), o, OFFICE, glazed_code="CW", opaque_code="SFS")
+    q = {}
+    for r in out:
+        q[(r["build_up_code"], r["nrm_code"])] = q.get((r["build_up_code"], r["nrm_code"]), 0) + float(r["quantity"])
+    assert q[("SFS", "2.5.1")] == pytest.approx(0.5 * 0.6 * 1000 + 0.3 * 0.5 * 1000)
+    assert q[("WIN", "2.6")] == pytest.approx(200.0) and q[("WIN-T", "2.6")] == pytest.approx(150.0)
+    assert q[("OLD", "2.5.1")] == pytest.approx(100.0) and q[("CW", "2.5.2")] == pytest.approx(100.0)
+    assert [m for lv, m in ws.validate(dict(ws.default_state(), options=[o]), OFFICE) if "not in the office" in m] == []
 
 
 def test_validate_flags_bad_mix_and_missing_inputs():
@@ -114,5 +132,5 @@ def test_mixed_export_builds_workbook(tmp_path):
     wb = ct.build(cfg)
     T = wb["O1_Takeoff"]
     got = sorted((T.cell(r, 3).value, T.cell(r, 2).value, T.cell(r, 4).value) for r in range(5, 12) if T.cell(r, 3).value)
-    # net facade = 500 (PANEL) + 200 (OPQ) = 700: PANEL 350 + 0.5 x 0.2 x 700 = 70; OPQ 0.5 x 0.8 x 700 = 280
-    assert ("OPQ", "2.5.1", 280.0) in got and ("PANEL", "2.5.2", 350.0) in got and ("PANEL", "2.5.2", 70.0) in got
+    # net facade = 500 (PANEL) + 200 (OPQ) = 700: PANEL 350 + 0.5 x 0.2 x 700 = 70 (windows -> 2.6); OPQ 0.5 x 0.8 x 700 = 280
+    assert ("OPQ", "2.5.1", 280.0) in got and ("PANEL", "2.5.2", 350.0) in got and ("PANEL", "2.6", 70.0) in got

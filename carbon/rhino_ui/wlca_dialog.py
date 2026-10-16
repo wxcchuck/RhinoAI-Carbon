@@ -388,7 +388,7 @@ class WLCAForm(forms.Form):
         L.BeginVertical(None, drawing.Size(8, 6))
         L.AddRow(label("Type (from the office library)", muted=True), label("Share", muted=True), label("Glazing ratio", muted=True), None)
         for i, f in enumerate(o["facade"]):
-            cur = next((l for l, c in zip(labels, cat) if c["code"] == f["build_up"]), None)
+            cur = next((l for l, c in zip(labels, cat) if c["id"] == f["build_up"]), None)
             wwr = textbox("" if f.get("wwr") is None else "%.0f%%" % (100 * f["wwr"]), self._set_f(f, "wwr", pct), width=70)
             wwr.Enabled = f.get("kind") != ws.FACADE_UNITISED
             L.AddRow(dropdown(labels, cur, self._set_type(f, cat, labels), width=380),
@@ -412,7 +412,7 @@ class WLCAForm(forms.Form):
     def _set_type(self, f, cat, labels):
         def g(v):
             c = cat[labels.index(v)]
-            f["build_up"], f["kind"] = c["code"], c["kind"]
+            f["build_up"], f["kind"] = c["id"], c["kind"]
             if c["kind"] == ws.FACADE_PUNCHED and f.get("wwr") is None:
                 f["wwr"] = 0.4
             self.save()
@@ -430,7 +430,7 @@ class WLCAForm(forms.Form):
     def _add_facade(self, o, cat):
         if len(o["facade"]) < ws.MAX_FACADE_TYPES:
             c = cat[min(len(o["facade"]), len(cat) - 1)]
-            o["facade"].append({"build_up": c["code"], "kind": c["kind"], "share": 0.0,
+            o["facade"].append({"build_up": c["id"], "kind": c["kind"], "share": 0.0,
                                 "wwr": 0.4 if c["kind"] == ws.FACADE_PUNCHED else None})
             self.save()
             self.refresh()

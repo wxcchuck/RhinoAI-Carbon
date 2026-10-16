@@ -68,11 +68,16 @@ def load_office(path):
 
 
 def facade_catalogue(office):
-    """Facade types offered in the dialog: [{code, label, kind}] from the office settings."""
-    return list(office.get("facade_types") or [
+    """Facade types offered in the dialog: [{id, code, label, kind, glazing_build_up?}] from the office settings.
+    `code` is the wall's build-up; `id` (default = code) tells types apart that share a wall but not a window,
+    e.g. brick on SFS with aluminium or with timber-aluminium windows. Options store the id."""
+    cat = [dict(f) for f in (office.get("facade_types") or [
         {"code": "CW-UNIT-01", "label": "Unitised curtain wall", "kind": FACADE_UNITISED},
         {"code": "EW-SFS-BRK-01", "label": "SFS + brick, punched windows", "kind": FACADE_PUNCHED},
-    ])
+    ])]
+    for f in cat:
+        f.setdefault("id", f["code"])
+    return cat
 
 
 # ------------------------------------------------------------------------------------- state I/O
@@ -107,7 +112,7 @@ def validate(state, office=None):
     names = [o["name"].strip() for o in opts]
     if len(set(names)) != len(names) or any(not n for n in names):
         out.append(("error", "Option names must be filled in and different from each other (step 1)."))
-    cat = {f["code"]: f for f in facade_catalogue(office or {})}
+    cat = {f["id"]: f for f in facade_catalogue(office or {})}
     for o in opts:
         tag = "Option '%s'" % o["name"]
         if o["source"] == "layer" and not o.get("layer"):
@@ -154,9 +159,10 @@ def apply_facade_mix(rows, option, office, glazed_code="CW-UNIT-01", opaque_code
     per type and part, each a share of the net facade:
       unitised type  -> share x net, reported 2.5.2 with the type's build-up (glazing is part of the system)
       punched type   -> share x (1 - glazing ratio) x net, 2.5.1, the type's build-up
-                        share x glazing ratio x net, 2.5.2, the type's glazing build-up
+                        share x glazing ratio x net, 2.6 windows (RICS element category), the type's
+                        glazing build-up (2.5.2 with the curtain wall stand-in if the type names none)
     Soffits, louvres, doors and every other row are kept as they are."""
-    cat = dict((f["code"], f) for f in facade_catalogue(office or {}))
+    cat = dict((f["id"], f) for f in facade_catalogue(office or {}))
     glz = [r for r in rows if r["build_up_code"] == glazed_code and str(r["nrm_code"]) == "2.5.2"]
     opq = [r for r in rows if r["build_up_code"] == opaque_code and str(r["nrm_code"]) == "2.5.1"]
     if not glz and not opq:
@@ -169,12 +175,14 @@ def apply_facade_mix(rows, option, office, glazed_code="CW-UNIT-01", opaque_code
         info = cat.get(f["build_up"], {})
         s = float(f["share"])
         label = info.get("label", f["build_up"])
+        wall = info.get("code", f["build_up"])
         if f.get("kind", info.get("kind")) == FACADE_UNITISED:
-            parts = [("2.5.2", f["build_up"], s, "%s, %.0f%% of net facade (glazing in the system)" % (label, s * 100))]
+            parts = [("2.5.2", wall, s, "%s, %.0f%% of net facade (glazing in the system)" % (label, s * 100))]
         else:
             w = float(f.get("wwr") or 0)
-            parts = [("2.5.1", f["build_up"], s * (1 - w), "%s, opaque: %.0f%% of net facade x (1 - %.0f%% glazing)" % (label, s * 100, w * 100)),
-                     ("2.5.2", info.get("glazing_build_up") or glazed_code, s * w,
+            win = info.get("glazing_build_up")
+            parts = [("2.5.1", wall, s * (1 - w), "%s, opaque: %.0f%% of net facade x (1 - %.0f%% glazing)" % (label, s * 100, w * 100)),
+                     ("2.6" if win else "2.5.2", win or glazed_code, s * w,
                       "%s, windows: %.0f%% of net facade x %.0f%% glazing" % (label, s * 100, w * 100))]
         for code, bu, frac, note in parts:
             if frac <= 0:
