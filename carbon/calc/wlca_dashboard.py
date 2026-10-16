@@ -45,7 +45,7 @@ GROUP_LABELS = ["Substructure", "Superstructure", "Facade", "Internal finishes",
 
 
 # building- / asset-level results that are reported to SIGFIG significant figures (PS 6.1.4)
-BUILDING_LEVEL = {"UP_ALL", "AC_ALL", "UP_T", "UP_X8", "UP_SC", "UP_WB", "SCN_UP_ALL"}
+BUILDING_LEVEL = {"UP_ALL", "AC_ALL", "UP_T", "UP_X8", "UP_SC", "UP_WB", "SCN_UP_ALL", "BIO_STORED"}
 
 
 # --------------------------------------------------------------------------------------- styling helpers
@@ -262,7 +262,8 @@ def build_dashboard(wb, ctx, opts, branding):
         ("Upfront carbon A1-A5", "=" + sf(v("UP_ALL")), "#,##0",
          '="kgCO2e/m2 GIA | "&TEXT(%s,"#,##0")&" before contingency"' % sf(v("UP_ALL") + "/(1+CONT)")),
         ("Embodied carbon A-C", "=" + sf(v("AC_ALL")), "#,##0",
-         '="excl. B6/B7 | "&TEXT(%s,"#,##0")&" before contingency"' % sf(v("AC_ALL") + "/(1+CONT)")),
+         '="incl. biogenic, excl. B6/B7 | "&TEXT(%s,"#,##0")&" before contingency"' % sf("(%s-%s-%s)/(1+CONT)+%s+%s" % (
+             v("AC_ALL"), v("BIO_STORED"), v("BIO_RELEASED"), v("BIO_STORED"), v("BIO_RELEASED")))),
         ("Upfront total", "=" + sf(v("UP_T")), "#,##0", "tCO2e"),
         ("LETI upfront band", "=%s" % v("LETI_UP"), "@", '="life cycle: "&%s' % v("LETI_LC")),
         ("UKNZCBS upfront", '=IF({lim}=0,"n/a",IF({val}<={lim},"Meets","Above"))'.format(lim=uk_lim, val=uk_val), "@",
@@ -284,6 +285,11 @@ def build_dashboard(wb, ctx, opts, branding):
         for rr in (7, 8, 9):
             ws.cell(rr, c0).alignment = Alignment(horizontal="left", vertical="center", indent=1)
     ws.row_dimensions[8].height = 30
+    # biogenic carbon reported separately alongside the upfront figures (PS: not in A1-A5; included in A-C)
+    ws["A10"] = ('=IF(%s=0,"No biogenic carbon stored in the modelled products.","Biogenic carbon stored in products (A1-A3, reported separately, '
+                 'not in A1-A5): "&TEXT(%s,"#,##0")&" kgCO2e/m2 GIA. It is released at end of life, so it nets to zero within A-C.")'
+                 % (v("BIO_STORED"), sf(v("BIO_STORED"))))
+    ws["A10"].font = _f(B, 9, color=B["muted"])
     ws.conditional_formatting.add("M8", CellIsRule(operator="equal", formula=['"Above"'], font=Font(name=B["font"], size=20, bold=True, color="C0392B")))
 
     # ---- targets table + chart (rows 11-22)
@@ -533,6 +539,7 @@ def build_compare(wb, ctx, opts, branding):
             ("Upfront A1-A5 (kgCO2e/m2, incl. contingency)", "UP_ALL", "#,##0"), ("Embodied A-C (kgCO2e/m2, incl. contingency)", "AC_ALL", "#,##0"),
             ("Upfront A1-A5 before contingency", "UP_ALL/", "#,##0"), ("Embodied A-C before contingency", "AC_ALL/", "#,##0"),
             ("Upfront total (tCO2e)", "UP_T", "#,##0"),
+            ("Biogenic carbon stored, A1-A3 (reported separately; not in A1-A5)", "BIO_STORED", "#,##0"),
             ("A1-A5 excl. ext. works - UKNZCBS / LETI boundary", "UP_X8", "#,##0"),
             ("A1-A5 shell & core excl. ext. works (UKNZCBS offices)", "UP_SC", "#,##0"),
             ("UKNZCBS shell & core limit (offices, no contingency)", "UK_LIM_SC", "#,##0"),

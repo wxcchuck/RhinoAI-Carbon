@@ -173,9 +173,10 @@ def test_numbers_against_hand_calculation(built, tmp_path):
     def c2(m, shares):  # loads per route x distance x 2 x 50% laden factor
         return sum(math.ceil(s * m / 1000 / 13) * d for s, d in zip(shares, (50, 60, 70))) * 2 * VEH["f50"] / m
 
-    eol = {"CONC": c2(conc, (0.975, 0, 0.025)) + 0.975 * 1.234e-3 + 0.025 * 1.234e-3,
-           "STEEL": c2(steel, (0.98, 0, 0.02)) + 0.98 * 1.264e-3 + 0.02 * 1.264e-3,
-           "GLASS": c2(glass, (0.61, 0, 0.39)) + 0.61 * 1.234e-3 + 0.39 * 1.234e-3}
+    # C3 = 0 without processing data in the library; C4 = landfilled share x Table 28 (Table 28 is landfill only)
+    eol = {"CONC": c2(conc, (0.975, 0, 0.025)) + 0.025 * 1.234e-3,
+           "STEEL": c2(steel, (0.98, 0, 0.02)) + 0.02 * 1.264e-3,
+           "GLASS": c2(glass, (0.61, 0, 0.39)) + 0.39 * 1.234e-3}
 
     # slab per m2
     s_a13 = 0.25 * 2400 * 0.1 + 20 * 1.0
@@ -325,6 +326,7 @@ def test_options_targets_dashboard(built2, tmp_path):
         band = next((b for b, v in LETI_UP if y(k, "UP_X8") <= v), "worse than G")
         assert y(k, "LETI_UP") == band
         assert y(k, "STRUCT") > 0
+        assert y(k, "BIO_STORED") == pytest.approx(-y(k, "BIO_RELEASED"), abs=1e-9)        # stored = released over the life cycle
 
     # Compare reads each option; Dashboard follows the selected option
     C = wb["Compare"]
@@ -373,3 +375,25 @@ def test_options_targets_dashboard(built2, tmp_path):
     assert y3("BM_UP_SC") == pytest.approx(y(1, "BM_UP_X8") - 0.75 * y(1, "E_3") * 1.15, rel=1e-9)   # finishes are benchmarked
     assert y3("UP_WB") == pytest.approx(y(1, "UP_X8") + 50 * 1.15, rel=1e-9)
     assert w3["O1_Results"]["C5"].value == pytest.approx(sfround(y(1, "UP_ALL"), 3), rel=1e-9)
+
+
+def test_biogenic_reported_separately_and_nets_to_zero_in_ac(built, tmp_path):
+    """PS: biogenic carbon is not in upfront A1-A5 (reported separately) but is included in A-C, where storage in
+    A1-A3 and release at end of life net to zero. Invented: glass given -0.5 kgCO2e/kg biogenic."""
+    base = _calc(built["out"], str(tmp_path / "b0"))
+    lib2 = str(tmp_path / "lib_bio.xlsx")
+    wb = openpyxl.load_workbook(built["library_xlsx"])
+    M = wb["Materials"]
+    row = next(r for r in range(5, 10) if M.cell(r, 1).value == "GLASS")
+    M.cell(row, 7).value = -0.5
+    wb.save(lib2)
+    cfg = dict(built, library_xlsx=lib2, out=str(tmp_path / "bio.xlsx"))
+    ct.build(cfg).save(cfg["out"])
+    w = _calc(cfg["out"], str(tmp_path / "b1"))
+    y = lambda wb_, key: wb_["O1_Results"]["Y%d" % ct.SUM_ROW[key]].value      # noqa: E731
+    stored = -0.5 * 700 * 20 * 2 / GIA          # 700 m2 panel x 20 kg glass, replaced once (life 35 in a 60-year RSP)
+    assert y(w, "BIO_STORED") == pytest.approx(stored, rel=1e-9)
+    assert y(w, "BIO_RELEASED") == pytest.approx(-stored, rel=1e-9)
+    assert y(w, "UP_ALL") == pytest.approx(y(base, "UP_ALL"), rel=1e-12)       # not in upfront
+    assert y(w, "AC_ALL") == pytest.approx(y(base, "AC_ALL"), rel=1e-12)       # in A-C, nets to zero
+    assert "Biogenic carbon stored" in w["Dashboard"]["A10"].value
