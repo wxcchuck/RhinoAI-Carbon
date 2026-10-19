@@ -45,14 +45,17 @@ except Exception:                      # dialog still opens if the take-off core
     FRAMES = ["RC flat slab"]
 SCENARIOS = ["GLA aspirational", "GLA benchmark", "None"]
 OP_ROUTES = ["Engineer prediction (TM54)", "Indicative - EUI estimate or UKNZCBS limit", "Not assessed"]
-OP_FIELDS = [("elec", "Grid electricity kWh"), ("gas", "Gas kWh"), ("dh", "District heat kWh"), ("pv_self", "PV used on site kWh"),
-             ("pv_export", "PV exported kWh"), ("water", "Water m³"), ("eui", "Indicative EUI kWh/m²")]
+OP_FIELDS = [("elec", "Grid electricity (kWh)"), ("gas", "Natural gas (kWh)"), ("dh", "District heat (kWh)"),
+             ("pv_self", "PV used on site (kWh)"), ("pv_export", "PV exported (kWh)"), ("water", "Water (m³)"),
+             ("eui", "Indicative EUI (kWh/m² GIA)")]
 BUDGETS = ["UKNZCBS", "LETI 2030 (A)", "LETI 2020 (C)", "RIBA 2030", "GLA aspirational A1-A5", "GLA benchmark A1-A5"]
 ACCENT = drawing.Color.FromArgb(1, 100, 109)
 MUTED = drawing.Color.FromArgb(95, 99, 104)
 WARN = drawing.Color.FromArgb(122, 74, 0)
 GOOD = drawing.Color.FromArgb(30, 86, 49)
 REQ = drawing.Color.FromArgb(176, 0, 32)
+DISABLED = drawing.Color.FromArgb(225, 225, 225)
+MIN_CONTENT = 560                    # narrowest page (px) before the page scrolls sideways
 REQ_NOTE = "Fields marked * are needed to run the assessment; the rest have defaults or are optional."
 
 
@@ -89,8 +92,15 @@ def mk(cls, *args, **props):
     return obj
 
 
-def label(text, muted=False, bold=False, size=None, color=None):
-    lb = mk(forms.Label, Text=text)
+def amp(text):
+    """Windows reads '&' in a label or check box as a keyboard-shortcut marker and hides it; '&&' shows one '&'."""
+    return (text or "").replace("&", "&&")
+
+
+def label(text, muted=False, bold=False, size=None, color=None, width=None):
+    lb = mk(forms.Label, Text=amp(text))
+    if width:
+        lb.Width = width
     if muted or color is not None:
         lb.TextColor = color if color is not None else MUTED
     if bold:      # FontStyle.None is a Python keyword - only the bold case is set explicitly
@@ -122,7 +132,7 @@ def req(text, muted=False, on=True):
     if not on:
         return label(text, muted=muted)
     row = mk(forms.StackLayout, Orientation=forms.Orientation.Horizontal, Spacing=3)
-    txt, star = mk(forms.Label, Text=text), mk(forms.Label, Text="*")
+    txt, star = mk(forms.Label, Text=amp(text)), mk(forms.Label, Text="*")
     for lb in (txt, star):
         lb.Wrap = forms.WrapMode.NONE                     # pythonnet's name for WrapMode.None (a Python keyword)
         row.Items.Add(forms.StackLayoutItem(lb))
@@ -133,19 +143,49 @@ def req(text, muted=False, on=True):
     return row
 
 
+def hrow(L, *cells):
+    """One row of a DynamicLayout table. A cell is a control, (control, True) for a column that stretches with the
+    window, or None for a stretching blank. Rows inside one BeginVertical share their columns."""
+    L.BeginHorizontal()
+    for c in cells:
+        if c is None:
+            L.Add(None, True)
+        elif isinstance(c, tuple):
+            L.Add(c[0], True)
+        else:
+            L.Add(c)
+    L.EndHorizontal()
+
+
+def stretch(*cells):
+    """A small layout of its own (e.g. a path box + Browse button) whose (control, True) cells stretch."""
+    d = mk(forms.DynamicLayout, Spacing=drawing.Size(6, 0))
+    hrow(d, *cells)
+    return d
+
+
 def checkbox(text, value, on_change):
-    c = mk(forms.CheckBox, Text=text, Checked=bool(value))
+    c = mk(forms.CheckBox, Text=amp(text), Checked=bool(value))
     c.CheckedChanged += lambda s, e: on_change(bool(c.Checked))
     return c
 
 
-def button(text, on_click, primary=False):
+def button(text, on_click, primary=False, enabled=True):
     b = mk(forms.Button, Text=text)
     b.Click += lambda s, e: on_click()
     if primary:
         b.BackgroundColor = ACCENT
         b.TextColor = drawing.Colors.White
+    set_enabled(b, enabled)
     return b
+
+
+def set_enabled(b, on):
+    """Enable / disable a button; a disabled primary button turns grey so its text stays readable."""
+    b.Enabled = bool(on)
+    if b.BackgroundColor == ACCENT or b.BackgroundColor == DISABLED:
+        b.BackgroundColor = ACCENT if on else DISABLED
+        b.TextColor = drawing.Colors.White if on else MUTED
 
 
 def section(layout, title):
@@ -159,7 +199,8 @@ class WLCAForm(forms.Form):
         super().__init__()
         self.doc = doc or DOC
         self.Title = "WLCA - whole life carbon (RICS PS 2nd ed.)"
-        self.ClientSize = drawing.Size(1000, 700)
+        self.ClientSize = drawing.Size(940, 680)
+        self.MinimumSize = drawing.Size(MIN_CONTENT + 220, 420)
         self.Resizable = True
         self.Padding = drawing.Padding(0)
         self.state = ws.loads(self.doc.Strings.GetValue(ws.STATE_KEY) or "")
@@ -184,7 +225,8 @@ class WLCAForm(forms.Form):
         self.nav.Width = 190
         self.nav.SelectedIndex = 0
         self.nav.SelectedIndexChanged += lambda s, e: self.show_step(self.nav.SelectedIndex)
-        self.body = forms.Scrollable()
+        self.body = mk(forms.Scrollable, Border=forms.BorderType.NONE, ExpandContentWidth=True)
+        self.body.SizeChanged += lambda s, e: self.fit_width()
         self.footer_back = button("Back", lambda: self.goto(self.step - 1))
         self.footer_next = button("Next", lambda: self.goto(self.step + 1), primary=True)
         footer = mk(forms.DynamicLayout, Padding=drawing.Padding(12, 8), Spacing=drawing.Size(8, 8))
@@ -226,6 +268,10 @@ class WLCAForm(forms.Form):
         self.step = i
         builders = [self.page_project, self.page_drawings, self.page_facade, self.page_structure, self.page_targets, self.page_run]
         lay = mk(forms.DynamicLayout, Padding=drawing.Padding(22, 18), Spacing=drawing.Size(10, 8))
+        # every row of the page is one cell of a single column; that column takes the page width, so text wraps
+        # (a column sized to its content would let long labels run off to the right). Multi-cell rows go in
+        # stretch() / BeginVertical() so they never add columns to the page itself.
+        lay.Add(None, True, False)
         if i in (0, 2, 4):
             lay.AddRow(label(REQ_NOTE, muted=True))
         try:
@@ -234,25 +280,36 @@ class WLCAForm(forms.Form):
             lay.AddRow(label("This step could not be drawn:\n" + traceback.format_exc(), color=WARN))
         lay.Add(None)
         self.body.Content = lay
-        self.footer_back.Enabled = i > 0
-        self.footer_next.Enabled = i < len(STEPS) - 1
+        self.fit_width(force=True)
+        set_enabled(self.footer_back, i > 0)
+        set_enabled(self.footer_next, i < len(STEPS) - 1)
 
     def refresh(self):
         self.show_step(self.step)
+
+    def fit_width(self, force=False):
+        """Keep the page as wide as the window (text wraps, path boxes stretch); below MIN_CONTENT it scrolls sideways."""
+        c = self.body.Content
+        w = self.body.ClientSize.Width
+        if c is None or w <= 0:
+            return
+        w = max(MIN_CONTENT, w - 20)        # room for the vertical scroll bar, so no sideways bar appears with it
+        if force or abs((c.Width or 0) - w) > 2:
+            c.Width = w
 
     # ---------------------------------------------------------------- 1 project & options
     def page_project(self, L):
         p = self.state["project"]
         section(L, "Project")
         L.BeginVertical(None, drawing.Size(12, 6))
-        L.AddRow(req("Project name"), textbox(p["name"], self.setter(p, "name")),
-                 label("Use class"), dropdown(USES, p["use_class"], self.setter(p, "use_class")))
-        L.AddRow(label("RIBA stage"), dropdown(["0", "1", "2", "3", "4"], str(p["riba_stage"]), self.setter(p, "riba_stage", int)),
-                 label("Construction start year"), textbox(p["start_year"], self.setter(p, "start_year", lambda v: int(num(v, 2027)))))
-        L.AddRow(label("Existing GIA demolished (m²)"), textbox(p["demolished_gia_m2"], self.setter(p, "demolished_gia_m2", lambda v: num(v, 0.0))),
-                 label("Assessor"), textbox(p["assessor"], self.setter(p, "assessor")))
-        L.AddRow(label("Estimated occupancy (people)"), textbox(p.get("occupancy") or "", self.setter(p, "occupancy", lambda v: num(v, None))),
-                 label("Occupied days per year"), textbox(p.get("occ_days") or "", self.setter(p, "occ_days", lambda v: num(v, None))))
+        hrow(L, req("Project name"), (textbox(p["name"], self.setter(p, "name")), True),
+             label("Use class"), (dropdown(USES, p["use_class"], self.setter(p, "use_class")), True))
+        hrow(L, label("RIBA stage"), (dropdown(["0", "1", "2", "3", "4"], str(p["riba_stage"]), self.setter(p, "riba_stage", int)), True),
+             label("Construction start year"), (textbox(p["start_year"], self.setter(p, "start_year", lambda v: int(num(v, 2027)))), True))
+        hrow(L, label("Existing GIA demolished (m²)"), (textbox(p["demolished_gia_m2"], self.setter(p, "demolished_gia_m2", lambda v: num(v, 0.0))), True),
+             label("Assessor"), (textbox(p["assessor"], self.setter(p, "assessor")), True))
+        hrow(L, label("Estimated occupancy (people)"), (textbox(p.get("occupancy") or "", self.setter(p, "occupancy", lambda v: num(v, None))), True),
+             label("Occupied days per year"), (textbox(p.get("occ_days") or "", self.setter(p, "occ_days", lambda v: num(v, None))), True))
         L.EndVertical()
         L.AddRow(label("Occupancy sets the project's water budget (B7) against the RIBA 2030 Climate Challenge potable water target: workplaces for "
                        "offices, residents for homes, pupils for schools. Days default to 250 (office), 365 (homes), 190 (schools).", muted=True))
@@ -261,20 +318,19 @@ class WLCAForm(forms.Form):
                        "on steps 3 and 4, so options can share a massing.", muted=True))
         layers = self.massing_layers() or self.all_layers()
         L.BeginVertical(None, drawing.Size(8, 6))
-        L.AddRow(label("Include", muted=True), req("Option name", muted=True), label("Massing from", muted=True),
-                 req("Layer / file", muted=True), None)
+        hrow(L, label("Include", muted=True), req("Option name", muted=True), label("Massing from", muted=True),
+             (req("Layer / file", muted=True), True), label(""))
         for i, o in enumerate(self.state["options"]):
             src = dropdown(["This file", "Other .3dm"], "This file" if o["source"] == "layer" else "Other .3dm",
                            self._set_source(o))
             if o["source"] == "layer":
-                where = dropdown(layers, o["layer"], self.setter(o, "layer"), width=260)
+                where = dropdown(layers, o["layer"], self.setter(o, "layer"))
             else:
-                where = forms.DynamicLayout()
-                where.AddRow(textbox(o["file"], self.setter(o, "file"), width=200), button("...", self._pick_3dm(o)))
-            L.AddRow(checkbox("", o["include"], self.setter(o, "include")), textbox(o["name"], self.setter(o, "name"), width=200),
-                     src, where, button("Remove", self._remove_option(i)))
+                where = stretch((textbox(o["file"], self.setter(o, "file")), True), button("...", self._pick_3dm(o)))
+            hrow(L, checkbox("", o["include"], self.setter(o, "include")), textbox(o["name"], self.setter(o, "name"), width=150),
+                 src, (where, True), button("Remove", self._remove_option(i)))
         L.EndVertical()
-        L.AddRow(button("+ Option", self.add_option), button("Duplicate last option", self.duplicate_option), None)
+        L.AddRow(stretch(button("+ Option", self.add_option), button("Duplicate last option", self.duplicate_option), None))
         L.AddRow(label("Tick at least one option. Option names must be different from each other.", muted=True))
 
     def _set_source(self, o):
@@ -324,20 +380,16 @@ class WLCAForm(forms.Form):
         L.AddRow(label("Excel file with levels, GEA and GIA (optional: AOD, floor-to-floor, NIA, use). Without it, levels come "
                        "from the massing and the storey heights.", muted=True))
         sheets = self.sheet_names(s["path"])
-        L.BeginVertical(None, drawing.Size(8, 6))
-        L.AddRow(textbox(s["path"], self.setter(s, "path"), width=520), button("Browse...", self.pick_schedule),
-                 dropdown(sheets or [""], s["sheet"], self.setter(s, "sheet"), width=140))
-        L.EndVertical()
+        L.AddRow(stretch((textbox(s["path"], self.setter(s, "path")), True), button("Browse...", self.pick_schedule),
+                         dropdown(sheets or [""], s["sheet"], self.setter(s, "sheet"), width=140)))
         L.AddRow(self.schedule_preview())
         section(L, "Typical floor plan (cores, columns, stairs)")
         pl = self.state["plan"]
         routes = ["Plan in Rhino (layers)", "PDF plan extract (.json)", "None - use office defaults"]
         cur = {"rhino": routes[0], "pdf": routes[1], "none": routes[2]}.get(pl["route"], routes[0])
-        L.AddRow(dropdown(routes, cur, self._set_plan_route, width=320), None)
+        L.AddRow(stretch(dropdown(routes, cur, self._set_plan_route, width=300), None))
         if pl["route"] == "pdf":
-            L.BeginVertical(None, drawing.Size(8, 6))
-            L.AddRow(textbox(pl["pdf_json"], self.setter(pl, "pdf_json"), width=520), button("Browse...", self.pick_plan_json))
-            L.EndVertical()
+            L.AddRow(stretch((textbox(pl["pdf_json"], self.setter(pl, "pdf_json")), True), button("Browse...", self.pick_plan_json)))
             L.AddRow(label("Output of the plan extractor (WLCA_plan_extract). Check its overlay image before using it.", muted=True))
         elif pl["route"] == "rhino":
             L.AddRow(label("Import or paste the typical floor plan (DWG, DGN or .3dm linework) into this model at true scale - it can sit "
@@ -349,9 +401,9 @@ class WLCAForm(forms.Form):
             L.BeginVertical(None, drawing.Size(8, 6))
             for key, lbl in (("walls_layer", "Core walls"), ("columns_layer", "Columns"), ("stairs_layer", "Stairs")):
                 cur = pl.get(key) if pl.get(key) in names else "(none)"
-                L.AddRow(label(lbl), dropdown(names, cur, self._set_plan_layer(key), width=420), None)
+                hrow(L, label(lbl), (dropdown(names, cur, self._set_plan_layer(key)), True))
             L.EndVertical()
-            L.AddRow(button("Find layers again", self.find_plan_layers), button("Read plan", self.read_plan, primary=True), None)
+            L.AddRow(stretch(button("Find layers again", self.find_plan_layers), button("Read plan", self.read_plan, primary=True), None))
             for line in pl.get("summary") or []:
                 L.AddRow(label(line, color=WARN if line.startswith(("No ", "Units")) else MUTED))
 
@@ -465,7 +517,7 @@ class WLCAForm(forms.Form):
         def pick(v):
             self.sel_option = names.index(v)
             self.refresh()
-        L.AddRow(label("Option"), dropdown(names, names[self.sel_option], pick, width=280), None)
+        L.AddRow(stretch(label("Option"), dropdown(names, names[self.sel_option], pick, width=260), None))
         return self.state["options"][self.sel_option]
 
     def page_facade(self, L):
@@ -477,21 +529,21 @@ class WLCAForm(forms.Form):
                        "their glazing in the system; other types take a glazing ratio.", muted=True))
         L.BeginVertical(None, drawing.Size(8, 6))
         punched = any(f.get("kind") != ws.FACADE_UNITISED for f in o["facade"])
-        L.AddRow(req("Type (from the office library)", muted=True), req("Share", muted=True),
-                 req("Glazing ratio", muted=True, on=punched), None)
+        hrow(L, (req("Type (from the office library)", muted=True), True), req("Share", muted=True),
+             req("Glazing ratio", muted=True, on=punched), label(""))
         for i, f in enumerate(o["facade"]):
             cur = next((l for l, c in zip(labels, cat) if c["id"] == f["build_up"]), None)
             wwr = textbox("" if f.get("wwr") is None else "%.0f%%" % (100 * f["wwr"]), self._set_f(f, "wwr", pct), width=70)
             wwr.Enabled = f.get("kind") != ws.FACADE_UNITISED
-            L.AddRow(dropdown(labels, cur, self._set_type(f, cat, labels), width=380),
-                     textbox("%.0f%%" % (100 * f["share"]), self._set_f(f, "share", pct), width=70),
-                     wwr if wwr.Enabled else label("in the system", muted=True),
-                     button("Remove", self._remove_facade(o, i)))
+            hrow(L, (dropdown(labels, cur, self._set_type(f, cat, labels)), True),
+                 textbox("%.0f%%" % (100 * f["share"]), self._set_f(f, "share", pct), width=70),
+                 wwr if wwr.Enabled else label("in the system", muted=True),
+                 button("Remove", self._remove_facade(o, i)))
         L.EndVertical()
         tot = sum(float(f.get("share") or 0) for f in o["facade"])
         ok = abs(tot - 1) < 0.005
-        L.AddRow(button("+ Add a type", lambda: self._add_facade(o, cat)),
-                 label("Shares add up to %.0f%%" % (tot * 100), color=GOOD if ok else WARN), None)
+        L.AddRow(stretch(button("+ Add a type", lambda: self._add_facade(o, cat)),
+                         label("Shares add up to %.0f%%" % (tot * 100), color=GOOD if ok else WARN), None))
         L.AddRow(label("The list shows the facade types in the office library. A new type is added to the library once and then "
                        "appears here for every project.", muted=True))
 
@@ -532,14 +584,14 @@ class WLCAForm(forms.Form):
         o = self.option_picker(L)
         s = o["structure"]
         section(L, "Frame")
-        L.BeginVertical(None, drawing.Size(12, 6))
-        L.AddRow(label("Frame system"), dropdown(FRAMES, s["frame"], self.setter(s, "frame"), width=260),
-                 label("Steel and timber frames use the PF Stage 1 rates per m² of floor; their columns are scaled with "
+        L.AddRow(stretch(label("Frame system"), dropdown(FRAMES, s["frame"], self.setter(s, "frame"), width=260), None))
+        L.AddRow(label("Steel and timber frames use the PF Stage 1 rates per m² of floor; their columns are scaled with "
                        "height (tagged [ASSUMED]). Cores stay RC.", muted=True))
-        L.AddRow(label("Column grid x (m)"), textbox(s["grid_x_m"], self.setter(s, "grid_x_m", lambda v: num(v, 9.0)), width=80),
-                 label("Column grid y (m)"), textbox(s["grid_y_m"], self.setter(s, "grid_y_m", lambda v: num(v, 8.0)), width=80))
-        L.AddRow(label("Column size (m, square)"), textbox(s["column_size_m"], self.setter(s, "column_size_m", lambda v: num(v, 0.75)), width=80),
-                 None, None)
+        L.BeginVertical(None, drawing.Size(12, 6))
+        hrow(L, label("Column grid x (m)"), textbox(s["grid_x_m"], self.setter(s, "grid_x_m", lambda v: num(v, 9.0)), width=80),
+             label("Column grid y (m)"), textbox(s["grid_y_m"], self.setter(s, "grid_y_m", lambda v: num(v, 8.0)), width=80), None)
+        hrow(L, label("Column size (m, square)"), textbox(s["column_size_m"], self.setter(s, "column_size_m", lambda v: num(v, 0.75)), width=80),
+             label(""), label(""), None)
         L.EndVertical()
         L.AddRow(label("Cores, columns and stairs come from the plan on step 2 when there is one; otherwise these values and the "
                        "office defaults are used and the rows are tagged [ASSUMED] in the workbook. Foundations and basement walls "
@@ -551,24 +603,23 @@ class WLCAForm(forms.Form):
         t = self.state["targets"]
         section(L, "Targets to compare against")
         L.BeginVertical(None, drawing.Size(12, 6))
-        L.AddRow(checkbox("UKNZCBS upfront limits (offices: shell & core limit)", t["show"]["UKNZCBS"], self.setter(t["show"], "UKNZCBS")),
-                 checkbox("LETI bands", t["show"]["LETI"], self.setter(t["show"], "LETI")))
-        L.AddRow(checkbox("RIBA 2030 Climate Challenge", t["show"]["RIBA"], self.setter(t["show"], "RIBA")),
-                 checkbox("GLA London Plan Guidance", t["show"]["GLA"], self.setter(t["show"], "GLA")))
+        hrow(L, checkbox("UKNZCBS upfront limits (offices: shell & core limit)", t["show"]["UKNZCBS"], self.setter(t["show"], "UKNZCBS")),
+             checkbox("LETI bands", t["show"]["LETI"], self.setter(t["show"], "LETI")), None)
+        hrow(L, checkbox("RIBA 2030 Climate Challenge", t["show"]["RIBA"], self.setter(t["show"], "RIBA")),
+             checkbox("GLA London Plan Guidance", t["show"]["GLA"], self.setter(t["show"], "GLA")), None)
         L.EndVertical()
         section(L, "UKNZCBS offices")
         sc = t["sc_share"]
-        L.BeginVertical(None, drawing.Size(12, 6))
-        L.AddRow(label("Shell & core share - finishes"), textbox("%.0f%%" % (100 * sc["finishes"]), self._set_share("finishes"), width=70),
-                 label("- FF&E"), textbox("%.0f%%" % (100 * sc["ffe"]), self._set_share("ffe"), width=70),
-                 label("- services"), textbox("%.0f%%" % (100 * sc["services"]), self._set_share("services"), width=70))
-        L.AddRow(label("Cat B + loose FF&E (kgCO2e/m²)"), textbox(t["catb_allowance"] or "", self.setter(t, "catb_allowance", lambda v: num(v, None))),
-                 label("blank = whole-building limit not assessed", muted=True), None, None, None)
-        L.EndVertical()
+        L.AddRow(stretch(label("Shell & core share - finishes"), textbox("%.0f%%" % (100 * sc["finishes"]), self._set_share("finishes"), width=60),
+                         label("FF&E"), textbox("%.0f%%" % (100 * sc["ffe"]), self._set_share("ffe"), width=60),
+                         label("services"), textbox("%.0f%%" % (100 * sc["services"]), self._set_share("services"), width=60), None))
+        L.AddRow(stretch(label("Cat B + loose FF&E (kgCO2e/m²)"),
+                         textbox(t["catb_allowance"] or "", self.setter(t, "catb_allowance", lambda v: num(v, None)), width=80), None))
+        L.AddRow(label("Blank = UKNZCBS whole-building limit not assessed.", muted=True))
         section(L, "Scenario and budget")
         L.BeginVertical(None, drawing.Size(12, 6))
-        L.AddRow(label("Elements not yet designed - scenario"), dropdown(SCENARIOS, t["scenario"], self.setter(t, "scenario")),
-                 label("Carbon budget against"), dropdown(BUDGETS, t["budget_target"], self.setter(t, "budget_target")))
+        hrow(L, label("Elements not yet designed - scenario"), dropdown(SCENARIOS, t["scenario"], self.setter(t, "scenario"), width=220), None)
+        hrow(L, label("Carbon budget against"), dropdown(BUDGETS, t["budget_target"], self.setter(t, "budget_target"), width=220), None)
         L.EndVertical()
         section(L, "Operational energy and water (B6 / B7)")
         op = self.state.setdefault("operational", {"route": "Not assessed", "op_year": None, "dh_factor": 0.0})
@@ -577,20 +628,24 @@ class WLCAForm(forms.Form):
         if (op.get("route") or "").startswith("Indicative") and op["route"] != OP_ROUTES[1]:
             op["route"] = OP_ROUTES[1]                     # older saves used a shorter label
         L.BeginVertical(None, drawing.Size(12, 6))
-        L.AddRow(label("Basis"), dropdown(OP_ROUTES, op.get("route") or OP_ROUTES[2], self._set_op_route, width=300),
-                 label("First year of operation"), textbox(op.get("op_year") or "", self.setter(op, "op_year", lambda v: num(v, None)), width=70),
-                 label("District heat factor (kgCO2e/kWh)"), textbox(op.get("dh_factor") or "", self.setter(op, "dh_factor", lambda v: num(v, 0.0)), width=70))
+        hrow(L, label("Basis"), dropdown(OP_ROUTES, op.get("route") or OP_ROUTES[2], self._set_op_route, width=320), None)
+        hrow(L, label("First year of operation"),
+             stretch(textbox(op.get("op_year") or "", self.setter(op, "op_year", lambda v: num(v, None)), width=80), None), None)
+        hrow(L, label("District heat factor (kgCO2e/kWh)"),
+             stretch(textbox(op.get("dh_factor") or "", self.setter(op, "dh_factor", lambda v: num(v, 0.0)), width=80), None), None)
         L.EndVertical()
         if (op.get("route") or "Not assessed") != "Not assessed" or any(any((o.get("operational") or {}).values()) for o in self.state["options"]):
-            L.BeginVertical(None, drawing.Size(8, 4))
             eng = (op.get("route") or "").startswith("Engineer")
-            L.AddRow(*([label("Per year", muted=True)] + [req(lbl_, muted=True, on=eng and k in ("elec", "gas", "dh"))
-                                                           for k, lbl_ in OP_FIELDS] + [None]))
-            for o in [o for o in self.state["options"] if o["include"]]:
-                ov = o.setdefault("operational", {})
-                L.AddRow(*([label(o["name"], bold=True)] + [textbox("" if ov.get(k) in (None, "") else "{:,.0f}".format(ov[k]),
-                                                                     self.setter(ov, k, lambda v: num(str(v).replace(",", ""), None)), width=95)
-                                                             for k, _ in OP_FIELDS] + [None]))
+            inc = [o for o in self.state["options"] if o["include"]]
+            L.BeginVertical(None, drawing.Size(8, 4))
+            hrow(L, *([label("Per year", muted=True)] + [label(o["name"], bold=True, width=110) for o in inc] + [None]))
+            for k, lbl_ in OP_FIELDS:
+                cells = [req(lbl_, muted=True, on=eng and k in ("elec", "gas", "dh"))]
+                for o in inc:
+                    ov = o.setdefault("operational", {})
+                    cells.append(textbox("" if ov.get(k) in (None, "") else "{:,.0f}".format(ov[k]),
+                                         self.setter(ov, k, lambda v: num(str(v).replace(",", ""), None)), width=110))
+                hrow(L, *(cells + [None]))
             L.EndVertical()
             if eng:
                 L.AddRow(label("* Engineer basis: at least one of grid electricity, gas or district heat for every option.", color=REQ))
@@ -600,9 +655,7 @@ class WLCAForm(forms.Form):
         section(L, "Where to save")
         L.AddRow(req("Output folder"))
         out = self.state["output"]
-        L.BeginVertical(None, drawing.Size(8, 6))
-        L.AddRow(textbox(out["folder"], self.setter(out, "folder"), width=520), button("Browse...", self.pick_folder))
-        L.EndVertical()
+        L.AddRow(stretch((textbox(out["folder"], self.setter(out, "folder")), True), button("Browse...", self.pick_folder)))
         L.AddRow(label("Take-off exports go to a 'takeoff' folder inside it; the workbook is saved there too. Everything set in "
                        "this dialog is written into the workbook - nothing has to be typed in Excel.", muted=True))
 
@@ -632,16 +685,16 @@ class WLCAForm(forms.Form):
         for lv, m in checks:
             L.AddRow(label(("Fix: " if lv == "error" else "Note: ") + m, color=WARN if lv == "error" else MUTED))
         blocked = any(lv == "error" for lv, _ in checks) or self.office is None
-        b1 = button("1  Run take-off", self.run_takeoff)
-        b1.Enabled = not blocked
-        L.AddRow(b1, label("Measures every ticked option and draws floor plates and GIA curves on the WLCA layers for checking.", muted=True))
-        L.AddRow(None, label("Before running, turn on the massing layers (step 1) and the plan layers (step 2), with their parent layers - "
-                             "the take-off and the plan reader skip anything on a layer that is off, and objects hidden with Hide "
-                             "(use Show first). Easiest: turn all layers on.", color=WARN))
+        b1 = button("1  Run take-off", self.run_takeoff, enabled=not blocked)
+        L.AddRow(stretch(b1, (label("Measures every ticked option and draws floor plates and GIA curves on the WLCA layers for "
+                                    "checking.", muted=True), True)))
+        L.AddRow(label("Before running, turn on the massing layers (step 1) and the plan layers (step 2), with their parent layers - "
+                       "the take-off and the plan reader skip anything on a layer that is off, and objects hidden with Hide "
+                       "(use Show first). Easiest: turn all layers on.", color=WARN))
         off = self.layers_off()
         if off:
-            L.AddRow(None, label("These layers are off now: " + "; ".join(off), color=WARN))
-            L.AddRow(None, button("Turn these layers on", self.turn_layers_on))
+            L.AddRow(stretch((label("These layers are off now: " + "; ".join(off), color=WARN), True),
+                             button("Turn these layers on", self.turn_layers_on)))
         if self.run_rows:
             L.BeginVertical(None, drawing.Size(18, 4))
             L.AddRow(*([label("Quantity", muted=True)] + [label(o["name"], bold=True) for o, _ in self.exports] + [None]))
@@ -650,13 +703,85 @@ class WLCAForm(forms.Form):
             L.EndVertical()
         for m in self.messages:
             L.AddRow(label(m, color=WARN))
-        b2 = button("2  Create workbook", self.create_workbook, primary=True)
-        b2.Enabled = bool(self.exports) and not blocked
-        L.AddRow(b2, label("Uses the office library, benchmarks and targets in the office settings.", muted=True))
+        self.page_appearance(L)
+        b2 = button("2  Create workbook", self.create_workbook, primary=True, enabled=bool(self.exports) and not blocked)
+        L.AddRow(stretch(b2, (label("Uses the office library, benchmarks and targets in the office settings.", muted=True), True)))
         if self.state["output"].get("last_workbook"):
             wb = self.state["output"]["last_workbook"]
-            L.AddRow(label("Saved: " + wb, color=GOOD), button("Open in Excel", lambda: os.startfile(wb)),
-                     button("Open folder", lambda: os.startfile(os.path.dirname(wb))))
+            L.AddRow(stretch((label("Saved: " + wb, color=GOOD), True), button("Open in Excel", lambda: os.startfile(wb)),
+                             button("Open folder", lambda: os.startfile(os.path.dirname(wb)))))
+
+    # ---------------------------------------------------------------- workbook font and logo
+    _fonts = None
+
+    @classmethod
+    def font_names(cls):
+        if cls._fonts is None:
+            try:
+                cls._fonts = sorted(set(f.Name for f in drawing.Fonts.AvailableFontFamilies), key=str.lower)
+            except Exception:
+                cls._fonts = []
+        return cls._fonts
+
+    def page_appearance(self, L):
+        out = self.state["output"]
+        out.setdefault("font", "Arial")
+        out.setdefault("logo", None)
+        section(L, "Workbook appearance")
+        fonts = self.font_names()
+        cb = mk(forms.ComboBox, AutoComplete=True, Width=240)
+        cb.DataStore = fonts
+        cb.Text = out.get("font") or "Arial"
+        status = label("", muted=True)
+
+        def font_status():
+            f = (cb.Text or "").strip()
+            missing = bool(fonts) and f not in fonts
+            status.Text = "not installed on this PC - Excel will show a substitute" if missing else "used on every sheet, charts included"
+            status.TextColor = WARN if missing else MUTED
+
+        def set_font(*_):
+            out["font"] = (cb.Text or "").strip() or "Arial"
+            self.save()
+            font_status()
+        cb.TextChanged += set_font
+        font_status()
+        L.BeginVertical(None, drawing.Size(10, 6))
+        hrow(L, label("Font"), stretch(cb, (status, True)))
+        logo = ws.effective_logo(self.state, self.office)
+        hrow(L, label("Company logo (optional)"),
+             stretch((textbox(logo, self._set_logo), True), button("Browse...", self.pick_logo), button("No logo", lambda: self._set_logo("", True))))
+        L.EndVertical()
+        if logo:
+            L.AddRow(stretch(self.logo_preview(logo), None))
+        L.AddRow(label("The logo goes at the top left of the Dashboard (30 px high). The font is stored by name: people opening the "
+                       "workbook without it see Excel's substitute, so use a common font (Arial, Calibri) for files that leave the office.",
+                       muted=True))
+
+    def logo_preview(self, path):
+        if not os.path.exists(path):
+            return label("Logo file not found.", color=WARN)
+        try:
+            bmp = drawing.Bitmap(path)
+            h = 40
+            w = max(1, min(260, int(bmp.Width * h / float(bmp.Height))))
+            iv = mk(forms.ImageView, Image=bmp)
+            iv.Size = drawing.Size(w, int(w * bmp.Height / float(bmp.Width)))
+            return iv
+        except Exception as e:
+            return label("Logo could not be read: %s" % e, color=WARN)
+
+    def _set_logo(self, v, refresh=False):
+        self.state["output"]["logo"] = (v or "").strip()
+        self.save()
+        if refresh:
+            self.refresh()
+
+    def pick_logo(self):
+        dlg = forms.OpenFileDialog()
+        dlg.Filters.Add(forms.FileFilter("Image", ".png", ".jpg", ".jpeg", ".gif", ".bmp"))
+        if dlg.ShowDialog(self) == forms.DialogResult.Ok:
+            self._set_logo(dlg.FileName, True)
 
     def needed_layers(self):
         """Layers the run reads: each ticked option's massing layer (this file) and the plan layers (Rhino route)."""

@@ -786,7 +786,7 @@ def build(cfg):
         ("Inputs", "Take-offs: %s\nLibrary: %s\nBenchmarks: %s\nTargets: %s" % (
             "; ".join("%s = %s" % (o["name"], os.path.basename(o["csv"])) for o in opts), lib_src, bm_src,
             os.path.basename(cfg["targets_xlsx"]) if cfg.get("targets_xlsx") else "none")),
-        ("Standard", "RICS Whole life carbon assessment for the built environment, 2nd ed. (PS). RSP 60 years. Modules A1-A5, B4, C1-C4; D and biogenic carbon reported separately. B1-B3, B5, B6, B7 not in this version."),
+        ("Standard", "RICS Whole life carbon assessment for the built environment, 2nd ed. (PS). RSP 60 years. Modules A1-A5, B4, C1-C4 (embodied) and B6, B7 (operational, when assessed); D and biogenic carbon reported separately. B1-B3, B5 not in this version."),
         ("How to use", "1 Project: GIA per option, use class, stage, facade route, targets.\n2 O<k>_QA: every FLAG must be fixed or justified.\n"
                        "3 Dashboard: pick an option at the top. Compare: all options side by side. O<k>_Results: the element x module table.\n"
                        "Change factors or layer quantities on Materials / Layers only for project-specific overrides; library-wide changes go to the library owner."),
@@ -843,6 +843,7 @@ def build(cfg):
     for o in opts:
         wb["O%d_Results" % o["k"]].sheet_properties.tabColor = "70AD47"
         wb["O%d_QA" % o["k"]].sheet_properties.tabColor = "C00000"
+    apply_font(wb, (cfg.get("branding") or {}).get("font"))
     wb.active = wb.sheetnames.index("Dashboard")
     wb.calculation.fullCalcOnLoad = True        # no cached values from openpyxl: Excel calculates on open
     return wb
@@ -1332,6 +1333,33 @@ def build_option(wb, ctx, o):
     T.conditional_formatting.add("Y%d:Y%d" % (t_first, t_last),
                                  FormulaRule(formula=['AND(Y%d<>"",Y%d<>"OK")' % (t_first, t_first)], fill=AMBER))
     return dict(TK=TK, LN=LN, MT=MT, RS=RS, QS=QS, sub=sub, cont=cont, tot=tot, t_first=t_first, t_last=t_last)
+
+
+def apply_font(wb, font):
+    """Use one font family across the workbook (sizes, weights and colours kept). The workbook stores only the name:
+    anyone opening it without that font installed sees Excel's substitute."""
+    if not font:
+        return
+    from copy import copy
+    from openpyxl.utils.indexed_list import IndexedList
+    swapped = {}
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for c in row:
+                if not c.has_style:
+                    continue
+                fid = c._style.fontId
+                if fid not in swapped:
+                    f = copy(wb._fonts[fid])
+                    f.name, f.scheme = font, None       # a 'minor' / 'major' scheme makes Excel use the theme font instead
+                    swapped[fid] = f
+                c.font = swapped[fid]
+    try:        # default font (unstyled cells, the Normal style)
+        f0 = copy(wb._fonts[0])
+        f0.name, f0.scheme = font, None
+        wb._fonts = IndexedList([f0] + list(wb._fonts)[1:])
+    except Exception:
+        pass
 
 
 def main(argv):
