@@ -23,6 +23,7 @@ this repo. Upstream McNeel code is untouched; everything here sits under `carbon
 | `calc/wlca_dashboard.py` | Dashboard (one option at a time, picked from a drop-down) and Compare (all options) sheets with native Excel charts on live formulas: targets on their own boundaries, modules, element groups, basis of the number, top 10 materials, GLA element comparison, structure range, carbon budget | Python 3 (`openpyxl`) |
 | `rhino_ui/wlca_dialog.py` | The WLCA dialog in Rhino 8: project and options, area schedule and plan, façade mix (up to three types with shares and glazing ratios), structure, targets, then **Run take-off** and **Create workbook**. Settings are saved in the .3dm | Rhino 8 (Python 3, Eto) |
 | `rhino_ui/wlca_state.py` | The dialog's state, checks, façade mix and config builders - plain Python, unit-tested | anywhere |
+| `rhino_plugin/` | Launcher plug-in (`WlcaPlugin.ai.cs`, `WlcaCommand.ai.cs`, `WLCA.rui`) and `build_package.py`, which builds the Package Manager `.yak` | Windows + Rhino 8 |
 | `rhino_ui/install_wlca.py` | One-time install per PC: adds the `WLCA` command alias and a WLCA toolbar button pointing at the shared package folder | Rhino 8 |
 | `calc/config.example.json` | Config template for the generator (paths, options, targets, branding; keep real configs private) | — |
 | `tests/` | pytest suite on an invented test tower and an invented library; pilot regression on private data (opt-in) | Python 3 (+ LibreOffice for the workbook number checks) |
@@ -56,7 +57,22 @@ result.
 
 ## Run
 
-**Designers (dialog):** put `wlca_*.py`, `install_wlca.py` in a shared package folder and the office settings file (`wlca_office_settings.json`: library, benchmarks, targets, branding, façade types; relative paths allowed) in `..\07_Settings\` next to it. Each user drags `install_wlca.py` onto Rhino once; after that the WLCA button (or typing `WLCA`) opens the dialog.
+**Designers (dialog), as a Package Manager package (recommended):** `rhino_plugin/build_package.py` builds a `.yak`
+holding a small launcher plug-in (`WLCA.rhp`: the `WLCA` command and toolbar), the Python scripts and the toolbar. It
+needs only Windows and Rhino 8 - the plug-in is compiled with the .NET Framework compiler that ships with Windows
+against Rhino's own `RhinoCommon.dll`, and packed with Rhino's `Yak.exe`. A small JSON config sets the package name,
+version, authors and, for an office build, the default office settings file and the output folder. Put the `.yak` in
+a shared folder and add that folder as a source in Options > Package Manager > Sources; users install and update from
+there. Keep office configs and data out of this repo.
+
+The office settings file (`wlca_office_settings.json`: library, benchmarks, targets, branding, façade types; relative
+paths allowed) is found in this order: the `WLCA_OFFICE_SETTINGS` environment variable; the file chosen on step 6 of
+the dialog (remembered per PC); the package default (`wlca_package.json`, written by the build); `..\07_Settings\` next
+to the scripts.
+
+**Designers (dialog), from a shared script folder:** put `wlca_*.py` and `install_wlca.py` in a shared folder with
+the settings in `..\07_Settings\`. Each user drags `install_wlca.py` onto Rhino once; after that the WLCA button (or
+typing `WLCA`) opens the dialog. Installing the package later removes this alias and toolbar.
 
 **In Rhino 8:** open `takeoff/wlca_massing_takeoff.py` in ScriptEditor, with `wlca_core.py` next to
 it. Edit `CONFIG` (project header, area schedule or storey heights, structure and substructure

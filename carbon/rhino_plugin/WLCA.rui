@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RhinoUI major_ver="3" minor_ver="0" guid="495307d4-2144-4eef-a57c-a5c2ff709f88" localize="False" default_language_id="1033">
+  <extend_rhino_menus />
+  <menus />
+  <tool_bar_groups>
+    <tool_bar_group guid="89fe29a3-7e0e-4d5c-8315-3c30f4a316d1" dock_bar_guid32="00000000-0000-0000-0000-000000000000" dock_bar_guid64="89fe29a3-7e0e-4d5c-8315-3c30f4a316d1" active_tool_bar_group="c8dc05fe-7997-4a2c-883d-0421856ebb1c" single_file="False" hide_single_tab="False" point_floating="400,200">
+      <text><locale_1033>WLCA</locale_1033></text>
+      <tool_bar_group_item guid="c8dc05fe-7997-4a2c-883d-0421856ebb1c" major_version="1" minor_version="1">
+        <text><locale_1033>WLCA</locale_1033></text>
+        <tool_bar_id>6c89350d-a6de-4ca3-aff9-92054687c721</tool_bar_id>
+      </tool_bar_group_item>
+      <dock_bar_info dpi_scale="100" dock_bar="False" docking="True" horz="False" visible="True" floating="True" mru_float_style="8192" bar_id="59501" mru_width="160" point_pos="-2,-2" float_point="400,200" rect_mru_dock_pos="0,0,0,0" dock_location_u="59419" dock_location="top" float_size="160,60" />
+    </tool_bar_group>
+  </tool_bar_groups>
+  <tool_bars>
+    <tool_bar guid="6c89350d-a6de-4ca3-aff9-92054687c721" item_display_style="text_only">
+      <text><locale_1033>WLCA</locale_1033></text>
+      <tool_bar_item guid="8f10526b-c5ec-4b05-a006-01a24d1f0cee" button_display_mode="control_and_text" button_style="normal">
+        <text><locale_1033>WLCA</locale_1033></text>
+        <left_macro_id>69b30d91-c903-4951-b2bc-b15117ab2486</left_macro_id>
+      </tool_bar_item>
+    </tool_bar>
+  </tool_bars>
+  <macros>
+    <macro_item guid="69b30d91-c903-4951-b2bc-b15117ab2486">
+      <text><locale_1033>WLCA</locale_1033></text>
+      <tooltip><locale_1033>Whole life carbon assessment (RICS PS)</locale_1033></tooltip>
+      <help_text><locale_1033>Whole life carbon assessment (RICS PS)</locale_1033></help_text>
+      <button_text><locale_1033>WLCA</locale_1033></button_text>
+      <menu_text><locale_1033>WLCA</locale_1033></menu_text>
+      <script>! _WLCA</script>
+    </macro_item>
+  </macros>
+  <bitmaps />
+  <scripts />
+</RhinoUI>

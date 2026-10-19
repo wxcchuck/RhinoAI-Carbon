@@ -55,6 +55,70 @@ def default_option(name, layer="", source="layer", file_path=""):
 
 
 # ------------------------------------------------------------------------------------- office settings
+SETTINGS_FILE = "wlca_office_settings.json"
+PACKAGE_FILE = "wlca_package.json"        # optional, next to the scripts: {"office_settings": path, "name": ...}
+
+
+def user_config_path():
+    """Per-PC choices of this tool (e.g. which office settings file), outside the package so updates keep them."""
+    base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    return os.path.join(base, "McNeel", "Rhinoceros", "8.0", "WLCA", "wlca_user.json")
+
+
+def read_json(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def settings_candidates(pkg_dir, env=None, user_cfg=None):
+    """Where to look for the office settings, in order: [(path, where it came from)].
+    1 WLCA_OFFICE_SETTINGS environment variable; 2 the file chosen in the dialog on this PC; 3 the default the
+    package was built with (wlca_package.json); 4 ..\07_Settings next to the scripts (shared-folder installs)."""
+    env = os.environ if env is None else env
+    user_cfg = read_json(user_config_path()) if user_cfg is None else user_cfg
+    out = []
+    if env.get("WLCA_OFFICE_SETTINGS"):
+        out.append((env["WLCA_OFFICE_SETTINGS"], "environment variable WLCA_OFFICE_SETTINGS"))
+    if user_cfg.get("office_settings"):
+        out.append((user_cfg["office_settings"], "chosen on this PC"))
+    pkg = read_json(os.path.join(pkg_dir, PACKAGE_FILE)) if pkg_dir else {}
+    if pkg.get("office_settings"):
+        p = pkg["office_settings"]
+        out.append((p if os.path.isabs(p) else os.path.normpath(os.path.join(pkg_dir, p)), "package default"))
+    if pkg_dir:
+        out.append((os.path.normpath(os.path.join(pkg_dir, "..", "07_Settings", SETTINGS_FILE)), "next to the package folder"))
+    return out
+
+
+def find_office_settings(pkg_dir, env=None, user_cfg=None):
+    """(path, source) of the first settings file that exists, else (first candidate or '', 'not found')."""
+    cands = settings_candidates(pkg_dir, env, user_cfg)
+    for p, src in cands:
+        if p and os.path.isfile(p):
+            return p, src
+    return (cands[0][0] if cands else ""), "not found"
+
+
+def remember_office_settings(path):
+    """Store the chosen settings file for this PC ('' forgets it)."""
+    cfg_path = user_config_path()
+    cfg = read_json(cfg_path)
+    if path:
+        cfg["office_settings"] = path
+    else:
+        cfg.pop("office_settings", None)
+    os.makedirs(os.path.dirname(cfg_path), exist_ok=True)
+    with open(cfg_path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=1)
+
+
+def package_info(pkg_dir):
+    """Name and version shown in the dialog title (from wlca_package.json; defaults for a plain script folder)."""
+    pkg = read_json(os.path.join(pkg_dir, PACKAGE_FILE)) if pkg_dir else {}
+    return pkg.get("name") or "WLCA", pkg.get("version") or ""
 def load_office(path):
     """Read the office settings JSON and resolve relative paths against its folder."""
     with open(path, encoding="utf-8") as f:
