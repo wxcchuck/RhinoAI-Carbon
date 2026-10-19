@@ -185,3 +185,63 @@ def test_water_warning_follows_occupancy():
     assert "occupancy water budget" in water()[0]
     o["operational"]["water"] = 900
     assert water() == []
+
+
+def test_workbook_font_and_logo(tmp_path):
+    st = ws.default_state()
+    st["project"]["name"], st["output"]["folder"] = "P", str(tmp_path)
+    st["options"] = [ws.default_option("A", layer="L")]
+    office = {"library_xlsx": "lib", "benchmarks": {"path": "b"}, "branding": {"font": "Suisse Int'l", "logo": "office.png"}}
+    cfg = lambda: ws.calc_config(st, office, [(st["options"][0], "a.csv")])["branding"]  # noqa: E731
+    assert cfg()["font"] == "Arial" and cfg()["logo"] == "office.png"       # dialog default font; office logo until changed
+    st["output"]["font"] = "Georgia"
+    st["output"]["logo"] = ""                                                # "No logo"
+    assert cfg()["font"] == "Georgia" and cfg()["logo"] is None
+    logo = tmp_path / "ours.png"
+    st["output"]["logo"] = str(logo)
+    assert cfg()["logo"] == str(logo)
+    assert any("Logo file not found" in m for _, m in ws.validate(st, office))
+    logo.write_bytes(b"x")
+    assert not any("Logo" in m for _, m in ws.validate(st, office))
+    assert ws.loads('{"output": {"folder": "f"}}')["output"]["font"] == "Arial"   # older saves get the default
+
+
+def test_apply_font_keeps_size_and_weight():
+    import openpyxl
+    from openpyxl.styles import Font
+    import wlca_calc_template as ct
+    wb = openpyxl.Workbook()
+    a = wb.active
+    a["A1"], a["A2"] = "title", "plain"
+    a["A1"].font = Font(name="Calibri", size=18, bold=True, color="FF0000")
+    a["A2"].number_format = "0.0"
+    ct.apply_font(wb, "Georgia")
+    assert (a["A1"].font.name, a["A1"].font.sz, a["A1"].font.b, a["A1"].font.color.rgb) == ("Georgia", 18, True, "00FF0000")
+    assert a["A2"].font.name == "Georgia" and wb._fonts[0].name == "Georgia"
+    assert wb._fonts[0].scheme is None and a["A2"].font.scheme is None      # no theme font overriding the name
+
+
+def test_logo_without_pillow(tmp_path, monkeypatch):
+    """The dashboard logo is embedded even where openpyxl cannot import Pillow (Rhino 8)."""
+    import struct
+    import zlib
+    import openpyxl
+    import openpyxl.drawing.image as oi
+    import wlca_dashboard as db
+    raw = b"\x00" + b"\x00\x00\x00" * 3               # 3 x 1 RGB, one filter byte
+    chunk = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d))  # noqa: E731
+    png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 3, 1, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+    p = tmp_path / "logo.png"
+    p.write_bytes(png)
+
+    def no_pillow(img):
+        raise ImportError("You must install Pillow to fetch image objects")
+    monkeypatch.setattr(oi, "_import_image", no_pillow)
+    img = db.logo_image(str(p))
+    assert (img.format, img.width, img.height) == ("png", 3, 1)
+    wb = openpyxl.Workbook()
+    wb.active.add_image(img, "A1")
+    out = tmp_path / "x.xlsx"
+    wb.save(out)
+    import zipfile
+    assert zipfile.ZipFile(out).read("xl/media/image1.png") == png

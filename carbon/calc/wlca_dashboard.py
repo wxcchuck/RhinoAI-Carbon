@@ -30,7 +30,7 @@ from openpyxl.worksheet.datavalidation import DataValidation
 from wlca_calc_template import GROUPS, SUMMARY, SUM_ROW, name, sf
 
 DEFAULT = dict(
-    font="Calibri", logo=None,
+    font="Arial", logo=None,
     project="1F4E79", target="7F2A3C", ink="222222", muted="7F7F7F", tile="F2F2F2", rule="D9D9D9",
     groups=["8C6D4F", "2F4F4F", "5B8DB8", "E07B1A", "7A3B5A", "79A88B", "D9534F", "9FB3BC"],
     contingency="D9D2C5", contingency_bar="8FB9BE", warn="FCE8C3",
@@ -47,6 +47,51 @@ GROUP_LABELS = ["Substructure", "Superstructure", "Facade", "Internal finishes",
 # building- / asset-level results that are reported to SIGFIG significant figures (PS 6.1.4)
 BUILDING_LEVEL = {"UP_ALL", "AC_ALL", "UP_T", "UP_X8", "UP_SC", "UP_WB", "SCN_UP_ALL", "BIO_STORED",
                   "B6_ND", "B6_D", "B7_ND", "B7_D", "WLC_ND", "WLC_D", "EUI", "AC_DEC"}
+
+
+# --------------------------------------------------------------------------------------- logo
+def image_size(data):
+    """(format, width, height) of a PNG, JPEG or GIF from its bytes - enough to place it without Pillow."""
+    import struct
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        w, h = struct.unpack(">II", data[16:24])
+        return "png", w, h
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        w, h = struct.unpack("<HH", data[6:10])
+        return "gif", w, h
+    if data[:2] == b"\xff\xd8":
+        i = 2
+        while i + 9 < len(data):
+            if data[i] != 0xFF:
+                i += 1
+                continue
+            marker, seg = data[i + 1], struct.unpack(">H", data[i + 2:i + 4])[0]
+            if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):       # start of frame
+                h, w = struct.unpack(">HH", data[i + 5:i + 9])
+                return "jpeg", w, h
+            i += 2 + seg
+    raise ValueError("not a PNG, JPEG or GIF image")
+
+
+def logo_image(path):
+    """openpyxl image for the logo. openpyxl reads images through Pillow; where Pillow cannot be imported (Rhino 8's
+    Python may only see another program's copy) the file's bytes are embedded as they are - PNG, JPEG or GIF."""
+    from openpyxl.drawing.image import Image
+    try:
+        return Image(path)
+    except ImportError:
+        pass
+
+    class RawImage(Image):
+        def __init__(self, data):              # no Pillow: size from the file header, bytes written unchanged
+            self.ref = path
+            self._raw = data
+            self.format, self.width, self.height = image_size(data)
+
+        def _data(self):
+            return self._raw
+    with open(path, "rb") as f:
+        return RawImage(f.read())
 
 
 # --------------------------------------------------------------------------------------- styling helpers
@@ -154,15 +199,16 @@ def build_dashboard(wb, ctx, opts, branding):
     # ---- header
     if B.get("logo"):
         try:
-            from openpyxl.drawing.image import Image
-            img = Image(B["logo"])
+            img = logo_image(B["logo"])
             ratio = img.width / float(img.height)
-            img.height = 30
-            img.width = int(30 * ratio)
+            img.height, img.width = 30, int(30 * ratio)          # 30 px high ...
+            if img.width > 220:                                    # ... and at most 220 px wide (wide wordmarks)
+                img.width, img.height = 220, int(220 / ratio)
             ws.add_image(img, "A1")
         except Exception as e:  # missing Pillow or file - keep going without the logo
             ws["A1"] = "(logo not loaded: %s)" % e
     ws.row_dimensions[1].height = 28
+    ws.row_dimensions[3].height = 26         # 18 pt title
     ws["A3"] = "Whole life carbon assessment"
     ws["A3"].font = _f(B, 18, True)
     ws["A4"] = '=PROJ&"  |  "&USE&"  |  RIBA stage "&STAGE&"  |  RICS WLCA PS 2nd ed., 60-year RSP"'

@@ -37,7 +37,8 @@ def default_state():
         "targets": {"show": {"UKNZCBS": True, "LETI": True, "RIBA": True, "GLA": True},
                     "sc_share": {"finishes": 1.0, "ffe": 1.0, "services": 1.0},
                     "catb_allowance": None, "scenario": "GLA aspirational", "budget_target": "UKNZCBS"},
-        "output": {"folder": "", "workbook": ""},
+        # font: one family for the whole workbook; logo: None = the office settings logo, "" = none, else an image file
+        "output": {"folder": "", "workbook": "", "font": "Arial", "logo": None},
         # B6 / B7 (PS 5.3 / 5.4): basis for the whole building; energy and water per option
         "operational": {"route": "Not assessed", "op_year": None, "dh_factor": 0.0},
     }
@@ -159,9 +160,25 @@ def validate(state, office=None):
             out.append(("error", "Shell & core share for %s must be 0-100%% (step 5)." % k))
     if t.get("catb_allowance") not in (None, "") and float(t["catb_allowance"]) < 0:
         out.append(("error", "Cat B allowance cannot be negative (step 5)."))
+    logo = effective_logo(state, office)
+    if logo and not os.path.exists(logo):
+        out.append(("warning", "Logo file not found - the workbook is made without a logo (step 6)."))
+    elif logo and os.path.splitext(logo)[1].lower() not in LOGO_TYPES:
+        out.append(("warning", "Logo should be a PNG or JPG image - other files may not show in Excel (step 6)."))
     if not state["output"].get("folder"):
         out.append(("error", "Choose where to save the take-off and workbook (step 5)."))
     return out
+
+
+LOGO_TYPES = (".png", ".jpg", ".jpeg", ".gif", ".bmp")
+
+
+def effective_logo(state, office):
+    """The logo the workbook will carry: the dialog's choice, else the office settings logo ('' = none)."""
+    choice = (state.get("output") or {}).get("logo")
+    if choice is None:
+        return ((office or {}).get("branding") or {}).get("logo") or ""
+    return choice
 
 
 # ------------------------------------------------------------------------------------- facade mix
@@ -292,11 +309,15 @@ def calc_config(state, office, exports):
         options.append({"name": o["name"], "takeoff_csv": csv, "facade_route": "As exported",
                         "operational": dict((k, v) for k, v in (o.get("operational") or {}).items() if v not in (None, ""))})
     out = state["output"]
+    branding = dict(office.get("branding") or {})
+    branding["font"] = out.get("font") or "Arial"
+    if out.get("logo") is not None:
+        branding["logo"] = out["logo"] or None
     wb = out.get("workbook") or (safe_stem(state["project"]["name"]) + "_WLCA.xlsx")
     return {
         "options": options, "library_xlsx": office["library_xlsx"], "benchmarks": office["benchmarks"],
         "targets_xlsx": office.get("targets_xlsx"), "site": office.get("site") or {}, "params": params,
-        "branding": office.get("branding") or {},
+        "branding": branding,
         "out": wb if os.path.isabs(wb) else os.path.join(out["folder"], wb),
     }
 
