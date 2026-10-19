@@ -13,8 +13,9 @@ calculation workbook with the office library, benchmarks, targets and branding f
 
 Files this script expects next to it (the package folder): wlca_state.py, wlca_core.py,
 wlca_massing_takeoff.py, wlca_calc_template.py, wlca_dashboard.py.
-Office settings: WLCA_OFFICE_SETTINGS environment variable, else ..\\07_Settings\\wlca_office_settings.json
-relative to the package folder.
+Office settings (library, benchmarks, targets, branding): the WLCA_OFFICE_SETTINGS environment variable, else the
+file chosen on step 6 (remembered per PC), else the package default (wlca_package.json), else
+..\\07_Settings\\wlca_office_settings.json next to the package folder.
 """
 import os
 import sys
@@ -60,10 +61,7 @@ REQ_NOTE = "Fields marked * are needed to run the assessment; the rest have defa
 
 
 def office_settings_path():
-    p = os.environ.get("WLCA_OFFICE_SETTINGS")
-    if p:
-        return p
-    return os.path.normpath(os.path.join(PKG, "..", "07_Settings", "wlca_office_settings.json"))
+    return ws.find_office_settings(PKG)
 
 
 def pct(text, default=None):
@@ -198,17 +196,14 @@ class WLCAForm(forms.Form):
     def __init__(self, doc=None):
         super().__init__()
         self.doc = doc or DOC
-        self.Title = "WLCA - whole life carbon (RICS PS 2nd ed.)"
+        name, ver = ws.package_info(PKG)
+        self.Title = "%s%s - whole life carbon (RICS PS 2nd ed.)" % (name, (" " + ver) if ver else "")
         self.ClientSize = drawing.Size(940, 680)
         self.MinimumSize = drawing.Size(MIN_CONTENT + 220, 420)
         self.Resizable = True
         self.Padding = drawing.Padding(0)
         self.state = ws.loads(self.doc.Strings.GetValue(ws.STATE_KEY) or "")
-        self.office, self.office_error = None, None
-        try:
-            self.office = ws.load_office(office_settings_path())
-        except Exception as e:  # shown on step 6; the form still opens
-            self.office_error = "Office settings not found (%s): %s" % (office_settings_path(), e)
+        self.load_office()
         self.exports, self.run_rows, self.messages = [], [], []
         self.step = 0
         self.sel_option = 0
@@ -237,6 +232,32 @@ class WLCAForm(forms.Form):
         main.Rows.Add(forms.TableRow(forms.TableCell(None), forms.TableCell(footer)))
         self.Content = main
         self.show_step(0)
+
+    # ---------------------------------------------------------------- office settings
+    def load_office(self):
+        """Read the office settings (library, benchmarks, targets, branding); the form opens without them."""
+        self.office, self.office_error = None, None
+        self.office_path, self.office_source = office_settings_path()
+        try:
+            if self.office_source == "not found":
+                raise IOError("no office settings file found")
+            self.office = ws.load_office(self.office_path)
+        except Exception as e:
+            self.office_error = ("Office settings not loaded (%s). Choose the office settings file on step 6 - it names the "
+                                 "build-up library, benchmarks, targets and branding." % e)
+
+    def pick_office_settings(self):
+        dlg = forms.OpenFileDialog()
+        dlg.Filters.Add(forms.FileFilter("WLCA office settings", ".json"))
+        if dlg.ShowDialog(self) == forms.DialogResult.Ok:
+            ws.remember_office_settings(dlg.FileName)
+            self.load_office()
+            self.refresh()
+
+    def reset_office_settings(self):
+        ws.remember_office_settings("")
+        self.load_office()
+        self.refresh()
 
     # ---------------------------------------------------------------- state helpers
     def save(self):
@@ -272,6 +293,8 @@ class WLCAForm(forms.Form):
         # (a column sized to its content would let long labels run off to the right). Multi-cell rows go in
         # stretch() / BeginVertical() so they never add columns to the page itself.
         lay.Add(None, True, False)
+        if self.office is None and i != 5:
+            lay.AddRow(label("Office settings not loaded - choose the file on step 6 (Run) before running.", color=WARN))
         if i in (0, 2, 4):
             lay.AddRow(label(REQ_NOTE, muted=True))
         try:
@@ -679,8 +702,15 @@ class WLCAForm(forms.Form):
 
     # ---------------------------------------------------------------- 6 run
     def page_run(self, L):
+        section(L, "Office settings")
+        L.AddRow(stretch((label(self.office_path or "(none)", muted=self.office is not None, color=None if self.office else WARN), True),
+                         button("Choose...", self.pick_office_settings),
+                         button("Use default", self.reset_office_settings, enabled=self.office_source == "chosen on this PC")))
         if self.office_error:
             L.AddRow(label(self.office_error, color=WARN))
+        else:
+            L.AddRow(label("Library, benchmarks, targets and branding come from this file (%s)." % self.office_source, muted=True))
+        section(L, "Run")
         checks = ws.validate(self.state, self.office)
         for lv, m in checks:
             L.AddRow(label(("Fix: " if lv == "error" else "Note: ") + m, color=WARN if lv == "error" else MUTED))

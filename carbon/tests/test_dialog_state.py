@@ -245,3 +245,28 @@ def test_logo_without_pillow(tmp_path, monkeypatch):
     wb.save(out)
     import zipfile
     assert zipfile.ZipFile(out).read("xl/media/image1.png") == png
+
+
+def test_office_settings_lookup_order(tmp_path, monkeypatch):
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    old = tmp_path / "07_Settings" / "wlca_office_settings.json"
+    old.parent.mkdir()
+    old.write_text("{}")
+    assert ws.find_office_settings(str(pkg), env={}, user_cfg={}) == (str(old), "next to the package folder")
+    shared = tmp_path / "shared.json"
+    shared.write_text("{}")
+    (pkg / "wlca_package.json").write_text(json.dumps({"office_settings": str(shared), "name": "Office WLCA", "version": "0.1.0"}))
+    assert ws.find_office_settings(str(pkg), env={}, user_cfg={}) == (str(shared), "package default")
+    mine = tmp_path / "mine.json"
+    mine.write_text("{}")
+    assert ws.find_office_settings(str(pkg), env={}, user_cfg={"office_settings": str(mine)})[1] == "chosen on this PC"
+    assert ws.find_office_settings(str(pkg), env={"WLCA_OFFICE_SETTINGS": str(old)}, user_cfg={"office_settings": str(mine)})[0] == str(old)
+    gone = {"office_settings": str(tmp_path / "missing.json")}           # a remembered file that has gone: fall through
+    assert ws.find_office_settings(str(pkg), env={}, user_cfg=gone)[1] == "package default"
+    assert ws.package_info(str(pkg)) == ("Office WLCA", "0.1.0")
+    monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    ws.remember_office_settings(str(mine))
+    assert ws.read_json(ws.user_config_path())["office_settings"] == str(mine)
+    ws.remember_office_settings("")
+    assert "office_settings" not in ws.read_json(ws.user_config_path())
