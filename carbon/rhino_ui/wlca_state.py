@@ -147,8 +147,12 @@ def validate(state, office=None):
         for o in opts:
             if not any((o.get("operational") or {}).get(k) for k in ("elec", "gas", "dh")):
                 out.append(("error", "Option '%s': enter the predicted annual energy (step 5), or change the B6 basis." % o["name"]))
-    if op.get("route", "Not assessed") != "Not assessed" and not any((o.get("operational") or {}).get("water") for o in opts):
-        out.append(("warning", "No water figure: B7 is reported as not assessed (step 5)."))
+    if op.get("route", "Not assessed") != "Not assessed" and not all((o.get("operational") or {}).get("water") for o in opts):
+        if p.get("occupancy"):
+            out.append(("warning", "No engineer's water figure for some options: B7 uses the occupancy water budget (step 1)."))
+        else:
+            out.append(("warning", "No water figure and no occupancy: B7 is reported as not assessed (enter occupancy on step 1 "
+                                   "or water on step 5)."))
     t = state["targets"]
     for k, v in t["sc_share"].items():
         if not 0 <= float(v) <= 1:

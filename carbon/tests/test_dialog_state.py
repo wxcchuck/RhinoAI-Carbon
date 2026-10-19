@@ -170,3 +170,18 @@ def test_operational_inputs_reach_the_workbook_config():
     st["project"].update(occupancy=850, occ_days=250)                   # asked on step 1: sets the water budget
     cc = ws.calc_config(st, {"library_xlsx": "lib", "benchmarks": {"path": "b"}}, [(o, "a.csv")])
     assert cc["params"]["occupancy"] == 850 and cc["params"]["occ_days"] == 250
+
+
+def test_water_warning_follows_occupancy():
+    st = ws.default_state()
+    st["project"]["name"], st["output"]["folder"] = "P", "out"
+    o = ws.default_option("A", layer="L")
+    o["operational"]["elec"] = 1000
+    st["options"] = [o]
+    st["operational"]["route"] = "Engineer prediction (TM54)"
+    water = lambda: [m for lv, m in ws.validate(st, {}) if "water" in m.lower()]  # noqa: E731
+    assert "not assessed" in water()[0]
+    st["project"]["occupancy"] = 850
+    assert "occupancy water budget" in water()[0]
+    o["operational"]["water"] = 900
+    assert water() == []

@@ -52,6 +52,8 @@ ACCENT = drawing.Color.FromArgb(1, 100, 109)
 MUTED = drawing.Color.FromArgb(95, 99, 104)
 WARN = drawing.Color.FromArgb(122, 74, 0)
 GOOD = drawing.Color.FromArgb(30, 86, 49)
+REQ = drawing.Color.FromArgb(176, 0, 32)
+REQ_NOTE = "Fields marked * are needed to run the assessment; the rest have defaults or are optional."
 
 
 def office_settings_path():
@@ -113,6 +115,22 @@ def dropdown(items, selected, on_change, width=None):
         d.Width = width
     d.SelectedIndexChanged += lambda s, e: on_change(items[d.SelectedIndex]) if d.SelectedIndex >= 0 else None
     return d
+
+
+def req(text, muted=False, on=True):
+    """Label for a field the run needs, with a red * after it (on=False: plain label, for fields required only sometimes)."""
+    if not on:
+        return label(text, muted=muted)
+    row = mk(forms.StackLayout, Orientation=forms.Orientation.Horizontal, Spacing=3)
+    txt, star = mk(forms.Label, Text=text), mk(forms.Label, Text="*")
+    for lb in (txt, star):
+        lb.Wrap = forms.WrapMode.NONE                     # pythonnet's name for WrapMode.None (a Python keyword)
+        row.Items.Add(forms.StackLayoutItem(lb))
+    if muted:
+        txt.TextColor = MUTED
+    star.TextColor = REQ
+    star.Font = drawing.Font(star.Font.Family, star.Font.Size, drawing.FontStyle.Bold)
+    return row
 
 
 def checkbox(text, value, on_change):
@@ -208,6 +226,8 @@ class WLCAForm(forms.Form):
         self.step = i
         builders = [self.page_project, self.page_drawings, self.page_facade, self.page_structure, self.page_targets, self.page_run]
         lay = mk(forms.DynamicLayout, Padding=drawing.Padding(22, 18), Spacing=drawing.Size(10, 8))
+        if i in (0, 2, 4):
+            lay.AddRow(label(REQ_NOTE, muted=True))
         try:
             builders[i](lay)
         except Exception:
@@ -225,7 +245,7 @@ class WLCAForm(forms.Form):
         p = self.state["project"]
         section(L, "Project")
         L.BeginVertical(None, drawing.Size(12, 6))
-        L.AddRow(label("Project name"), textbox(p["name"], self.setter(p, "name")),
+        L.AddRow(req("Project name"), textbox(p["name"], self.setter(p, "name")),
                  label("Use class"), dropdown(USES, p["use_class"], self.setter(p, "use_class")))
         L.AddRow(label("RIBA stage"), dropdown(["0", "1", "2", "3", "4"], str(p["riba_stage"]), self.setter(p, "riba_stage", int)),
                  label("Construction start year"), textbox(p["start_year"], self.setter(p, "start_year", lambda v: int(num(v, 2027)))))
@@ -241,8 +261,8 @@ class WLCAForm(forms.Form):
                        "on steps 3 and 4, so options can share a massing.", muted=True))
         layers = self.massing_layers() or self.all_layers()
         L.BeginVertical(None, drawing.Size(8, 6))
-        L.AddRow(label("Include", muted=True), label("Option name", muted=True), label("Massing from", muted=True),
-                 label("Layer / file", muted=True), None)
+        L.AddRow(label("Include", muted=True), req("Option name", muted=True), label("Massing from", muted=True),
+                 req("Layer / file", muted=True), None)
         for i, o in enumerate(self.state["options"]):
             src = dropdown(["This file", "Other .3dm"], "This file" if o["source"] == "layer" else "Other .3dm",
                            self._set_source(o))
@@ -255,6 +275,7 @@ class WLCAForm(forms.Form):
                      src, where, button("Remove", self._remove_option(i)))
         L.EndVertical()
         L.AddRow(button("+ Option", self.add_option), button("Duplicate last option", self.duplicate_option), None)
+        L.AddRow(label("Tick at least one option. Option names must be different from each other.", muted=True))
 
     def _set_source(self, o):
         def f(v):
@@ -455,7 +476,9 @@ class WLCAForm(forms.Form):
         L.AddRow(label("Up to three types; shares are of the whole net facade and must add up to 100%. Curtain-wall types carry "
                        "their glazing in the system; other types take a glazing ratio.", muted=True))
         L.BeginVertical(None, drawing.Size(8, 6))
-        L.AddRow(label("Type (from the office library)", muted=True), label("Share", muted=True), label("Glazing ratio", muted=True), None)
+        punched = any(f.get("kind") != ws.FACADE_UNITISED for f in o["facade"])
+        L.AddRow(req("Type (from the office library)", muted=True), req("Share", muted=True),
+                 req("Glazing ratio", muted=True, on=punched), None)
         for i, f in enumerate(o["facade"]):
             cur = next((l for l, c in zip(labels, cat) if c["id"] == f["build_up"]), None)
             wwr = textbox("" if f.get("wwr") is None else "%.0f%%" % (100 * f["wwr"]), self._set_f(f, "wwr", pct), width=70)
@@ -560,17 +583,22 @@ class WLCAForm(forms.Form):
         L.EndVertical()
         if (op.get("route") or "Not assessed") != "Not assessed" or any(any((o.get("operational") or {}).values()) for o in self.state["options"]):
             L.BeginVertical(None, drawing.Size(8, 4))
-            L.AddRow(*([label("Per year", muted=True)] + [label(lbl_, muted=True) for _, lbl_ in OP_FIELDS] + [None]))
+            eng = (op.get("route") or "").startswith("Engineer")
+            L.AddRow(*([label("Per year", muted=True)] + [req(lbl_, muted=True, on=eng and k in ("elec", "gas", "dh"))
+                                                           for k, lbl_ in OP_FIELDS] + [None]))
             for o in [o for o in self.state["options"] if o["include"]]:
                 ov = o.setdefault("operational", {})
                 L.AddRow(*([label(o["name"], bold=True)] + [textbox("" if ov.get(k) in (None, "") else "{:,.0f}".format(ov[k]),
                                                                      self.setter(ov, k, lambda v: num(str(v).replace(",", ""), None)), width=95)
                                                              for k, _ in OP_FIELDS] + [None]))
             L.EndVertical()
+            if eng:
+                L.AddRow(label("* Engineer basis: at least one of grid electricity, gas or district heat for every option.", color=REQ))
             L.AddRow(label("Engineer basis: kWh from the energy model (TM54 mid-range). Indicative basis: only the EUI column is used (blank = "
                            "UKNZCBS limit). Water from the public health engineer; blank = occupancy x RIBA 2025 target. PV used on site counts in "
                            "the EUI at no carbon; PV exported is reported in D2.", muted=True))
         section(L, "Where to save")
+        L.AddRow(req("Output folder"))
         out = self.state["output"]
         L.BeginVertical(None, drawing.Size(8, 6))
         L.AddRow(textbox(out["folder"], self.setter(out, "folder"), width=520), button("Browse...", self.pick_folder))
@@ -607,6 +635,13 @@ class WLCAForm(forms.Form):
         b1 = button("1  Run take-off", self.run_takeoff)
         b1.Enabled = not blocked
         L.AddRow(b1, label("Measures every ticked option and draws floor plates and GIA curves on the WLCA layers for checking.", muted=True))
+        L.AddRow(None, label("Before running, turn on the massing layers (step 1) and the plan layers (step 2), with their parent layers - "
+                             "the take-off and the plan reader skip anything on a layer that is off, and objects hidden with Hide "
+                             "(use Show first). Easiest: turn all layers on.", color=WARN))
+        off = self.layers_off()
+        if off:
+            L.AddRow(None, label("These layers are off now: " + "; ".join(off), color=WARN))
+            L.AddRow(None, button("Turn these layers on", self.turn_layers_on))
         if self.run_rows:
             L.BeginVertical(None, drawing.Size(18, 4))
             L.AddRow(*([label("Quantity", muted=True)] + [label(o["name"], bold=True) for o, _ in self.exports] + [None]))
@@ -622,6 +657,42 @@ class WLCAForm(forms.Form):
             wb = self.state["output"]["last_workbook"]
             L.AddRow(label("Saved: " + wb, color=GOOD), button("Open in Excel", lambda: os.startfile(wb)),
                      button("Open folder", lambda: os.startfile(os.path.dirname(wb))))
+
+    def needed_layers(self):
+        """Layers the run reads: each ticked option's massing layer (this file) and the plan layers (Rhino route)."""
+        out = [o["layer"] for o in self.state["options"] if o.get("include") and o["source"] == "layer" and o.get("layer")]
+        pl = self.state["plan"]
+        if pl.get("route") == "rhino":
+            out += [pl.get(k) for k in ("walls_layer", "columns_layer", "stairs_layer") if pl.get(k)]
+        return list(dict.fromkeys(out))
+
+    def _layer_chain(self, path):
+        """The layer and its parents (a child is not drawn when a parent is off)."""
+        idx = self.doc.Layers.FindByFullPath(path, -1)
+        chain = []
+        while idx >= 0:
+            lay = self.doc.Layers[idx]
+            chain.append(lay)
+            parent = lay.ParentLayerId
+            if parent == type(parent).Empty:
+                break
+            p = self.doc.Layers.FindId(parent)
+            idx = p.Index if p is not None else -1
+        return chain
+
+    def layers_off(self):
+        try:
+            return [p for p in self.needed_layers() if any(not l.IsVisible for l in self._layer_chain(p))]
+        except Exception:
+            return []
+
+    def turn_layers_on(self):
+        for p in self.needed_layers():
+            for lay in self._layer_chain(p):
+                if not lay.IsVisible:
+                    lay.IsVisible = True
+        self.doc.Views.Redraw()
+        self.refresh()
 
     def load_takeoff(self):
         g = {"__rhino_doc__": self.doc, "WLCA_LIB_DIR": PKG, "WLCA_NO_AUTORUN": True, "__name__": "wlca_takeoff"}
