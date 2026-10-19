@@ -34,3 +34,23 @@ def test_package_ships_every_module_the_dialog_imports():
     import re
     used = {m + ".py" for m in re.findall(r"^\s*(?:import|from) (wlca_\w+)", src, re.M)}
     assert used <= shipped, used - shipped
+
+
+def test_toolbar_icon_is_embedded(tmp_path):
+    import base64
+    png = b"\x89PNG\r\n\x1a\nfake"
+    icons = {}
+    for size in ("16", "24", "32"):
+        (tmp_path / ("i%s.png" % size)).write_bytes(png + size.encode())
+        icons[size] = str(tmp_path / ("i%s.png" % size))
+    rui = open(os.path.join(os.path.dirname(bp.__file__), "WLCA.rui"), encoding="utf-8").read()
+    out = bp.rui_with_icon(rui, icons)
+    import re
+    bid = re.search(r'<macro_item guid="[^"]+" bitmap_id="([^"]+)">', out).group(1)
+    for tag, size in (("small_bitmap", "16"), ("normal_bitmap", "24"), ("large_bitmap", "32")):
+        block = re.search(r"<%s item_width=\"%s\".*?</%s>" % (tag, size, tag), out, re.S).group(0)
+        assert bid in block and base64.b64encode(png + size.encode()).decode() in block
+    assert 'item_display_style="control_and_text"' in out and "<bitmaps />" not in out
+    assert bp.rui_with_icon(rui, {}) == rui
+    import xml.dom.minidom
+    xml.dom.minidom.parseString(out.encode("utf-8"))           # still well-formed

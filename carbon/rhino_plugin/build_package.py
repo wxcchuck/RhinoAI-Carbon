@@ -14,6 +14,7 @@ Config (all optional except name / version):
      "version": "0.1.0",             0.1.0-beta for a pre-release
      "authors": ["..."], "company": "...", "description": "...", "url": "https://...",
      "icon": "path/to/icon.png",     square PNG for the Package Manager
+     "toolbar_icons": {"16": "...16.png", "24": "...24.png", "32": "...32.png"},   WLCA toolbar button images
      "office_settings": "X:/shared/WLCA/Settings/wlca_office_settings.json",   default settings file for every user
      "out": "dist"}                  where the .yak goes (a folder, e.g. a shared Package Manager source)
 Relative paths are read from the config file's folder.
@@ -49,6 +50,8 @@ def load_config(path):
     for k in ("icon", "out"):
         if cfg.get(k) and not os.path.isabs(cfg[k]):
             cfg[k] = os.path.normpath(os.path.join(base, cfg[k]))
+    cfg["toolbar_icons"] = dict((size, p if os.path.isabs(p) else os.path.normpath(os.path.join(base, p)))
+                                for size, p in (cfg.get("toolbar_icons") or {}).items())
     return cfg
 
 
@@ -92,6 +95,29 @@ def manifest(cfg, icon_name):
     return "\n".join(lines) + "\n"
 
 
+def rui_with_icon(rui, icons):
+    """WLCA.rui with the button image: Rhino keeps toolbar images as PNG strips (one cell per image) at 16 / 24 /
+    32 px in <bitmaps>; the macro names its cell by bitmap_id. icons = {"16": png path, ...}."""
+    import base64
+    import re
+    import uuid
+    if not icons:
+        return rui
+    bid = str(uuid.uuid4())
+    tags = {"16": "small_bitmap", "24": "normal_bitmap", "32": "large_bitmap"}
+    parts = ["<bitmaps>"]
+    for size in ("16", "24", "32"):
+        p = icons.get(size) or icons.get(max(icons, key=int))
+        with open(p, "rb") as f:
+            data = base64.b64encode(f.read()).decode("ascii")
+        parts.append('    <%s item_width="%s" item_height="%s">\n      <bitmap_item guid="%s" index="0" />\n'
+                     '      <bitmap>%s</bitmap>\n    </%s>' % (tags[size], size, size, bid, data, tags[size]))
+    parts.append("  </bitmaps>")
+    rui = rui.replace("<bitmaps />", "\n".join(parts))
+    rui = re.sub(r'<macro_item guid="([^"]+)">', r'<macro_item guid="\1" bitmap_id="%s">' % bid, rui, count=1)
+    return rui.replace('item_display_style="text_only"', 'item_display_style="control_and_text"')
+
+
 def run(cmd, cwd):
     r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
     if r.returncode != 0:
@@ -111,7 +137,10 @@ def build(cfg):
     # 2 scripts, toolbar, package settings
     for folder, name in SCRIPTS:
         shutil.copy2(os.path.join(CARBON, folder, name), stage)
-    shutil.copy2(os.path.join(HERE, "WLCA.rui"), stage)
+    with open(os.path.join(HERE, "WLCA.rui"), encoding="utf-8") as f:
+        rui = rui_with_icon(f.read(), cfg.get("toolbar_icons"))
+    with open(os.path.join(stage, "WLCA.rui"), "w", encoding="utf-8") as f:
+        f.write(rui)
     pkg = {"name": cfg["title"], "version": cfg["version"]}
     if cfg.get("office_settings"):
         pkg["office_settings"] = cfg["office_settings"]
