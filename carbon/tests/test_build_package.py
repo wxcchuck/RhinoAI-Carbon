@@ -30,6 +30,11 @@ def test_package_ships_every_module_the_dialog_imports():
     shipped = {name for _, name in bp.SCRIPTS}
     for _, name in bp.SCRIPTS:
         assert os.path.exists(os.path.join(here, _, name))
+    for name in bp.WEB:
+        assert os.path.exists(os.path.join(here, "rhino_ui", "web", name))
+    page = open(os.path.join(here, "rhino_ui", "web", "index.html"), encoding="utf-8").read()
+    import re as _re
+    assert set(_re.findall(r'(?:src|href)="([^"]+)"', page)) <= set(bp.WEB)     # the page loads only shipped files
     src = "".join(open(os.path.join(here, f, n), encoding="utf-8").read() for f, n in bp.SCRIPTS)
     import re
     used = {m + ".py" for m in re.findall(r"^\s*(?:import|from) (wlca_\w+)", src, re.M)}

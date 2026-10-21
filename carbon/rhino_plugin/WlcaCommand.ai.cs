@@ -5,7 +5,24 @@ using Rhino.Commands;
 
 namespace Wlca
 {
-    /// <summary>WLCA: opens the whole life carbon dialog (wlca_dialog.py, next to WLCA.rhp).</summary>
+    /// <summary>Runs one of the Python scripts that ship next to WLCA.rhp.</summary>
+    static class ScriptRunner
+    {
+        public static Result Run(string script)
+        {
+            var path = Path.Combine(WlcaPlugin.PackageFolder, script);
+            if (!File.Exists(path))
+            {
+                RhinoApp.WriteLine("WLCA: {0} is missing from {1} - reinstall the package.", script, WlcaPlugin.PackageFolder);
+                return Result.Failure;
+            }
+            // The scripts are Python 3 ("#! python3"); RunPythonScript hands them to Rhino 8's script engine, which
+            // also installs the packages they declare ("# r: openpyxl") on first use.
+            return RhinoApp.RunScript("_-RunPythonScript \"" + path + "\"", false) ? Result.Success : Result.Failure;
+        }
+    }
+
+    /// <summary>WLCA: opens the whole life carbon window (wlca_web.py - the web interface with results).</summary>
     public class WlcaCommand : Command
     {
         public override string EnglishName
@@ -15,15 +32,21 @@ namespace Wlca
 
         protected override Result RunCommand(RhinoDoc doc, RunMode mode)
         {
-            var dialog = Path.Combine(WlcaPlugin.PackageFolder, "wlca_dialog.py");
-            if (!File.Exists(dialog))
-            {
-                RhinoApp.WriteLine("WLCA: wlca_dialog.py is missing from {0} - reinstall the package.", WlcaPlugin.PackageFolder);
-                return Result.Failure;
-            }
-            // The dialog is Python 3 ("#! python3"); RunPythonScript hands it to Rhino 8's script engine, which also
-            // installs the packages it declares ("# r: openpyxl") on first use.
-            return RhinoApp.RunScript("_-RunPythonScript \"" + dialog + "\"", false) ? Result.Success : Result.Failure;
+            return ScriptRunner.Run("wlca_web.py");
+        }
+    }
+
+    /// <summary>WLCAClassic: the earlier dialog (wlca_dialog.py), kept as a fallback while the web window beds in.</summary>
+    public class WlcaClassicCommand : Command
+    {
+        public override string EnglishName
+        {
+            get { return "WLCAClassic"; }
+        }
+
+        protected override Result RunCommand(RhinoDoc doc, RunMode mode)
+        {
+            return ScriptRunner.Run("wlca_dialog.py");
         }
     }
 }
