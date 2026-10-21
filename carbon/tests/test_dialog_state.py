@@ -270,3 +270,21 @@ def test_office_settings_lookup_order(tmp_path, monkeypatch):
     assert ws.read_json(ws.user_config_path())["office_settings"] == str(mine)
     ws.remember_office_settings("")
     assert "office_settings" not in ws.read_json(ws.user_config_path())
+
+
+
+def test_edits_from_the_web_window():
+    st = ws.default_state()
+    st["options"] = [ws.default_option("A", layer="L")]
+    assert ws.apply_edit(st, ["project", "name"], "Opt 7") == "Opt 7"
+    assert ws.apply_edit(st, ["project", "riba_stage"], "3", "int") == 3
+    assert ws.apply_edit(st, ["project", "riba_stage"], "x", "int") == 3                # bad text keeps the old value
+    assert ws.apply_edit(st, ["options", 0, "facade", 0, "share"], "70%", "pct") == pytest.approx(0.7)
+    assert ws.apply_edit(st, ["options", 0, "facade", 0, "share"], "0.5", "pct") == pytest.approx(0.5)
+    assert ws.apply_edit(st, ["options", 0, "operational", "gas"], "12,000", "num") == 12000
+    assert ws.apply_edit(st, ["options", 0, "operational", "gas"], "", "num") is None
+    assert ws.apply_edit(st, ["project", "demolished_gia_m2"], "", "num0") == 0.0
+    assert ws.apply_edit(st, ["targets", "show", "LETI"], False, "bool") is False
+    assert ws.apply_edit(st, ["output", "font"], "  ") == "Arial"
+    with pytest.raises((KeyError, IndexError)):
+        ws.apply_edit(st, ["options", 5, "name"], "x")

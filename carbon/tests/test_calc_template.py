@@ -523,3 +523,22 @@ def test_b6_b7_both_scenarios_and_routes(built, tmp_path):
     assert e("B6_ND") == pytest.approx(60 * 60 * f_e_nd, rel=1e-9) and e("W_M3") == pytest.approx(100 * 13 * 250 / 1000)
     assert e("B7_ND") == pytest.approx(60 * 325 * f_w_nd / GIA, rel=1e-9)
     assert e("OP_STATUS") == "Energy: indicative (EUI estimate) | water: indicative budget (occupancy x RIBA 2025)"
+
+
+def test_results_reader_for_the_window(built2, tmp_path):
+    """wlca_results.read_results on the calculated two-option workbook (LibreOffice stands in for Excel here)."""
+    import wlca_results as wr
+    assert wr.read_results(built2["out"])["calculated"] is False            # openpyxl output: formulas only
+    _calc(built2["out"], str(tmp_path / "calc"))
+    res = wr.read_results(str(tmp_path / "calc" / os.path.basename(built2["out"])))
+    assert res["calculated"] and [o["values"]["NAME"] for o in res["options"]] == ["Opt A", "Opt B"]
+    assert res["cont"] == pytest.approx(0.15) and res["targets"]
+    for o in res["options"]:
+        v = o["values"]
+        parts = sum(v[k] or 0 for k in ("B_MOD", "B_ASM", "B_BM", "B_SITE", "B_CONT"))
+        assert parts == pytest.approx(v["UP_ALL"], rel=1e-6)                # the doughnut adds up to the headline
+        mods = sum(v[k] or 0 for k in ("M_A13", "M_A4", "M_A5"))
+        assert mods == pytest.approx(v["UP_ALL"], rel=1e-6)                 # A1-A3 + A4 + A5 = A1-A5
+    assert res["options"][1]["values"]["UP_ALL"] > res["options"][0]["values"]["UP_ALL"]   # Opt B has more slab
+    assert wr.judge(100, 120, 0.15) == "Meets" and wr.judge(130, 120, 0.15) == "Meets before contingency only"
+    assert wr.judge(200, 120, 0.15) == "Above" and wr.judge(None, 120, 0.15) == "Not assessed"

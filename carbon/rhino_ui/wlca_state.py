@@ -169,6 +169,57 @@ def loads(text):
     return st
 
 
+# ------------------------------------------------------------------------------------- edits from the web window
+def parse_pct(text, default=None):
+    """'70%', '70' or '0.7' -> 0.7"""
+    try:
+        t = str(text).strip().rstrip("%").strip()
+        v = float(t)
+        return v / 100.0 if (v > 1 or str(text).strip().endswith("%")) else v
+    except ValueError:
+        return default
+
+
+def parse_num(text, default=None):
+    try:
+        return float(str(text).replace(",", "").strip())
+    except ValueError:
+        return default
+
+
+def convert_edit(kind, value, old=None):
+    """A value typed in the window -> what the state holds. kind: text, bool, pct, num (blank = None),
+    num0 (blank = 0), int."""
+    if kind == "bool":
+        return bool(value)
+    if kind == "pct":
+        return parse_pct(value, old)
+    if kind == "num":
+        return None if str(value).strip() == "" else parse_num(value, old)
+    if kind == "num0":
+        return 0.0 if str(value).strip() == "" else parse_num(value, old)
+    if kind == "int":
+        v = parse_num(value, None)
+        return int(v) if v is not None else old
+    return "" if value is None else str(value)
+
+
+def apply_edit(state, path, value, kind="text"):
+    """Set state[path...] from the window. Paths are lists of keys / list indices, e.g. ["options", 0, "facade", 1,
+    "share"]. Returns the stored value; raises KeyError / IndexError for a path the state does not have."""
+    d = state
+    for p in path[:-1]:
+        d = d[p]
+    if isinstance(d, list):
+        old = d[path[-1]]
+    else:
+        old = d.get(path[-1])
+    d[path[-1]] = convert_edit(kind, value, old)
+    if path[:2] == ["output", "font"] and not str(d[path[-1]]).strip():
+        d[path[-1]] = "Arial"
+    return d[path[-1]]
+
+
 # ------------------------------------------------------------------------------------- checks
 def validate(state, office=None):
     """List of (level, message); level 'error' blocks the run, 'warning' is shown and allowed."""
