@@ -101,8 +101,52 @@ def test_layer_suggestions_by_name_then_shape():
     assert pick["walls"] == "L1" and pick["columns"] == "L1" and pick["stairs"] == "L2"
 
 
-def test_square_columns_only_when_asked():
+def test_square_and_rectangular_columns_by_default():
+    W, S = plan()
+    sq = _rect(25, 20, 25.6, 20.6)                                   # 600 square
+    rc = _rect(8, 14, 8.4, 15.0)                                     # 400 x 1000 rectangle -> square of the same area
+    messy = _poly([(30, 14), (30.3, 14), (30.6, 14), (30.6, 14.6), (30, 14.6), (30, 14.6), (30, 14)])  # extra + repeated points
+    stub = _rect(10, 4, 10.3, 5.5)                                   # 300 x 1500 = 5 x as long: a wall stub, not a column
+    p, ids, _ = pr.measure(W + [sq, rc, messy, stub], W + [sq, rc, messy, stub], S)
+    c = p["columns"]
+    assert c["count_per_floor"] == 6 + 3 and set(c["shapes"]) == {"circle", "square", "rectangle"}
+    assert sq["id"] in ids["columns"] and rc["id"] in ids["columns"] and messy["id"] in ids["columns"]
+    assert stub["id"] not in ids["columns"] and stub["id"] in ids["walls"]
+    assert rc["id"] not in ids["walls"]                              # 400 thick would also pass as a wall - columns win
+    sizes = sorted([0.75] * 6 + [0.6, math.sqrt(0.4 * 1.0), 0.6])
+    assert c["size_m"] == pytest.approx(sum(sizes) / len(sizes), abs=0.001)
+
+
+def test_circles_only_when_the_office_says_so():
     W, S = plan()
     W.append(_rect(25, 20, 25.6, 20.6))
-    assert pr.measure(W, W, S)[0]["columns"]["count_per_floor"] == 6
-    assert pr.measure(W, W, S, {"column_shapes": ["circle", "square"]})[0]["columns"]["count_per_floor"] == 7
+    assert pr.measure(W, W, S, {"column_shapes": ["circle"]})[0]["columns"]["count_per_floor"] == 6
+
+
+def test_rect_columns_survive_a_units_fix_without_becoming_walls():
+    W, S = plan(k=0.001)
+    rc = _rect(8, 14, 8.4, 15.0, k=0.001)
+    p, ids, _ = pr.measure(W + [rc], W + [rc], S)
+    assert p["units_factor"] == 1000.0 and rc["id"] in ids["columns"] and rc["id"] not in ids["walls"]
+
+
+def test_treads_on_the_column_layer_are_not_columns():
+    W, S = plan()
+    p, ids, _ = pr.measure(W + S, W + S, W + S)
+    assert p["columns"]["count_per_floor"] == 6 and p["stairs"]["count"] == 2
+
+
+def test_boxes_that_touch_other_shapes_are_not_columns():
+    """From the sample plan: a row of 1.5 m squares (shafts / tiles) and 300 mm nibs on a core wall are not columns."""
+    W, S = plan()
+    row = [_rect(5 + 1.5 * i, 14, 6.5 + 1.5 * i, 15.5) for i in range(4)]      # side by side, sharing edges
+    nib = _rect(15.3, 13, 15.8, 13.3)                                          # 500 x 300 nib on the core wall at x = 15.3
+    free = _rect(25, 20, 25.6, 20.6)
+    on_facade = _rect(0.3, 12, 0.9, 12.6)                                      # perimeter column on the inner facade line
+    extra = row + [nib, free, on_facade]
+    p, ids, notes = pr.measure(W + extra, W + extra, S)
+    assert p["columns"]["count_per_floor"] == 6 + 2
+    assert free["id"] in ids["columns"] and on_facade["id"] in ids["columns"]
+    assert not any(r["id"] in ids["columns"] for r in row) and nib["id"] not in ids["columns"]
+    assert nib["id"] in ids["walls"]                                           # a nib stays part of the core walls
+    assert any("touch other shapes" in n for n in notes)
