@@ -11,7 +11,9 @@ It returns the same dict as WLCA_plan_extract, so the take-off's structure_rows 
 
   core walls  thin closed outlines or hatches, 0.10-0.50 m thick: plan area A, thickness t from the outline
               (exact for a rectangle: P = 2(L + t), A = L t); length = A / t
-  columns     circles 0.20-1.50 m across (squares too if column_shapes includes "square"); blocks by their box
+  columns     circles 0.20-1.50 m across; squares and rectangles (closed polylines, each side 0.20-1.50 m, long side
+              at most 3 x the short one, so wall stubs and treads stay out); blocks by their box. A rectangle
+              counts as the square of the same area (the take-off models square columns)
   stairs      treads = rectangles 0.18-0.40 x 0.80-2.20 m; runs of treads make flights, flights make stairs
               (same grouping as the PDF extractor). The plan may be rotated: rectangles are read in the
               plan's own frame (dominant rectangle angle).
@@ -31,7 +33,10 @@ from wlca_plan_extract import group_stairs
 DEFAULTS = {
     "wall_thickness_range_m": [0.10, 0.50],
     "column_size_range_m": [0.20, 1.50],
-    "column_shapes": ["circle"],                 # add "square" for rectangular columns
+    "column_shapes": ["circle", "square", "rectangle"],
+    "column_max_aspect": 3.0,                    # rectangle long side / short side; longer = a wall stub or blade
+    "column_touch_tol_m": 0.02,                  # a square / rectangle touching another small shape is not a column
+    "large_outline_m2": 20.0,                    # facade lines and other big outlines may touch columns
     "tread_going_range_m": [0.18, 0.40],
     "tread_width_range_m": [0.80, 2.20],
     "min_treads_per_flight": 4,
@@ -73,11 +78,35 @@ def thickness(area, perim):
     return (h - math.sqrt(disc)) / 2.0 if disc >= 0 else 2.0 * area / perim
 
 
-def rect_frame(pts, tol=0.02):
-    """(cx, cy, angle_rad, w, h) if pts (closed polyline) is a rectangle, else None. angle in [0, pi/2)."""
+def corners(pts, tol=0.02):
+    """Closed polyline points without the closing point, repeated points or points along a straight edge."""
     p = list(pts)
     if len(p) >= 2 and abs(p[0][0] - p[-1][0]) < 1e-9 and abs(p[0][1] - p[-1][1]) < 1e-9:
         p = p[:-1]
+    q = []
+    for v in p:
+        if not q or math.hypot(v[0] - q[-1][0], v[1] - q[-1][1]) > 1e-6:
+            q.append(v)
+    if len(q) > 1 and math.hypot(q[0][0] - q[-1][0], q[0][1] - q[-1][1]) <= 1e-6:
+        q.pop()
+    changed = True
+    while changed and len(q) > 3:
+        changed = False
+        for i in range(len(q)):
+            a, b, c = q[i - 1], q[i], q[(i + 1) % len(q)]
+            ab, bc = (b[0] - a[0], b[1] - a[1]), (c[0] - b[0], c[1] - b[1])
+            la, lb = math.hypot(*ab), math.hypot(*bc)
+            if la and lb and abs(ab[0] * bc[1] - ab[1] * bc[0]) <= tol * la * lb and ab[0] * bc[0] + ab[1] * bc[1] > 0:
+                q.pop(i)                       # b sits on the straight line a-c
+                changed = True
+                break
+    return q
+
+
+def rect_frame(pts, tol=0.02):
+    """(cx, cy, angle_rad, w, h) if pts (closed polyline) is a rectangle, else None. angle in [0, pi/2).
+    Extra points along an edge and repeated points are ignored."""
+    p = corners(pts, tol)
     if len(p) != 4:
         return None
     e = [(p[(i + 1) % 4][0] - p[i][0], p[(i + 1) % 4][1] - p[i][1]) for i in range(4)]
@@ -137,21 +166,62 @@ def plate_boundary(shapes, min_area):
     return best
 
 
+def _seg_dist(p, a, b):
+    ax, ay = a
+    dx, dy = b[0] - ax, b[1] - ay
+    L2 = dx * dx + dy * dy
+    t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((p[0] - ax) * dx + (p[1] - ay) * dy) / L2))
+    return math.hypot(p[0] - ax - t * dx, p[1] - ay - t * dy)
+
+
+def outline(s):
+    """Closed outline points of a shape (polyline points, or the box of a block / circle)."""
+    if s.get("pts"):
+        p = list(s["pts"])
+        return p if p[0] == p[-1] else p + [p[0]]
+    x0, y0, x1, y1 = s["bb"]
+    return [(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]
+
+
+def touches(a, b, tol):
+    """True when outlines a and b (closed point lists) touch, overlap or come within tol of each other."""
+    for P, Q in ((a, b), (b, a)):
+        for v in P[:-1]:
+            if point_in_poly(v[0], v[1], Q):
+                return True
+            for i in range(len(Q) - 1):
+                if _seg_dist(v, Q[i], Q[i + 1]) <= tol:
+                    return True
+    return False
+
+
 # ----------------------------------------------------------------------------- classification
+def box_column(w, h, cfg):
+    """("square" | "rectangle", equivalent square side) for a w x h box that reads as a column, else None.
+    A rectangle counts as the square of the same area, so the concrete volume is kept."""
+    lo, hi = cfg["column_size_range_m"]
+    a, b = sorted((w, h))
+    if a < lo or b > hi:
+        return None
+    shapes = cfg["column_shapes"]
+    if b - a <= 0.05 * b:
+        return ("square", (a + b) / 2.0) if ("square" in shapes or "rectangle" in shapes) else None
+    if "rectangle" in shapes and b <= cfg.get("column_max_aspect", 3.0) * a:
+        return ("rectangle", math.sqrt(a * b))
+    return None
+
+
 def column_size(s, cfg):
     lo, hi = cfg["column_size_range_m"]
     if s.get("circle"):
         d = s["circle"][2]
-        return ("circle", d) if lo <= d <= hi else None
-    if "square" in cfg["column_shapes"] and s["closed"] and s.get("pts"):
+        return ("circle", d) if "circle" in cfg["column_shapes"] and lo <= d <= hi else None
+    if s["closed"] and s.get("pts") and not s.get("block"):
         rf = rect_frame(s["pts"])
-        if rf and abs(rf[3] - rf[4]) <= 0.05 * max(rf[3], rf[4]) and lo <= rf[3] <= hi:
-            return ("square", rf[3])
-    if s.get("block") and "square" in cfg["column_shapes"]:
+        return box_column(rf[3], rf[4], cfg) if rf else None
+    if s.get("block"):
         b = s["bb"]
-        w, h = b[2] - b[0], b[3] - b[1]
-        if abs(w - h) <= 0.05 * max(w, h) and lo <= w <= hi:
-            return ("square", w)
+        return box_column(b[2] - b[0], b[3] - b[1], cfg)
     return None
 
 
@@ -189,6 +259,10 @@ def score_scale(walls, cols, k, cfg):
     for s in cols:
         if s.get("circle") and cfg["column_size_range_m"][0] <= s["circle"][2] * k <= cfg["column_size_range_m"][1]:
             n += 1
+        elif s["closed"] and s.get("pts") and not s.get("block"):
+            rf = rect_frame(s["pts"])
+            if rf and box_column(rf[3] * k, rf[4] * k, cfg):
+                n += 1
     lo, hi = cfg["wall_thickness_range_m"]
     for s in walls:
         if s["closed"] and not s.get("circle"):
@@ -235,31 +309,64 @@ def measure(walls, cols, stairs, cfg=None, boundary=None, source="Rhino layers")
         notes.append("No floor-plate outline found on the wall layer - everything on the chosen layers is counted.")
 
     ids = {"walls": [], "columns": [], "stairs": []}
-    # columns first, so a square column is never also a wall
-    col_ids, sizes, centres_, shapes_ = set(), [], [], set()
-    for s in cols:
-        cs = column_size(s, C)
-        if cs:
-            col_ids.add(id(s))
-            sizes.append(cs[1])
-            shapes_.add(cs[0])
-            centres_.append([round(v, 2) for v in centre(s)])
-            ids["columns"].append(s.get("id"))
+    # stairs first, then columns, then walls: a tread is never a column or a wall, a column never a wall
     ang = dominant_angle(stairs)
     boxes = tread_boxes(stairs, ang, C)
     st = group_stairs(boxes, tuple(C["tread_going_range_m"]), tuple(C["tread_width_range_m"]),
                       C["min_treads_per_flight"], C["stair_cluster_gap_m"])
     treads = [f for s in st for f in s["flights"]]
+    # one object may sit in several role lists (shared layers, or copies after a units fix): match by Rhino id
+    key = lambda x: x.get("id") or id(x)      # noqa: E731
     tread_ids = set()
     if st:
         for s in stairs:
             if is_tread(s, C):
                 ids["stairs"].append(s.get("id"))
-                tread_ids.add(id(s))
+                tread_ids.add(key(s))
+    cands = []
+    for s in cols:
+        if key(s) in tread_ids:
+            continue
+        cs = column_size(s, C)
+        if cs:
+            cands.append((s, cs))
+    # a square / rectangle is a column only when it stands free: one touching a wall piece, a nib, or a row of
+    # other boxes (shafts, tiles) is not. Large outlines (facade lines) may touch columns.
+    others = dict((key(x), x) for x in walls + cols if key(x) not in tread_ids and x.get("closed")
+                  and (x.get("area") or 0) < C["large_outline_m2"])
+    touching = 0
+    keep_c = []
+    for s, cs in cands:
+        if cs[0] != "circle":
+            o = outline(s)
+            bx = s["bb"]
+            t = C["column_touch_tol_m"]
+            hit = False
+            for kk, x in others.items():
+                if kk == key(s):
+                    continue
+                xb = x["bb"]
+                if xb[0] > bx[2] + t or xb[2] < bx[0] - t or xb[1] > bx[3] + t or xb[3] < bx[1] - t:
+                    continue
+                if touches(o, outline(x), t):
+                    hit = True
+                    break
+            if hit:
+                touching += 1
+                continue
+        keep_c.append((s, cs))
+    col_ids, sizes, centres_, shapes_ = set(), [], [], set()
+    for s, cs in keep_c:
+        if cs:
+            col_ids.add(key(s))
+            sizes.append(cs[1])
+            shapes_.add(cs[0])
+            centres_.append([round(v, 2) for v in centre(s)])
+            ids["columns"].append(s.get("id"))
     A = L = 0.0
     n_w = 0
     for s in walls:
-        if id(s) in col_ids or id(s) in tread_ids:       # a tread is never a wall when stairs share the layer
+        if key(s) in col_ids or key(s) in tread_ids:     # a column or a tread is never also a wall
             continue
         t = wall_piece(s, C)
         if t:
@@ -282,8 +389,12 @@ def measure(walls, cols, stairs, cfg=None, boundary=None, source="Rhino layers")
     }
     if not n_w:
         notes.append("No core walls found (closed outlines or hatches 100-500 mm thick).")
+    if touching:
+        notes.append("%d square / rectangular shapes of column size were left out because they touch other shapes "
+                     "(wall nibs, shafts, tiles) - only free-standing ones count as columns." % touching)
     if not sizes:
-        notes.append("No columns found (circles 0.2-1.5 m; add 'square' to column_shapes for square columns).")
+        notes.append("No columns found (circles, squares or rectangles 0.2-1.5 m across as closed polylines or blocks; "
+                     "rectangles up to %g x as long as wide)." % C.get("column_max_aspect", 3.0))
     if not st:
         notes.append("No stairs found (tread rectangles 0.18-0.40 x 0.80-2.20 m, 4+ per flight) - stairs use office defaults.")
     plan["note"] = " ".join(notes) + " Check the highlighted objects in Rhino."
