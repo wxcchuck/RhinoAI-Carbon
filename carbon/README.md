@@ -22,7 +22,7 @@ this repo. Upstream McNeel code is untouched; everything here sits under `carbon
 | `calc/wlca_calc_template.py` | Builds the Excel calculation workbook from one take-off export per design option, the build-up library, a benchmark table and (optionally) a targets table. Live formulas: modules A1–A5, B4, C1–C4, D (memo), biogenic (memo), contingency, RICS reporting, QA, target boundaries | Python 3 (`openpyxl`) |
 | `calc/wlca_dashboard.py` | Dashboard (one option at a time, picked from a drop-down) and Compare (all options) sheets with native Excel charts on live formulas: targets on their own boundaries, modules, element groups, basis of the number, top 10 materials, GLA element comparison, structure range, carbon budget | Python 3 (`openpyxl`) |
 | `rhino_ui/wlca_dialog.py` | The classic WLCA dialog (`WLCAClassic` command, kept as a fallback): project and options, area schedule and plan, façade mix (up to three types with shares and glazing ratios), structure, targets, then **Run take-off** and **Create workbook**. Settings are saved in the .3dm | Rhino 8 (Python 3, Eto) |
-| `rhino_ui/wlca_web.py`, `rhino_ui/web/` | The WLCA window (the `WLCA` command): a WebView page (`web/index.html`, `style.css`, `app.js`, `charts.js` - plain HTML / CSS / JavaScript, no build step) for the six steps and a **Results** view. Python keeps all logic (the classic dialog's methods are reused). After **Create workbook** Excel (hidden) calculates and saves the workbook and the results are read back from it (`wlca_results.py`) - headline, targets, basis of A1-A5, modules, element groups, operational, options compared | Rhino 8 on Windows (Edge WebView2, Excel) |
+| `rhino_ui/wlca_web.py`, `rhino_ui/web/` | The WLCA window (the `WLCA` command): a WebView page (`web/index.html`, `style.css`, `app.js`, `charts.js` - plain HTML / CSS / JavaScript, no build step) for the seven steps (project & options, drawings & schedule, substructure, superstructure - structure, superstructure - façade, targets & reporting, run) and a **Results** view. Python keeps all logic (the classic dialog's methods are reused). After **Create workbook** Excel (hidden) calculates and saves the workbook and the results are read back from it (`wlca_results.py`) - headline, targets, basis of A1-A5, modules, element groups, operational, options compared | Rhino 8 on Windows (Edge WebView2, Excel) |
 | `rhino_ui/wlca_state.py` | The dialog's state, checks, façade mix and config builders - plain Python, unit-tested | anywhere |
 | `rhino_plugin/` | Launcher plug-in (`WlcaPlugin.ai.cs`, `WlcaCommand.ai.cs`, `WLCA.rui`) and `build_package.py`, which builds the Package Manager `.yak` | Windows + Rhino 8 |
 | `rhino_ui/install_wlca.py` | One-time install per PC: adds the `WLCA` command alias and a WLCA toolbar button pointing at the shared package folder | Rhino 8 |
@@ -63,11 +63,11 @@ holding a small launcher plug-in (`WLCA.rhp`: the `WLCA` command and toolbar), t
 needs only Windows and Rhino 8 - the plug-in is compiled with the .NET Framework compiler that ships with Windows
 against Rhino's own `RhinoCommon.dll`, and packed with Rhino's `Yak.exe`. A small JSON config sets the package name,
 version, authors and, for an office build, the default office settings file and the output folder. Put the `.yak` in
-a shared folder and add that folder as a source in Options > Package Manager > Sources; users install and update from
-there. Keep office configs and data out of this repo.
+a shared folder and add that folder to the `Rhino.Options.PackageManager.Sources` setting (Options > Advanced, separated from
+`https://yak.rhino3d.com` by `;`); users install and update from there. Keep office configs and data out of this repo.
 
 The office settings file (`wlca_office_settings.json`: library, benchmarks, targets, branding, façade types; relative
-paths allowed) is found in this order: the `WLCA_OFFICE_SETTINGS` environment variable; the file chosen on step 6 of
+paths allowed) is found in this order: the `WLCA_OFFICE_SETTINGS` environment variable; the file chosen on step 7 (Run) of
 the dialog (remembered per PC); the package default (`wlca_package.json`, written by the build); `..\07_Settings\` next
 to the scripts.
 

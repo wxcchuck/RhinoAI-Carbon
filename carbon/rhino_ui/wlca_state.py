@@ -51,7 +51,44 @@ def default_option(name, layer="", source="layer", file_path=""):
         "structure": {"frame": "RC flat slab", "grid_x_m": 9.0, "grid_y_m": 8.0, "column_size_m": 0.75,
                       "sources": {}},
         "operational": {"elec": None, "gas": None, "dh": None, "pv_self": None, "pv_export": None, "water": None, "eui": None},
+        "substructure": default_substructure(),
     }
+
+
+# Foundations and basement walls (step 3). Same keys and defaults as the take-off's CONFIG["substructure"]
+# (wlca_massing_takeoff.py; a test keeps the two in step). source values: retaining walls "footprint" (assumed:
+# ground-floor perimeter x basement depth) | "engineer"; piles and caps "assumed" | "engineer" | "none".
+def default_substructure():
+    return {
+        "retaining_walls": {"source": "footprint", "type": "secant", "pile_diameter_m": 1.0, "pile_spacing_m": 1.2,
+                            "pile_length_m": None, "embedment_ratio": 0.5, "liner_thickness_m": 0.20,
+                            "perimeter_m": None, "depth_m": None, "area_m2": None, "volume_m3": None},
+        "piles": {"source": "assumed", "diameter_m": 0.75, "per_column": 3, "length_m": 25.0,
+                  "core_group": True, "core_spacing_x_dia": 3.0, "count": None},
+        "caps_raft": {"source": "assumed", "depth_m": 1.2, "edge_m": 0.15, "core_thickness_m": 2.0, "core_margin_m": 0.5,
+                      "volume_m3": None},
+        "basement_depth_m": None,
+    }
+
+
+WALL_SOURCES = [["footprint", "Assumed - ground-floor perimeter x basement depth"], ["engineer", "Engineer's figures"]]
+WALL_TYPES = [["secant", "Secant piled wall + RC liner"], ["rc_wall", "RC retaining wall"]]
+PILE_SOURCES = [["assumed", "Assumed - bored piles under columns and core"], ["engineer", "Engineer's figures"],
+                ["none", "None - not counted (the QA sheet flags the gap)"]]
+CAP_SOURCES = [["assumed", "Assumed - caps under columns and core"], ["engineer", "Engineer's volume"], ["none", "None"]]
+
+
+def fill_substructure(option):
+    """Give an option from an older save the substructure block, keeping anything it already has."""
+    sub = option.get("substructure") or {}
+    out = default_substructure()
+    for k, v in sub.items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k].update(v)
+        else:
+            out[k] = v
+    option["substructure"] = out
+    return option
 
 
 # ------------------------------------------------------------------------------------- office settings
@@ -150,6 +187,24 @@ def facade_catalogue(office):
     return cat
 
 
+
+def basement_from_schedule(path, sheet=None):
+    """Levels below ground in the area schedule, as the take-off will read them: {levels, depth_m, lowest_gea,
+    ground_gea}, or None (no schedule, unreadable, or no ground level)."""
+    if not path or not os.path.exists(path):
+        return None
+    try:
+        import wlca_core as core
+        lv = core.parse_area_schedule({"path": path, "sheet": sheet or None}, [])
+        gi = core.ground_index(lv)
+    except Exception:
+        return None
+    if gi is None:
+        return None
+    below = lv[:gi]
+    return {"levels": [x["name"] for x in below], "depth_m": round(sum(float(x["ftf"] or 0) for x in below), 2),
+            "lowest_gea": float(lv[0]["gea"] or 0), "ground_gea": float(lv[gi]["gea"] or 0)}
+
 # ------------------------------------------------------------------------------------- state I/O
 def dumps(state):
     return json.dumps(state, sort_keys=True)
@@ -166,6 +221,8 @@ def loads(text):
             st[k].update(v)
         else:
             st[k] = v
+    for o in st.get("options") or []:
+        fill_substructure(o)
     return st
 
 
@@ -242,15 +299,16 @@ def validate(state, office=None):
             out.append(("error", "%s: pick its .3dm file (step 1)." % tag))
         fac = o.get("facade") or []
         if not 1 <= len(fac) <= MAX_FACADE_TYPES:
-            out.append(("error", "%s: choose 1 to %d facade types (step 3)." % (tag, MAX_FACADE_TYPES)))
+            out.append(("error", "%s: choose 1 to %d facade types (step 5)." % (tag, MAX_FACADE_TYPES)))
         tot = sum(float(f.get("share") or 0) for f in fac)
         if fac and abs(tot - 1.0) > 0.005:
-            out.append(("error", "%s: facade shares add up to %.0f%%, not 100%% (step 3)." % (tag, tot * 100)))
+            out.append(("error", "%s: facade shares add up to %.0f%%, not 100%% (step 5)." % (tag, tot * 100)))
         for f in fac:
             if cat and f["build_up"] not in cat:
-                out.append(("error", "%s: facade type %s is not in the office library list (step 3)." % (tag, f["build_up"])))
+                out.append(("error", "%s: facade type %s is not in the office library list (step 5)." % (tag, f["build_up"])))
             if f.get("kind") == FACADE_PUNCHED and not (0 <= float(f.get("wwr") or 0) <= 0.95):
-                out.append(("error", "%s: glazing ratio for %s must be 0-95%% (step 3)." % (tag, f["build_up"])))
+                out.append(("error", "%s: glazing ratio for %s must be 0-95%% (step 5)." % (tag, f["build_up"])))
+        out += check_substructure(o, tag)
     sch = state["schedule"]
     if not sch.get("path"):
         out.append(("warning", "No area schedule: GIA and levels come from the massing and storey heights (step 2)."))
@@ -262,26 +320,64 @@ def validate(state, office=None):
     if op.get("route", "").startswith("Engineer"):
         for o in opts:
             if not any((o.get("operational") or {}).get(k) for k in ("elec", "gas", "dh")):
-                out.append(("error", "Option '%s': enter the predicted annual energy (step 5), or change the B6 basis." % o["name"]))
+                out.append(("error", "Option '%s': enter the predicted annual energy (step 6), or change the B6 basis." % o["name"]))
     if op.get("route", "Not assessed") != "Not assessed" and not all((o.get("operational") or {}).get("water") for o in opts):
         if p.get("occupancy"):
             out.append(("warning", "No engineer's water figure for some options: B7 uses the occupancy water budget (step 1)."))
         else:
             out.append(("warning", "No water figure and no occupancy: B7 is reported as not assessed (enter occupancy on step 1 "
-                                   "or water on step 5)."))
+                                   "or water on step 6)."))
     t = state["targets"]
     for k, v in t["sc_share"].items():
         if not 0 <= float(v) <= 1:
-            out.append(("error", "Shell & core share for %s must be 0-100%% (step 5)." % k))
+            out.append(("error", "Shell & core share for %s must be 0-100%% (step 6)." % k))
     if t.get("catb_allowance") not in (None, "") and float(t["catb_allowance"]) < 0:
-        out.append(("error", "Cat B allowance cannot be negative (step 5)."))
+        out.append(("error", "Cat B allowance cannot be negative (step 6)."))
     logo = effective_logo(state, office)
     if logo and not os.path.exists(logo):
-        out.append(("warning", "Logo file not found - the workbook is made without a logo (step 6)."))
+        out.append(("warning", "Logo file not found - the workbook is made without a logo (step 7)."))
     elif logo and os.path.splitext(logo)[1].lower() not in LOGO_TYPES:
-        out.append(("warning", "Logo should be a PNG or JPG image - other files may not show in Excel (step 6)."))
+        out.append(("warning", "Logo should be a PNG or JPG image - other files may not show in Excel (step 7)."))
     if not state["output"].get("folder"):
-        out.append(("error", "Choose where to save the take-off and workbook (step 5)."))
+        out.append(("error", "Choose where to save the take-off and workbook (step 6)."))
+    return out
+
+
+def check_substructure(option, tag):
+    """Step 3 checks for one option: figures the chosen route needs."""
+    out = []
+    sub = option.get("substructure") or default_substructure()
+    pos = lambda d, k: d.get(k) not in (None, "") and float(d[k]) > 0      # noqa: E731
+    ret, p, c = sub["retaining_walls"], sub["piles"], sub["caps_raft"]
+    if ret.get("source") == "engineer":
+        if not (pos(ret, "volume_m3") or pos(ret, "area_m2") or pos(ret, "perimeter_m")):
+            out.append(("error", "%s: basement walls from the engineer need a volume, an area or a perimeter (step 3)." % tag))
+    elif ret.get("type", "secant") == "secant":
+        for k, lbl in (("pile_diameter_m", "secant pile diameter"), ("pile_spacing_m", "secant hard-to-hard spacing")):
+            if not pos(ret, k):
+                out.append(("error", "%s: enter the %s (step 3)." % (tag, lbl)))
+        if pos(ret, "pile_diameter_m") and pos(ret, "pile_spacing_m") and not \
+                float(ret["pile_diameter_m"]) <= float(ret["pile_spacing_m"]) < 2 * float(ret["pile_diameter_m"]):
+            out.append(("error", "%s: secant hard-to-hard spacing must be at least one and less than two pile diameters, "
+                                 "so the firm pile overlaps both hard piles (step 3)." % tag))
+    if ret.get("depth_m") not in (None, "") and float(ret["depth_m"]) < 0 or \
+            sub.get("basement_depth_m") not in (None, "") and float(sub["basement_depth_m"]) < 0:
+        out.append(("error", "%s: basement depth cannot be negative (step 3)." % tag))
+    if p.get("source") == "engineer":
+        if not all(pos(p, k) for k in ("count", "diameter_m", "length_m")):
+            out.append(("error", "%s: piles from the engineer need the number, diameter and length (step 3)." % tag))
+    elif p.get("source") == "assumed":
+        if not all(pos(p, k) for k in ("diameter_m", "per_column", "length_m")):
+            out.append(("error", "%s: assumed piles need a diameter, piles per column and a length (step 3)." % tag))
+        if p.get("core_group") and not pos(p, "core_spacing_x_dia"):
+            out.append(("error", "%s: enter the core pile spacing (step 3)." % tag))
+    if c.get("source") == "engineer" and not pos(c, "volume_m3"):
+        out.append(("error", "%s: pile caps / raft from the engineer need a volume (step 3)." % tag))
+    elif c.get("source") == "assumed" and p.get("source") != "assumed":
+        out.append(("warning", "%s: assumed pile caps follow the assumed piles - with the engineer's piles or none, enter "
+                               "the cap volume or set caps to none; no caps are counted (step 3)." % tag))
+    elif c.get("source") == "assumed" and not all(pos(c, k) for k in ("depth_m", "core_thickness_m")):
+        out.append(("error", "%s: assumed pile caps need a cap depth and a core cap thickness (step 3)." % tag))
     return out
 
 
@@ -400,6 +496,13 @@ def takeoff_config(state, option, office, base_config):
             cfg[k].update(v)
         else:
             cfg[k] = v
+    # substructure (step 3): the option's figures win over the office defaults and the script's own
+    sub = cfg.setdefault("substructure", {})
+    for k, v in (option.get("substructure") or {}).items():
+        if isinstance(v, dict) and isinstance(sub.get(k), dict):
+            sub[k].update(v)
+        else:
+            sub[k] = copy.deepcopy(v)
     return cfg
 
 

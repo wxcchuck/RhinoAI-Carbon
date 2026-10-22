@@ -288,3 +288,99 @@ def test_edits_from_the_web_window():
     assert ws.apply_edit(st, ["output", "font"], "  ") == "Arial"
     with pytest.raises((KeyError, IndexError)):
         ws.apply_edit(st, ["options", 5, "name"], "x")
+
+
+# ------------------------------------------------------------------------------------- substructure step (step 3)
+def _steps(path, name="STEPS"):
+    """A list constant from a Rhino-only script, read without importing Rhino."""
+    import ast
+    tree = ast.parse(open(os.path.join(os.path.dirname(__file__), "..", "rhino_ui", path), encoding="utf-8").read())
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", None) == name:
+            return ast.literal_eval(node.value)
+    raise AssertionError(name + " not found")
+
+
+def test_step_order_is_the_same_in_both_windows():
+    web = _steps("wlca_web.py")
+    classic = [s.split("  ", 1)[1] for s in _steps("wlca_dialog.py")]
+    assert web == ["Project & options", "Drawings & schedule", "Substructure", "Superstructure - Structure",
+                   "Superstructure - Façade", "Targets & reporting", "Run", "Results"]
+    assert classic == web[:-1]
+    js = open(os.path.join(os.path.dirname(__file__), "..", "rhino_ui", "web", "app.js"), encoding="utf-8").read()
+    assert "const PAGES = [pageProject, pageDrawings, pageSubstructure, pageStructure, pageFacade, pageTargets, pageRun, pageResults];" in js
+
+
+def test_check_messages_point_at_the_right_step(tmp_path):
+    st = ws.default_state()
+    st["project"]["name"] = ""
+    st["options"] = [_option([{"build_up": "CW", "kind": ws.FACADE_UNITISED, "share": 0.5}])]
+    st["options"][0]["substructure"]["piles"].update(source="engineer", count=None)
+    st["targets"]["sc_share"]["services"] = 1.5
+    st["output"]["logo"] = str(tmp_path / "missing.png")
+    msgs = [m for _, m in ws.validate(st, OFFICE)]
+    where = {"Project name": 1, "facade shares": 5, "piles from the engineer": 3, "Shell & core share": 6,
+             "where to save": 6, "Logo file": 7}
+    for key, n in where.items():
+        hit = [m for m in msgs if key.lower() in m.lower()]
+        assert hit and all("(step %d)" % n in m for m in hit), (key, hit)
+
+
+def test_substructure_defaults_match_the_takeoff(defaults):
+    assert ws.default_substructure() == defaults["substructure"]
+    assert ws.default_option("A")["substructure"] == defaults["substructure"]
+
+
+def test_older_saves_get_the_substructure_block():
+    old = ws.default_option("A")
+    del old["substructure"]
+    st = ws.loads(json.dumps({"project": {"name": "P"}, "options": [old]}))
+    assert st["options"][0]["substructure"] == ws.default_substructure()
+    part = {"piles": {"length_m": 30.0}}
+    o = ws.fill_substructure(dict(ws.default_option("B"), substructure=part))
+    assert o["substructure"]["piles"]["length_m"] == 30.0 and o["substructure"]["piles"]["diameter_m"] == 0.75
+
+
+def test_option_substructure_reaches_the_takeoff(defaults):
+    st = ws.default_state()
+    st["project"]["name"] = "P"
+    st["output"]["folder"] = "x"
+    o = ws.default_option("A", layer="L")
+    o["substructure"]["retaining_walls"].update(type="rc_wall", perimeter_m=180.0)
+    o["substructure"]["piles"].update(source="engineer", count=120, diameter_m=0.9, length_m=30.0)
+    o["substructure"]["basement_depth_m"] = 7.5
+    office = {"takeoff_defaults": {"substructure": {"piles": {"length_m": 20.0}, "caps_raft": {"depth_m": 1.5}}}}
+    tk = ws.takeoff_config(st, o, office, defaults)
+    sub = tk["substructure"]
+    assert sub["retaining_walls"]["type"] == "rc_wall" and sub["retaining_walls"]["perimeter_m"] == 180.0
+    assert sub["piles"]["source"] == "engineer" and sub["piles"]["length_m"] == 30.0     # option wins over the office
+    assert sub["basement_depth_m"] == 7.5
+    assert defaults["substructure"]["piles"]["source"] == "assumed"                     # base CONFIG not mutated
+
+
+def test_substructure_checks():
+    def errs(**upd):
+        o = ws.default_option("A", layer="L")
+        for k, v in upd.items():
+            o["substructure"][k].update(v)
+        return [(lv, m) for lv, m in ws.check_substructure(o, "A")]
+    assert errs() == []
+    assert any("spacing" in m for _, m in errs(retaining_walls={"pile_spacing_m": 2.1}))       # firm pile cannot reach
+    assert any("spacing" in m for _, m in errs(retaining_walls={"pile_spacing_m": 0.9}))       # hard piles overlap
+    assert errs(retaining_walls={"type": "rc_wall", "pile_spacing_m": None}) == []
+    assert any("volume, an area or a perimeter" in m for _, m in errs(retaining_walls={"source": "engineer"}))
+    assert errs(retaining_walls={"source": "engineer", "area_m2": 900}) == []
+    assert errs(piles={"source": "engineer"}, caps_raft={"source": "engineer", "volume_m3": 300}) == \
+        [("error", "A: piles from the engineer need the number, diameter and length (step 3).")]
+    assert errs(piles={"source": "engineer", "count": 40}, caps_raft={"source": "engineer", "volume_m3": 300}) == []
+    w = errs(piles={"source": "none"})
+    assert [lv for lv, _ in w] == ["warning"]                                                  # assumed caps need assumed piles
+    assert any("need a volume" in m for _, m in errs(caps_raft={"source": "engineer"}))
+    assert any("diameter, piles per column" in m for _, m in errs(piles={"length_m": None}))
+
+
+def test_basement_from_schedule(schedule_xlsx):
+    b = ws.basement_from_schedule(schedule_xlsx, "Office")
+    assert b["levels"] == ["B2", "B1"] and b["depth_m"] == 9.0
+    assert b["lowest_gea"] == 1200 and b["ground_gea"] == 1000
+    assert ws.basement_from_schedule("", None) is None and ws.basement_from_schedule("nope.xlsx") is None
