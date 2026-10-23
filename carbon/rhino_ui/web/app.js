@@ -290,11 +290,12 @@
     }
     for (const m of M.run.messages) h += `<div class="msg warn">${esc(m)}</div>`;
     h += "<h2>2  Workbook</h2><div class='grid'>";
-    const fonts = M.lists.fonts || [];
-    const missing = fonts.length && fonts.indexOf(out.font) < 0;
-    h += field("Font", `<input type="text" style="max-width:260px" id="${id(["output", "font"])}" list="fontlist" data-path="${attrPath(["output", "font"])}" data-kind="text" value="${esc(out.font || "Arial")}">
-      <datalist id="fontlist">${fonts.map((f) => `<option value="${esc(f)}">`).join("")}</datalist>
-      <div class="small" style="color:${missing ? "var(--warn)" : "var(--muted)"}">${missing ? "Not installed on this PC - Excel will show a substitute" : "Used on every sheet, charts included"}</div>`, { wide: true });
+    // every font installed on this PC (a <select>, not a typed list: a typed list filters to names like the current one)
+    const fonts = M.lists.fonts || [], cur = out.font || "Arial";
+    const missing = fonts.length && fonts.indexOf(cur) < 0;
+    const fontOpts = (missing ? [[cur, cur + " (not installed here)"]] : []).concat(fonts.map((f) => [f, f]));
+    h += field("Font", `${select(["output", "font"], fontOpts.length ? fontOpts : [[cur, cur]], cur, "text", 'style="max-width:300px"')}
+      <div class="small" style="color:${missing ? "var(--warn)" : "var(--muted)"}">${missing ? "Not installed on this PC - Excel will show a substitute" : fonts.length + " fonts on this PC; used on every sheet, charts included"}</div>`, { wide: true });
     h += field("Company logo (optional)", `<div class="row">${input(["output", "logo"], M.logo.path, "text", "fill")}${button("Browse…", "pick_logo")}${button("No logo", "logo_none")}</div>`, { wide: true });
     h += "</div>";
     if (M.logo.url) h += `<img class="logo-preview" src="${esc(M.logo.url)}" alt="logo preview">`;
@@ -429,8 +430,7 @@
   function renderNav() {
     const flags = stepFlags();
     document.getElementById("nav").innerHTML = M.steps.map((s, i) =>
-      (i === RESULTS ? "<hr>" : "") + `<button type="button" data-step="${i}" class="${i === step ? "on" : ""}"><span class="n">${i < RESULTS ? i + 1 : "◆"}</span>${esc(s)}${flags.has(i) ? '<span class="flag" title="Something to fix on this step"></span>' : ""}</button>`).join("")
-      + '<hr><button type="button" data-action="classic" class="classic" title="The earlier Rhino dialog, same settings">Classic dialog</button>';
+      (i === RESULTS ? "<hr>" : "") + `<button type="button" data-step="${i}" class="${i === step ? "on" : ""}"><span class="n">${i < RESULTS ? i + 1 : "◆"}</span>${esc(s)}${flags.has(i) ? '<span class="flag" title="Something to fix on this step"></span>' : ""}</button>`).join("");
   }
   function renderFooter() {
     const st = document.getElementById("status");

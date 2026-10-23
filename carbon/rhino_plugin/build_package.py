@@ -30,7 +30,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 CARBON = os.path.dirname(HERE)
 RHINO = os.environ.get("RHINO8_SYSTEM", r"C:\Program Files\Rhino 8\System")
 CSC = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Microsoft.NET", "Framework64", "v4.0.30319", "csc.exe")
-SCRIPTS = [("rhino_ui", "wlca_web.py"), ("rhino_ui", "wlca_results.py"), ("rhino_ui", "wlca_dialog.py"), ("rhino_ui", "wlca_state.py"),
+SCRIPTS = [("rhino_ui", "wlca_web.py"), ("rhino_ui", "wlca_results.py"), ("rhino_ui", "wlca_rhino.py"), ("rhino_ui", "wlca_state.py"),
            ("takeoff", "wlca_core.py"), ("takeoff", "wlca_massing_takeoff.py"), ("takeoff", "wlca_plan_rhino.py"),
            ("takeoff", "wlca_plan_extract.py"), ("calc", "wlca_calc_template.py"), ("calc", "wlca_dashboard.py")]
 WEB = ["index.html", "style.css", "app.js", "charts.js"]       # rhino_ui/web: the window's page, shipped as web/

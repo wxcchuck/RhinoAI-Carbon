@@ -35,18 +35,4 @@ namespace Wlca
             return ScriptRunner.Run("wlca_web.py");
         }
     }
-
-    /// <summary>WLCAClassic: the earlier dialog (wlca_dialog.py), kept as a fallback while the web window beds in.</summary>
-    public class WlcaClassicCommand : Command
-    {
-        public override string EnglishName
-        {
-            get { return "WLCAClassic"; }
-        }
-
-        protected override Result RunCommand(RhinoDoc doc, RunMode mode)
-        {
-            return ScriptRunner.Run("wlca_dialog.py");
-        }
-    }
 }

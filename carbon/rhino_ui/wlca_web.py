@@ -9,8 +9,8 @@ The window is an Eto form holding one WebView (Edge WebView2 on Windows) that sh
 the steps and the results; everything that touches Rhino, files or the workbook stays in Python:
   page -> Python   window.chrome.webview.postMessage(JSON)   {"type": "set" | "action" | "ready", ...}
   Python -> page   window.wlca.receive(model)                state + lists + checks + run status + results
-The take-off / plan / workbook logic is the classic dialog's (wlca_dialog.WLCAForm), borrowed method by method,
-so both windows run the same code. After "Create workbook" Excel (hidden) calculates and saves the workbook and
+The Rhino side (office settings, layers, plan reader, take-off run) lives in wlca_rhino.WLCARhino and is borrowed
+method by method. After "Create workbook" Excel (hidden) calculates and saves the workbook and
 the results are read back from it (wlca_results) - the workbook stays the single source of the numbers.
 """
 import json
@@ -28,7 +28,7 @@ if PKG and PKG not in sys.path:
     sys.path.insert(0, PKG)
 import wlca_state as ws  # noqa: E402
 import wlca_results as wr  # noqa: E402
-import wlca_dialog as wd  # noqa: E402  (the classic dialog: shared logic)
+import wlca_rhino as rh  # noqa: E402  (Rhino-side logic)
 
 try:
     DOC = __rhino_doc__          # noqa: F821
@@ -36,14 +36,14 @@ except NameError:
     import scriptcontext
     DOC = scriptcontext.doc
 
-_D = wd.WLCAForm
+_D = rh.WLCARhino
 STEPS = ["Project & options", "Drawings & schedule", "Substructure", "Superstructure - Structure",
          "Superstructure - Façade", "Targets & reporting", "Run", "Results"]
 PLAN_ROUTES = [("rhino", "Plan in Rhino (layers)"), ("pdf", "PDF plan extract (.json)"), ("none", "None - use office defaults")]
 
 
 class WLCAWebForm(forms.Form):
-    # ---- logic shared with the classic dialog (same code, same state)
+    # ---- Rhino-side logic (wlca_rhino.py)
     load_office = _D.load_office
     massing_layers = _D.massing_layers
     all_layers = _D.all_layers
@@ -131,7 +131,7 @@ class WLCAWebForm(forms.Form):
             self.refresh()
 
     def after_set(self, path):
-        """Knock-on changes the classic dialog makes when a field changes."""
+        """Knock-on changes when a field changes."""
         if path[:1] == ["plan"] and path[-1] in ("walls_layer", "columns_layer", "stairs_layer"):
             self.state["plan"]["summary"], self.state["plan"]["json"] = [], ""
         if path[:2] == ["schedule", "path"]:
@@ -201,12 +201,6 @@ class WLCAWebForm(forms.Form):
             os.startfile(st["output"]["last_workbook"])
         elif name == "open_folder" and st["output"].get("last_workbook"):
             os.startfile(os.path.dirname(st["output"]["last_workbook"]))
-        elif name == "classic":
-            f = wd.WLCAForm(self.doc)
-            f.Owner = Rhino.UI.RhinoEtoApp.MainWindow
-            f.Show()
-            self.Close()
-            return
         self.save()
 
     # ---------------------------------------------------------------- workbook + Excel
@@ -323,8 +317,8 @@ class WLCAWebForm(forms.Form):
             "steps": STEPS,
             "state": st,
             "lists": {
-                "uses": wd.USES, "stages": ["0", "1", "2", "3", "4"], "frames": wd.FRAMES, "scenarios": wd.SCENARIOS,
-                "budgets": wd.BUDGETS, "op_routes": wd.OP_ROUTES, "op_fields": wd.OP_FIELDS, "plan_routes": PLAN_ROUTES,
+                "uses": rh.USES, "stages": ["0", "1", "2", "3", "4"], "frames": rh.FRAMES, "scenarios": rh.SCENARIOS,
+                "budgets": rh.BUDGETS, "op_routes": rh.OP_ROUTES, "op_fields": rh.OP_FIELDS, "plan_routes": PLAN_ROUTES,
                 "massing_layers": self.massing_layers() or self.all_layers(), "all_layers": self.all_layers(),
                 "facade_types": ws.facade_catalogue(office), "sheets": self.sheet_names(st["schedule"]["path"]),
                 "fonts": _D.font_names(),
