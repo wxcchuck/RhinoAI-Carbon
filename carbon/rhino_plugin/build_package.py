@@ -29,12 +29,15 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 CARBON = os.path.dirname(HERE)
 RHINO = os.environ.get("RHINO8_SYSTEM", r"C:\Program Files\Rhino 8\System")
+# Eto.dll targets .NET Standard: the .NET Framework compiler needs the netstandard facade to read it
+_FACADE = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Microsoft.NET", "Framework64", "v4.0.30319", "netstandard.dll")
+NETSTANDARD = ["/r:" + _FACADE] if os.path.exists(_FACADE) else []
 CSC = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Microsoft.NET", "Framework64", "v4.0.30319", "csc.exe")
 SCRIPTS = [("rhino_ui", "wlca_web.py"), ("rhino_ui", "wlca_results.py"), ("rhino_ui", "wlca_rhino.py"), ("rhino_ui", "wlca_state.py"),
            ("takeoff", "wlca_core.py"), ("takeoff", "wlca_massing_takeoff.py"), ("takeoff", "wlca_plan_rhino.py"),
            ("takeoff", "wlca_plan_extract.py"), ("calc", "wlca_calc_template.py"), ("calc", "wlca_dashboard.py")]
 WEB = ["index.html", "style.css", "app.js", "charts.js"]       # rhino_ui/web: the window's page, shipped as web/
-SOURCES = ["WlcaPlugin.ai.cs", "WlcaCommand.ai.cs"]
+SOURCES = ["WlcaPlugin.ai.cs", "WlcaCommand.ai.cs", "WlcaPanel.ai.cs"]
 
 
 def load_config(path):
@@ -134,7 +137,8 @@ def build(cfg):
     with open(info, "w", encoding="utf-8") as f:
         f.write(assembly_info(cfg))
     run([CSC, "/nologo", "/target:library", "/optimize+", "/out:" + os.path.join(stage, "WLCA.rhp"),
-         "/r:" + os.path.join(RHINO, "RhinoCommon.dll")] + [os.path.join(HERE, s) for s in SOURCES] + [info], HERE)
+         "/r:" + os.path.join(RHINO, "RhinoCommon.dll"), "/r:" + os.path.join(RHINO, "Eto.dll"), "/r:System.Drawing.dll"]
+        + NETSTANDARD + [os.path.join(HERE, s) for s in SOURCES] + [info], HERE)
     # 2 scripts, toolbar, package settings
     for folder, name in SCRIPTS:
         shutil.copy2(os.path.join(CARBON, folder, name), stage)

@@ -430,7 +430,7 @@
   function renderNav() {
     const flags = stepFlags();
     document.getElementById("nav").innerHTML = M.steps.map((s, i) =>
-      (i === RESULTS ? "<hr>" : "") + `<button type="button" data-step="${i}" class="${i === step ? "on" : ""}"><span class="n">${i < RESULTS ? i + 1 : "◆"}</span>${esc(s)}${flags.has(i) ? '<span class="flag" title="Something to fix on this step"></span>' : ""}</button>`).join("");
+      (i === RESULTS ? "<hr>" : "") + `<button type="button" data-step="${i}" title="${esc(s)}" class="${i === step ? "on" : ""}"><span class="n">${i < RESULTS ? i + 1 : "◆"}</span><span class="t">${esc(s)}</span>${flags.has(i) ? '<span class="flag" title="Something to fix on this step"></span>' : ""}</button>`).join("");
   }
   function renderFooter() {
     const st = document.getElementById("status");

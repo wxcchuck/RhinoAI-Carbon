@@ -59,3 +59,16 @@ def test_toolbar_icon_is_embedded(tmp_path):
     assert bp.rui_with_icon(rui, {}) == rui
     import xml.dom.minidom
     xml.dom.minidom.parseString(out.encode("utf-8"))           # still well-formed
+
+
+def test_plugin_sources_and_panel():
+    import build_package as bp
+    here = os.path.join(os.path.dirname(__file__), "..", "rhino_plugin")
+    for s in bp.SOURCES:
+        assert os.path.exists(os.path.join(here, s)) and s.endswith(".ai.cs")
+    panel = open(os.path.join(here, "WlcaPanel.ai.cs"), encoding="utf-8").read()
+    web = open(os.path.join(here, "..", "rhino_ui", "wlca_web.py"), encoding="utf-8").read()
+    for key in ("WLCA.WebView", "WLCA.Attached"):              # the C# panel and the Python page meet on these keys
+        assert '"%s"' % key in panel and '"%s"' % key in web
+    assert "Panels.RegisterPanel(this, typeof(WlcaPanel)" in open(os.path.join(here, "WlcaPlugin.ai.cs"), encoding="utf-8").read()
+    assert "Panels.OpenPanel(WlcaPanel.PanelId)" in open(os.path.join(here, "WlcaCommand.ai.cs"), encoding="utf-8").read()

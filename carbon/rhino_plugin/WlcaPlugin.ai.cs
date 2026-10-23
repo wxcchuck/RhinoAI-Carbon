@@ -1,10 +1,12 @@
 // Drafted by an AI agent (Claude) - review before trusting.
 using System;
+using System.Drawing;
 using System.IO;
 using System.Runtime.InteropServices;
 using Rhino;
 using Rhino.ApplicationSettings;
 using Rhino.PlugIns;
+using Rhino.UI;
 
 [assembly: Guid("6f0c9c0e-6c51-4d8b-9a55-4a3f2f5d7b21")]
 // title, version, organisation and web site: AssemblyInfo.g.cs, written by build_package.py
@@ -36,7 +38,28 @@ namespace Wlca
         protected override LoadReturnCode OnLoad(ref string errorMessage)
         {
             RemoveScriptInstall();
+            Panels.RegisterPanel(this, typeof(WlcaPanel), "WLCA", PanelIcon());
             return LoadReturnCode.Success;
+        }
+
+        /// <summary>Panel tab icon: the package icon (icon.png next to WLCA.rhp), else a stock icon.</summary>
+        static System.Drawing.Icon PanelIcon()
+        {
+            try
+            {
+                var path = Path.Combine(PackageFolder, "icon.png");
+                if (File.Exists(path))
+                {
+                    using (var src = new Bitmap(path))
+                    using (var bmp = new Bitmap(src, 32, 32))
+                        return System.Drawing.Icon.FromHandle(bmp.GetHicon());
+                }
+            }
+            catch (Exception e)
+            {
+                RhinoApp.WriteLine("WLCA: panel icon not read ({0})", e.Message);
+            }
+            return SystemIcons.Application;
         }
 
         /// <summary>

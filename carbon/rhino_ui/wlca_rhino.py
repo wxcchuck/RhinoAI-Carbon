@@ -6,7 +6,7 @@ Drafted by an AI agent (Claude) - review before trusting.
 
 Everything the window (wlca_web.py) does in Rhino, kept apart from the page: office settings, massing and plan
 layers, the plan reader, file pickers, the take-off run and the layer checks. WLCAWebForm borrows these methods, so
-`self` is the window: it has doc, state, office, exports, run_rows, messages, save() and refresh().
+`self` is the window: it has doc, state, office, exports, run_rows, messages, dialog_parent, save() and refresh().
 (Moved here from the classic Eto dialog, wlca_dialog.py, when that dialog was retired on 23/10/2026.)
 """
 import os
@@ -63,7 +63,7 @@ class WLCARhino(object):
     def pick_office_settings(self):
         dlg = forms.OpenFileDialog()
         dlg.Filters.Add(forms.FileFilter("WLCA office settings", ".json"))
-        if dlg.ShowDialog(self) == forms.DialogResult.Ok:
+        if dlg.ShowDialog(self.dialog_parent) == forms.DialogResult.Ok:
             ws.remember_office_settings(dlg.FileName)
             self.load_office()
             self.refresh()
@@ -161,7 +161,7 @@ class WLCARhino(object):
     def pick_schedule(self):
         dlg = forms.OpenFileDialog()
         dlg.Filters.Add(forms.FileFilter("Excel", ".xlsx", ".xlsm"))
-        if dlg.ShowDialog(self) == forms.DialogResult.Ok:
+        if dlg.ShowDialog(self.dialog_parent) == forms.DialogResult.Ok:
             self.state["schedule"]["path"] = dlg.FileName
             names = self.sheet_names(dlg.FileName)
             self.state["schedule"]["sheet"] = names[0] if names else ""
@@ -171,7 +171,7 @@ class WLCARhino(object):
     def pick_plan_json(self):
         dlg = forms.OpenFileDialog()
         dlg.Filters.Add(forms.FileFilter("Plan extract", ".json"))
-        if dlg.ShowDialog(self) == forms.DialogResult.Ok:
+        if dlg.ShowDialog(self.dialog_parent) == forms.DialogResult.Ok:
             self.state["plan"]["pdf_json"] = dlg.FileName
             self.save()
             self.refresh()
@@ -189,7 +189,7 @@ class WLCARhino(object):
 
     def pick_folder(self):
         dlg = forms.SelectFolderDialog()
-        if dlg.ShowDialog(self) == forms.DialogResult.Ok:
+        if dlg.ShowDialog(self.dialog_parent) == forms.DialogResult.Ok:
             self.state["output"]["folder"] = dlg.Directory
             self.save()
             self.refresh()
@@ -214,7 +214,7 @@ class WLCARhino(object):
     def pick_logo(self):
         dlg = forms.OpenFileDialog()
         dlg.Filters.Add(forms.FileFilter("Image", ".png", ".jpg", ".jpeg", ".gif", ".bmp"))
-        if dlg.ShowDialog(self) == forms.DialogResult.Ok:
+        if dlg.ShowDialog(self.dialog_parent) == forms.DialogResult.Ok:
             self._set_logo(dlg.FileName, True)
 
     def needed_layers(self):
