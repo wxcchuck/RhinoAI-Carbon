@@ -5,8 +5,9 @@ WLCA dialog for Rhino 8  v0.1  (draft for review)
 
 Drafted by an AI agent (Claude) - review before trusting.
 
-Opens from the WLCA toolbar button (or the WLCA alias). Six steps:
-  1 Project & options   2 Drawings & schedule   3 Facade   4 Structure   5 Targets & reporting   6 Run
+Opens from the WLCA toolbar button (or the WLCA alias). Seven steps:
+  1 Project & options   2 Drawings & schedule   3 Substructure   4 Superstructure - Structure
+  5 Superstructure - Facade   6 Targets & reporting   7 Run
 Everything is saved in the .3dm (document user text), so the next run starts where the last one ended.
 Run take-off measures every ticked option and writes its export; Create workbook builds the Excel
 calculation workbook with the office library, benchmarks, targets and branding from the office settings.
@@ -14,7 +15,7 @@ calculation workbook with the office library, benchmarks, targets and branding f
 Files this script expects next to it (the package folder): wlca_state.py, wlca_core.py,
 wlca_massing_takeoff.py, wlca_calc_template.py, wlca_dashboard.py.
 Office settings (library, benchmarks, targets, branding): the WLCA_OFFICE_SETTINGS environment variable, else the
-file chosen on step 6 (remembered per PC), else the package default (wlca_package.json), else
+file chosen on step 7 (remembered per PC), else the package default (wlca_package.json), else
 ..\\07_Settings\\wlca_office_settings.json next to the package folder.
 """
 import os
@@ -37,7 +38,8 @@ except NameError:
     import scriptcontext
     DOC = scriptcontext.doc
 
-STEPS = ["1  Project & options", "2  Drawings & schedule", "3  Facade", "4  Structure", "5  Targets & reporting", "6  Run"]
+STEPS = ["1  Project & options", "2  Drawings & schedule", "3  Substructure", "4  Superstructure - Structure",
+         "5  Superstructure - Façade", "6  Targets & reporting", "7  Run"]
 USES = ["Office", "Residential", "Schools & Universities", "Retail"]
 try:
     import wlca_core as _core          # noqa: E402
@@ -57,6 +59,11 @@ GOOD = drawing.Color.FromArgb(30, 86, 49)
 REQ = drawing.Color.FromArgb(176, 0, 32)
 DISABLED = drawing.Color.FromArgb(225, 225, 225)
 MIN_CONTENT = 560                    # narrowest page (px) before the page scrolls sideways
+SC_SHARE_NOTE = ("The share of each element group - 3 finishes, 4 FF&E, 5 services - that is shell & core. The rest counts as Cat A "
+                 "and is taken off A1-A5 (excl. external works) for the UKNZCBS offices shell & core limit only (5.1.6.2). "
+                 "100% = nothing taken off: the strict default, which overstates the shell & core figure if the design includes "
+                 "Cat A. Example: services 60% takes 40% of services off. Headline figures, LETI, RIBA, GLA, the UKNZCBS "
+                 "whole-building limit and other uses are not affected.")
 REQ_NOTE = "Fields marked * are needed to run the assessment; the rest have defaults or are optional."
 
 
@@ -243,7 +250,7 @@ class WLCAForm(forms.Form):
                 raise IOError("no office settings file found")
             self.office = ws.load_office(self.office_path)
         except Exception as e:
-            self.office_error = ("Office settings not loaded (%s). Choose the office settings file on step 6 - it names the "
+            self.office_error = ("Office settings not loaded (%s). Choose the office settings file on step 7 - it names the "
                                  "build-up library, benchmarks, targets and branding." % e)
 
     def pick_office_settings(self):
@@ -287,15 +294,16 @@ class WLCAForm(forms.Form):
 
     def show_step(self, i):
         self.step = i
-        builders = [self.page_project, self.page_drawings, self.page_facade, self.page_structure, self.page_targets, self.page_run]
+        builders = [self.page_project, self.page_drawings, self.page_substructure, self.page_structure, self.page_facade,
+                    self.page_targets, self.page_run]
         lay = mk(forms.DynamicLayout, Padding=drawing.Padding(22, 18), Spacing=drawing.Size(10, 8))
         # every row of the page is one cell of a single column; that column takes the page width, so text wraps
         # (a column sized to its content would let long labels run off to the right). Multi-cell rows go in
         # stretch() / BeginVertical() so they never add columns to the page itself.
         lay.Add(None, True, False)
-        if self.office is None and i != 5:
-            lay.AddRow(label("Office settings not loaded - choose the file on step 6 (Run) before running.", color=WARN))
-        if i in (0, 2, 4):
+        if self.office is None and i != 6:
+            lay.AddRow(label("Office settings not loaded - choose the file on step 7 (Run) before running.", color=WARN))
+        if i in (0, 2, 4, 5):
             lay.AddRow(label(REQ_NOTE, muted=True))
         try:
             builders[i](lay)
@@ -337,8 +345,8 @@ class WLCAForm(forms.Form):
         L.AddRow(label("Occupancy sets the project's water budget (B7) against the RIBA 2030 Climate Challenge potable water target: workplaces for "
                        "offices, residents for homes, pupils for schools. Days default to 250 (office), 365 (homes), 190 (schools).", muted=True))
         section(L, "Design options")
-        L.AddRow(label("Each option is one massing layer in this file, or another .3dm. Facade and structure are set per option "
-                       "on steps 3 and 4, so options can share a massing.", muted=True))
+        L.AddRow(label("Each option is one massing layer in this file, or another .3dm. Substructure, structure and façade are set "
+                       "per option on steps 3 to 5, so options can share a massing.", muted=True))
         layers = self.massing_layers() or self.all_layers()
         L.BeginVertical(None, drawing.Size(8, 6))
         hrow(L, label("Include", muted=True), req("Option name", muted=True), label("Massing from", muted=True),
@@ -532,7 +540,7 @@ class WLCAForm(forms.Form):
         except Exception as e:
             return label("Could not read the schedule: %s" % e, color=WARN)
 
-    # ---------------------------------------------------------------- 3 facade
+    # ---------------------------------------------------------------- option picker (steps 3-5)
     def option_picker(self, L):
         names = [o["name"] for o in self.state["options"]]
         self.sel_option = min(self.sel_option, len(names) - 1)
@@ -543,11 +551,105 @@ class WLCAForm(forms.Form):
         L.AddRow(stretch(label("Option"), dropdown(names, names[self.sel_option], pick, width=260), None))
         return self.state["options"][self.sel_option]
 
+    # ---------------------------------------------------------------- 3 substructure
+    def page_substructure(self, L):
+        o = self.option_picker(L)
+        u = ws.fill_substructure(o)["substructure"]
+        sch = self.state["schedule"]
+        B = ws.basement_from_schedule(sch.get("path"), sch.get("sheet"))
+
+        def numbox(d, k, width=80):
+            v = d.get(k)
+            return textbox("" if v in (None, "") else ("%g" % v), self.setter(d, k, lambda t: num(str(t).replace(",", ""), None)),
+                           width=width)
+
+        def choice(d, k, items):
+            vals, lbls = [v for v, _ in items], [l for _, l in items]
+
+            def f(lbl):
+                d[k] = vals[lbls.index(lbl)]
+                self.save()
+                self.refresh()
+            cur = lbls[vals.index(d.get(k))] if d.get(k) in vals else None
+            return dropdown(lbls, cur, f, width=380)
+
+        def rows(pairs):
+            L.BeginVertical(None, drawing.Size(12, 6))
+            for lbl_, ctl in pairs:
+                hrow(L, lbl_ if not isinstance(lbl_, str) else label(lbl_), ctl, None)
+            L.EndVertical()
+
+        section(L, "Basement")
+        if B:
+            if B["levels"]:
+                L.AddRow(label("From the area schedule: %d level(s) below ground (%s), %.2f m deep. The basement walls use this depth; the "
+                               "lowest level's GEA is the lowest slab (1.2.1) and the levels above it up to ground are basement "
+                               "suspended slabs (1.2.2)." % (len(B["levels"]), ", ".join(B["levels"]), B["depth_m"]), muted=True))
+                if B["lowest_gea"] > 1.05 * B["ground_gea"]:
+                    L.AddRow(label("Basement GEA {:,.0f} m² is larger than the ground floor {:,.0f} m²: the ground-floor perimeter may "
+                                   "understate the basement walls - enter the basement perimeter below.".format(B["lowest_gea"], B["ground_gea"]),
+                                   color=WARN))
+            else:
+                L.AddRow(label("From the area schedule: no levels below ground - no basement walls or basement slabs.", muted=True))
+        else:
+            rows([("Basement depth below ground (m)", numbox(u, "basement_depth_m"))])
+            L.AddRow(label("No area schedule (step 2): enter the depth for the basement walls; blank = no basement. Without a schedule the "
+                           "massing is measured from its lowest point, so a basement modelled in the massing is counted as storeys - the "
+                           "area schedule is the reliable route for basements.", muted=True))
+        w = u["retaining_walls"]
+        section(L, "Basement walls (1.2.3)")
+        rows([("Basis", choice(w, "source", ws.WALL_SOURCES))])
+        if w.get("source") == "engineer":
+            rows([("Wall volume - piled wall (m³)", numbox(w, "volume_m3")), ("Wall area (m²)", numbox(w, "area_m2")),
+                  ("Perimeter (m)", numbox(w, "perimeter_m")), ("Depth (m; blank = basement depth)", numbox(w, "depth_m"))])
+            L.AddRow(label("The first figure given is used: volume (piled wall), else area (RC wall), else perimeter x depth.", muted=True))
+        else:
+            pairs = [("Wall type", choice(w, "type", ws.WALL_TYPES))]
+            if w.get("type", "secant") == "secant":
+                pairs += [(req("Pile diameter (m)"), numbox(w, "pile_diameter_m")), (req("Hard-to-hard spacing (m)"), numbox(w, "pile_spacing_m")),
+                          ("Pile length (m; blank = depth x (1 + embedment))", numbox(w, "pile_length_m")),
+                          ("Embedment below formation (x retained height)", numbox(w, "embedment_ratio")),
+                          ("RC liner thickness (m; blank = no liner)", numbox(w, "liner_thickness_m"))]
+            pairs.append(("Basement perimeter (m; blank = ground floor from the massing)", numbox(w, "perimeter_m")))
+            rows(pairs)
+        p = u["piles"]
+        section(L, "Piles (1.1)")
+        rows([("Basis", choice(p, "source", ws.PILE_SOURCES))])
+        if p.get("source") == "assumed":
+            rows([(req("Pile diameter (m)"), numbox(p, "diameter_m")), (req("Piles per column"), numbox(p, "per_column")),
+                  (req("Pile length (m)"), numbox(p, "length_m")), ("Core pile spacing (x diameter)", numbox(p, "core_spacing_x_dia"))])
+            L.AddRow(checkbox("Pile group under the core (core area from the plan or the schedule)", p.get("core_group"),
+                              self.setter(p, "core_group")))
+        elif p.get("source") == "engineer":
+            rows([(req("Number of piles"), numbox(p, "count")), (req("Pile diameter (m)"), numbox(p, "diameter_m")),
+                  (req("Pile length (m)"), numbox(p, "length_m"))])
+        c = u["caps_raft"]
+        section(L, "Pile caps / raft (1.1)")
+        rows([("Basis", choice(c, "source", ws.CAP_SOURCES))])
+        if c.get("source") == "assumed":
+            rows([(req("Column cap depth (m)"), numbox(c, "depth_m")), ("Cap edge beyond pile (m)", numbox(c, "edge_m")),
+                  (req("Core cap thickness (m)"), numbox(c, "core_thickness_m")), ("Core cap margin all round (m)", numbox(c, "core_margin_m"))])
+        elif c.get("source") == "engineer":
+            rows([(req("Caps / raft volume (m³)"), numbox(c, "volume_m3"))])
+        if len(self.state["options"]) > 1:
+            L.AddRow(stretch(button("Use these settings for every option", lambda: self._copy_substructure(o)), None))
+        L.AddRow(label("Rows resting on these assumptions are tagged [ASSUMED] in the workbook; replace them with the engineer's figures "
+                       "when there are some. The lowest slab (1.2.1) and basement slabs (1.2.2) come from the schedule or the massing.",
+                       muted=True))
+
+    def _copy_substructure(self, src):
+        import copy
+        for o in self.state["options"]:
+            o["substructure"] = copy.deepcopy(src["substructure"])
+        self.save()
+        self.refresh()
+
+    # ---------------------------------------------------------------- 5 superstructure - facade
     def page_facade(self, L):
         o = self.option_picker(L)
         cat = ws.facade_catalogue(self.office or {})
         labels = ["%s (%s)" % (c["label"], c["code"]) for c in cat]
-        section(L, "Facade types and their share")
+        section(L, "Façade types and their share")
         L.AddRow(label("Up to three types; shares are of the whole net facade and must add up to 100%. Curtain-wall types carry "
                        "their glazing in the system; other types take a glazing ratio.", muted=True))
         L.BeginVertical(None, drawing.Size(8, 6))
@@ -602,7 +704,7 @@ class WLCAForm(forms.Form):
             self.save()
             self.refresh()
 
-    # ---------------------------------------------------------------- 4 structure
+    # ---------------------------------------------------------------- 4 superstructure - structure
     def page_structure(self, L):
         o = self.option_picker(L)
         s = o["structure"]
@@ -618,10 +720,9 @@ class WLCAForm(forms.Form):
         L.EndVertical()
         L.AddRow(label("Cores, columns and stairs come from the plan on step 2 when there is one; otherwise these values and the "
                        "office defaults are used and the rows are tagged [ASSUMED] in the workbook. Foundations and basement walls "
-                       "use the office defaults (piles 750 mm, 3 per column, 25 m; secant wall + 200 RC liner) until the "
-                       "engineer's figures are entered.", muted=True))
+                       "are set on step 3.", muted=True))
 
-    # ---------------------------------------------------------------- 5 targets & reporting
+    # ---------------------------------------------------------------- 6 targets & reporting
     def page_targets(self, L):
         t = self.state["targets"]
         section(L, "Targets to compare against")
@@ -636,9 +737,11 @@ class WLCAForm(forms.Form):
         L.AddRow(stretch(label("Shell & core share - finishes"), textbox("%.0f%%" % (100 * sc["finishes"]), self._set_share("finishes"), width=60),
                          label("FF&E"), textbox("%.0f%%" % (100 * sc["ffe"]), self._set_share("ffe"), width=60),
                          label("services"), textbox("%.0f%%" % (100 * sc["services"]), self._set_share("services"), width=60), None))
+        L.AddRow(label(SC_SHARE_NOTE, muted=True))
         L.AddRow(stretch(label("Cat B + loose FF&E (kgCO2e/m²)"),
                          textbox(t["catb_allowance"] or "", self.setter(t, "catb_allowance", lambda v: num(v, None)), width=80), None))
-        L.AddRow(label("Blank = UKNZCBS whole-building limit not assessed.", muted=True))
+        L.AddRow(label("Allowance added to the whole building for the UKNZCBS whole-building limit. Blank = that limit is not assessed.",
+                       muted=True))
         section(L, "Scenario and budget")
         L.BeginVertical(None, drawing.Size(12, 6))
         hrow(L, label("Elements not yet designed - scenario"), dropdown(SCENARIOS, t["scenario"], self.setter(t, "scenario"), width=220), None)
@@ -700,7 +803,7 @@ class WLCAForm(forms.Form):
             self.save()
             self.refresh()
 
-    # ---------------------------------------------------------------- 6 run
+    # ---------------------------------------------------------------- 7 run
     def page_run(self, L):
         section(L, "Office settings")
         L.AddRow(stretch((label(self.office_path or "(none)", muted=self.office is not None, color=None if self.office else WARN), True),
@@ -911,7 +1014,10 @@ class WLCAForm(forms.Form):
                 glaz = sum(float(r["quantity"]) for r in r2 if r["unit"] == "m2" and (str(r["nrm_code"]) == "2.5.2" or
                            (str(r["nrm_code"]) == "2.6" and "windows:" in str(r.get("notes", "")))))
                 asm = sum(1 for r in r2 if str(r.get("notes", "")).startswith("[ASSUMED]"))
-                cols.append([geom["gia_m2"], geom["facade_total_m2"], glaz, geom["horizontals"].get("upper", 0), "%d of %d" % (asm, len(r2))])
+                found = sum(float(r["quantity"]) for r in r2 if str(r["nrm_code"]) == "1.1" and r["unit"] == "m3")
+                depth = (geom.get("structure") or {}).get("basement_depth_m") or 0
+                cols.append([geom["gia_m2"], geom["facade_total_m2"], glaz, geom["horizontals"].get("upper", 0),
+                             "%.1f" % depth if depth else "none", found, "%d of %d" % (asm, len(r2))])
                 for w in geom.get("warnings", []):
                     self.messages.append("%s: %s" % (o["name"], w))
             except Exception as e:
@@ -919,7 +1025,8 @@ class WLCAForm(forms.Form):
             finally:
                 for i in tmp_ids:
                     self.doc.Objects.Delete(i, True)
-        names = ["GIA (m²)", "Facade (m²)", "Curtain wall + windows (m²)", "Upper floor slabs (m²)", "Rows resting on an assumption"]
+        names = ["GIA (m²)", "Façade (m²)", "Curtain wall + windows (m²)", "Upper floor slabs (m²)", "Basement depth (m)",
+                 "Piles + caps (m³)", "Rows resting on an assumption"]
         fmt = lambda v: "{:,.0f}".format(v) if isinstance(v, (int, float)) else str(v)  # noqa: E731
         self.run_rows = [[n] + [fmt(c[i]) for c in cols] for i, n in enumerate(names)] if cols else []
         self.doc.Views.Redraw()

@@ -22,7 +22,7 @@
     receive(model) {
       M = model;
       busy = "";
-      if (M.calc && M.calc.status === "done" && window.wlca._jumpToResults) { step = 6; window.wlca._jumpToResults = false; }
+      if (M.calc && M.calc.status === "done" && window.wlca._jumpToResults) { step = RESULTS; window.wlca._jumpToResults = false; }
       render();
     },
     _jumpToResults: false,
@@ -75,7 +75,7 @@
     h += field("Occupied days per year", input(["project", "occ_days"], numText(p.occ_days), "num", "num"));
     h += "</div>";
     h += note("Occupancy sets the project's water budget (B7) against the RIBA 2030 Climate Challenge potable water target: workplaces for offices, residents for homes, pupils for schools. Days default to 250 (office), 365 (homes), 190 (schools).");
-    h += "<h2>Design options</h2>" + note("Each option is one massing layer in this file, or another .3dm. Facade and structure are set per option on steps 3 and 4, so options can share a massing.");
+    h += "<h2>Design options</h2>" + note("Each option is one massing layer in this file, or another .3dm. Substructure, structure and façade are set per option on steps 3 to 5, so options can share a massing.");
     h += "<table class='form' style='width:100%;max-width:1100px'><tr><th>Include</th><th class='req'>Option name</th><th>Massing from</th><th class='req'>Layer / file</th><th></th></tr>";
     S().options.forEach((o, i) => {
       const where = o.source === "layer"
@@ -120,8 +120,8 @@
   function pageFacade() {
     const o = S().options[sel] || S().options[0], cat = M.lists.facade_types;
     const punched = o.facade.some((f) => f.kind !== "unitised");
-    let h = keyNote + optionPicker() + "<h2>Facade types and their share</h2>";
-    h += note("Up to three types; shares are of the whole net facade and must add up to 100%. Curtain-wall types carry their glazing in the system; other types take a glazing ratio.");
+    let h = keyNote + optionPicker() + "<h2>Façade types and their share</h2>";
+    h += note("Up to three types; shares are of the whole net façade and must add up to 100%. Curtain-wall types carry their glazing in the system; other types take a glazing ratio.");
     h += `<table class="form" style="width:100%;max-width:1100px"><tr><th class="req">Type (from the office library)</th><th class="req">Share</th><th class="${punched ? "req" : ""}">Glazing ratio</th><th></th></tr>`;
     o.facade.forEach((f, j) => {
       const typeSel = `<select data-act="facade_type" data-i="${sel}" data-j="${j}">${cat.map((c) => `<option value="${esc(c.id)}"${c.id === f.build_up ? " selected" : ""}>${esc(c.label)} (${esc(c.code)})</option>`).join("")}</select>`;
@@ -132,7 +132,7 @@
     const tot = o.facade.reduce((a, f) => a + (Number(f.share) || 0), 0);
     h += `</table><div class="row" style="margin-top:8px">${button("+ Add a type", "add_facade", { i: sel }, { disabled: o.facade.length >= 3 })}
       <span class="${Math.abs(tot - 1) < 0.005 ? "chip meets" : "chip above"}">Shares add up to ${Math.round(tot * 100)}%</span></div>`;
-    return h + note("The list shows the facade types in the office library. A new type is added to the library once and then appears here for every project.");
+    return h + note("The list shows the façade types in the office library. A new type is added to the library once and then appears here for every project.");
   }
 
   function pageStructure() {
@@ -145,7 +145,74 @@
     h += field("Column grid y (m)", input(["options", sel, "structure", "grid_y_m"], s.grid_y_m, "num", "num"));
     h += field("Column size (m, square)", input(["options", sel, "structure", "column_size_m"], s.column_size_m, "num", "num"));
     h += "</div>";
-    return h + note("Cores, columns and stairs come from the plan on step 2 when there is one; otherwise these values and the office defaults are used and the rows are tagged [ASSUMED] in the workbook. Foundations and basement walls use the office defaults (piles 750 mm, 3 per column, 25 m; secant wall + 200 RC liner) until the engineer's figures are entered.");
+    return h + note("Cores, columns and stairs come from the plan on step 2 when there is one; otherwise these values and the office defaults are used and the rows are tagged [ASSUMED] in the workbook. Foundations and basement walls are set on step 3.");
+  }
+
+  function pageSubstructure() {
+    const o = S().options[sel] || S().options[0], u = o.substructure, L = M.lists, B = M.basement;
+    const P = (...k) => ["options", sel, "substructure", ...k];
+    const num = (k, v) => input(P(...k), numText(v), "num", "num");
+    let h = keyNote + optionPicker() + "<h2>Basement</h2>";
+    if (B) {
+      h += `<div class="msg ${B.levels.length ? "note" : "good"}">${B.levels.length
+        ? `From the area schedule: ${B.levels.length} level(s) below ground (${esc(B.levels.join(", "))}), ${fmt(B.depth_m, 2)} m deep. The basement walls use this depth; the lowest level's GEA is the lowest slab (1.2.1) and the levels above it up to ground are basement suspended slabs (1.2.2).`
+        : "From the area schedule: no levels below ground - no basement walls or basement slabs."}</div>`;
+      if (B.levels.length && B.lowest_gea > 1.05 * B.ground_gea)
+        h += `<div class="msg warn">Basement GEA ${fmt(B.lowest_gea)} m² is larger than the ground floor ${fmt(B.ground_gea)} m²: the ground-floor perimeter may understate the basement walls - enter the basement perimeter below.</div>`;
+    } else {
+      h += "<div class='grid'>" + field("Basement depth below ground (m)", num(["basement_depth_m"], u.basement_depth_m)) + "</div>";
+      h += note("No area schedule (step 2): enter the depth for the basement walls; blank = no basement. Without a schedule the massing is measured from its lowest point, so a basement modelled in the massing is counted as storeys - the area schedule is the reliable route for basements.");
+    }
+    const w = u.retaining_walls;
+    h += "<h2>Basement walls (1.2.3)</h2><div class='grid'>" + field("Basis", select(P("retaining_walls", "source"), L.wall_sources, w.source), { wide: true });
+    if (w.source === "engineer") {
+      h += field("Wall volume - piled wall (m³)", num(["retaining_walls", "volume_m3"], w.volume_m3));
+      h += field("Wall area (m²)", num(["retaining_walls", "area_m2"], w.area_m2));
+      h += field("Perimeter (m)", num(["retaining_walls", "perimeter_m"], w.perimeter_m));
+      h += field("Depth (m; blank = basement depth)", num(["retaining_walls", "depth_m"], w.depth_m));
+      h += "</div>" + note("The first figure given is used: volume (secant / contiguous piled wall), else area (RC wall), else perimeter x depth.");
+    } else {
+      h += field("Wall type", select(P("retaining_walls", "type"), L.wall_types, w.type), { wide: true });
+      if (w.type === "secant") {
+        h += field("Pile diameter (m)", num(["retaining_walls", "pile_diameter_m"], w.pile_diameter_m), { req: true });
+        h += field("Hard-to-hard spacing (m)", num(["retaining_walls", "pile_spacing_m"], w.pile_spacing_m), { req: true });
+        h += field("Pile length (m; blank = depth x (1 + embedment))", num(["retaining_walls", "pile_length_m"], w.pile_length_m));
+        h += field("Embedment below formation (x retained height)", num(["retaining_walls", "embedment_ratio"], w.embedment_ratio));
+        h += field("RC liner thickness (m; blank = no liner)", num(["retaining_walls", "liner_thickness_m"], w.liner_thickness_m));
+      }
+      h += field("Basement perimeter (m; blank = ground floor from the massing)", num(["retaining_walls", "perimeter_m"], w.perimeter_m));
+      h += "</div>" + note(w.type === "secant"
+        ? "Hard (reinforced) piles at the hard-to-hard spacing with one firm pile between each pair; overlaps are taken off the firm piles. The liner is perimeter x basement depth."
+        : "RC wall area = perimeter x basement depth.");
+    }
+    const p = u.piles;
+    h += "<h2>Piles (1.1)</h2><div class='grid'>" + field("Basis", select(P("piles", "source"), L.pile_sources, p.source), { wide: true });
+    if (p.source === "assumed") {
+      h += field("Pile diameter (m)", num(["piles", "diameter_m"], p.diameter_m), { req: true });
+      h += field("Piles per column", num(["piles", "per_column"], p.per_column), { req: true });
+      h += field("Pile length (m)", num(["piles", "length_m"], p.length_m), { req: true });
+      h += field("Core pile spacing (x diameter)", num(["piles", "core_spacing_x_dia"], p.core_spacing_x_dia));
+      h += "</div>" + check(P("piles", "core_group"), p.core_group, "Pile group under the core (core area from the plan or the schedule)");
+      h += note("Columns arriving at the lowest level x piles per column, plus a group under the core at the core spacing. Bored, no site investigation yet.");
+    } else if (p.source === "engineer") {
+      h += field("Number of piles", num(["piles", "count"], p.count), { req: true });
+      h += field("Pile diameter (m)", num(["piles", "diameter_m"], p.diameter_m), { req: true });
+      h += field("Pile length (m)", num(["piles", "length_m"], p.length_m), { req: true });
+      h += "</div>";
+    } else h += "</div>";
+    const c = u.caps_raft;
+    h += "<h2>Pile caps / raft (1.1)</h2><div class='grid'>" + field("Basis", select(P("caps_raft", "source"), L.cap_sources, c.source), { wide: true });
+    if (c.source === "assumed") {
+      h += field("Column cap depth (m)", num(["caps_raft", "depth_m"], c.depth_m), { req: true });
+      h += field("Cap edge beyond pile (m)", num(["caps_raft", "edge_m"], c.edge_m));
+      h += field("Core cap thickness (m)", num(["caps_raft", "core_thickness_m"], c.core_thickness_m), { req: true });
+      h += field("Core cap margin all round (m)", num(["caps_raft", "core_margin_m"], c.core_margin_m));
+      h += "</div>" + note("One cap per column sized for its piles at the core spacing, and one cap over the core area plus the margin. Follows the assumed piles only.");
+    } else if (c.source === "engineer") {
+      h += field("Caps / raft volume (m³)", num(["caps_raft", "volume_m3"], c.volume_m3), { req: true }) + "</div>";
+    } else h += "</div>";
+    if (S().options.length > 1) h += `<div class="row" style="margin-top:10px">${button("Use these settings for every option", "copy_substructure", { i: sel })}</div>`;
+    return h + note("Rows resting on these assumptions are tagged [ASSUMED] in the workbook; replace them with the engineer's figures when there are some. The lowest slab (1.2.1) and basement slabs (1.2.2) come from the schedule or the massing.");
   }
 
   function pageTargets() {
@@ -158,8 +225,12 @@
     h += "<h2>UKNZCBS offices</h2><div class='grid'>";
     for (const [k, lbl] of [["finishes", "Shell & core share - finishes"], ["ffe", "Shell & core share - FF&E"], ["services", "Shell & core share - services"]])
       h += field(lbl, input(["targets", "sc_share", k], pct(t.sc_share[k]), "pct", "num"));
-    h += field("Cat B + loose FF&E (kgCO2e/m²)", input(["targets", "catb_allowance"], numText(t.catb_allowance), "num", "num"));
-    h += "</div>" + note("Cat B blank = UKNZCBS whole-building limit not assessed.");
+    h += "</div>" + note("The share of each element group - 3 finishes, 4 FF&E, 5 services - that is shell & core. The rest counts as Cat A and is "
+      + "taken off A1-A5 (excl. external works) for the UKNZCBS offices shell & core limit only (5.1.6.2). 100% = nothing taken off: the strict "
+      + "default, which overstates the shell & core figure if the design includes Cat A. Example: services 60% takes 40% of services off. "
+      + "Headline figures, LETI, RIBA, GLA, the UKNZCBS whole-building limit and other uses are not affected.");
+    h += "<div class='grid'>" + field("Cat B + loose FF&E (kgCO2e/m²)", input(["targets", "catb_allowance"], numText(t.catb_allowance), "num", "num"));
+    h += "</div>" + note("Allowance added to the whole building for the UKNZCBS whole-building limit. Blank = that limit is not assessed.");
     h += "<h2>Scenario and budget</h2><div class='grid'>";
     h += field("Elements not yet designed - scenario", select(["targets", "scenario"], L.scenarios, t.scenario));
     h += field("Carbon budget against", select(["targets", "budget_target"], L.budgets, t.budget_target));
@@ -252,7 +323,7 @@
       h += "<h2>Results</h2>" + calcStatus();
       if (!(M.calc && M.calc.status)) h += note(S().output.last_workbook
         ? "The last workbook has not been calculated yet."
-        : "Run the take-off and create the workbook on step 6 - the results then appear here.");
+        : "Run the take-off and create the workbook on step 7 - the results then appear here.");
       if (S().output.last_workbook && M.calc.status !== "running") h += `<div class="row">${button("Calculate results", "calculate")}${button("Open in Excel", "open_workbook")}</div>`;
       return h;
     }
@@ -336,7 +407,8 @@
   }
 
   // ------------------------------------------------------------------ frame
-  const PAGES = [pageProject, pageDrawings, pageFacade, pageStructure, pageTargets, pageRun, pageResults];
+  const PAGES = [pageProject, pageDrawings, pageSubstructure, pageStructure, pageFacade, pageTargets, pageRun, pageResults];
+  const RESULTS = PAGES.length - 1;      // the last page; steps before it are numbered
   function stepFlags() {
     const flags = new Set();
     for (const c of M.checks) if (c.level === "error") { const m = /\(step (\d)\)/.exec(c.text); if (m) flags.add(Number(m[1]) - 1); }
@@ -345,14 +417,14 @@
   function renderNav() {
     const flags = stepFlags();
     document.getElementById("nav").innerHTML = M.steps.map((s, i) =>
-      (i === 6 ? "<hr>" : "") + `<button type="button" data-step="${i}" class="${i === step ? "on" : ""}"><span class="n">${i < 6 ? i + 1 : "◆"}</span>${esc(s)}${flags.has(i) ? '<span class="flag" title="Something to fix on this step"></span>' : ""}</button>`).join("")
+      (i === RESULTS ? "<hr>" : "") + `<button type="button" data-step="${i}" class="${i === step ? "on" : ""}"><span class="n">${i < RESULTS ? i + 1 : "◆"}</span>${esc(s)}${flags.has(i) ? '<span class="flag" title="Something to fix on this step"></span>' : ""}</button>`).join("")
       + '<hr><button type="button" data-action="classic" class="classic" title="The earlier Rhino dialog, same settings">Classic dialog</button>';
   }
   function renderFooter() {
     const st = document.getElementById("status");
     st.innerHTML = busy ? `<span class="busy"></span>${esc(busy)}` : M && M.calc && M.calc.status === "running" ? '<span class="busy"></span>Excel is calculating…' : "";
     document.getElementById("back").disabled = step === 0 || !!busy;
-    document.getElementById("next").disabled = step === 6 || !!busy;
+    document.getElementById("next").disabled = step === RESULTS || !!busy;
     document.querySelectorAll("#main button").forEach((b) => { if (busy) b.disabled = true; });
   }
   function render() {
@@ -372,7 +444,7 @@
     }
     renderFooter();
   }
-  function go(i) { step = Math.max(0, Math.min(6, i)); document.getElementById("main").scrollTop = 0; render(); }
+  function go(i) { step = Math.max(0, Math.min(RESULTS, i)); document.getElementById("main").scrollTop = 0; render(); }
 
   // ------------------------------------------------------------------ events
   document.addEventListener("click", (e) => {

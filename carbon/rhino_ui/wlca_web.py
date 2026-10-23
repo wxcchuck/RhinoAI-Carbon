@@ -37,7 +37,8 @@ except NameError:
     DOC = scriptcontext.doc
 
 _D = wd.WLCAForm
-STEPS = ["Project & options", "Drawings & schedule", "Facade", "Structure", "Targets & reporting", "Run", "Results"]
+STEPS = ["Project & options", "Drawings & schedule", "Substructure", "Superstructure - Structure",
+         "Superstructure - Façade", "Targets & reporting", "Run", "Results"]
 PLAN_ROUTES = [("rhino", "Plan in Rhino (layers)"), ("pdf", "PDF plan extract (.json)"), ("none", "None - use office defaults")]
 
 
@@ -168,6 +169,11 @@ class WLCAWebForm(forms.Form):
             f["build_up"], f["kind"] = c["id"], c["kind"]
             if c["kind"] == ws.FACADE_PUNCHED and f.get("wwr") is None:
                 f["wwr"] = 0.4
+        elif name == "copy_substructure":
+            import copy
+            src = opts[int(a["i"])]["substructure"]
+            for o in opts:
+                o["substructure"] = copy.deepcopy(src)
         elif name == "plan_route":
             st["plan"]["route"] = a["route"]
         elif name in ("pick_schedule", "pick_plan_json", "pick_folder", "pick_office_settings", "reset_office_settings",
@@ -277,6 +283,10 @@ class WLCAWebForm(forms.Form):
             self.calc = {"status": "failed", "message": "The workbook has no calculated values yet."}
 
     # ---------------------------------------------------------------- the model the page draws
+    def basement_info(self):
+        s = self.state["schedule"]
+        return ws.basement_from_schedule(s["path"], s["sheet"])
+
     def schedule_info(self):
         s = self.state["schedule"]
         if not s["path"]:
@@ -312,10 +322,13 @@ class WLCAWebForm(forms.Form):
                 "massing_layers": self.massing_layers() or self.all_layers(), "all_layers": self.all_layers(),
                 "facade_types": ws.facade_catalogue(office), "sheets": self.sheet_names(st["schedule"]["path"]),
                 "fonts": _D.font_names(),
+                "wall_sources": ws.WALL_SOURCES, "wall_types": ws.WALL_TYPES, "pile_sources": ws.PILE_SOURCES,
+                "cap_sources": ws.CAP_SOURCES,
             },
             "office": {"path": self.office_path, "source": self.office_source, "loaded": self.office is not None,
                        "error": self.office_error},
             "schedule": self.schedule_info(),
+            "basement": self.basement_info(),
             "checks": [{"level": lv, "text": m} for lv, m in checks],
             "blocked": any(lv == "error" for lv, _ in checks) or self.office is None,
             "layers_off": self.layers_off(),

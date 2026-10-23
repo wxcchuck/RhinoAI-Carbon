@@ -55,6 +55,8 @@ Drafted by an AI agent (Claude) from the working sessions; review before relying
 | U7 | Firm piles use the C32/40 build-up as a placeholder; the real firm mix is lower strength | Open (needs a firm-mix factor) |
 | U8 | Pile caps: one cap per column at the lowest level, sized for the piles per column (3 piles: equilateral triangle enclosing the piles at 3 × Ø, 0.15 m edge, corners not trimmed) × 1.2 m deep; plus a 2.0 m core cap over the core area + 0.5 m all round. The engineer's volume replaces both | Assumed |
 | U9 | Basement larger than the ground footprint: scale the perimeter? (the script warns) | Open |
+| U10 | Without an area schedule the massing is sliced from its lowest point (or `base_level`): a basement modelled in the massing is counted as storeys above ground, and no basement walls or basement slabs are derived unless a basement depth is entered (step 3) | Open |
+| U11 | Envelope z-bands run over the whole massing, so massing below ground is counted as façade (test box 30 × 20 m, 8 m below ground: façade 4,000 m² against 3,200 m² above ground) | Open |
 
 ## Calculation template (`calc/`)
 
@@ -127,6 +129,7 @@ All of these run on office assumptions until project information replaces them: 
 | D9 | Plan reader rules: core walls = closed outlines or hatches 100–500 mm thick (length = area ÷ thickness, thickness from the outline); columns = circles 0.2–1.5 m, and squares and rectangles as closed polylines or blocks (each side 0.2–1.5 m, long side ≤ 3 × short side so wall stubs stay out; a rectangle enters the take-off as the square of the same area) - XW 22/10/2026; an office can limit this with `plan_reader.column_shapes`; stairs = tread rectangles grouped into flights as in the PDF extractor, read in the plan's own orientation; treads are never columns or walls, columns never walls. Only shapes inside the floor plate count (largest closed outline on the wall layer). The file's unit header is checked against the shapes - a DWG said millimetres for metre coordinates - and a correction is applied and reported | Confirmed (XW 16/10/2026) |
 | D10 | Plan layers fill themselves: office name patterns first (`plan_layer_patterns` in the office settings), then the layer with the most walls / columns / treads. The designer checks the proposal and the highlighted objects, and changes a layer only if it is wrong | Confirmed (XW 16/10/2026) |
 | D11 | Core walls measured on a plan are scaled to their measured thickness (m² of the 250 mm build-up × t / 0.25), with a warning to check the thickness with the engineer - until the library has a build-up per wall thickness. Applies to the PDF route too | Confirmed (XW 16/10/2026) |
+| D12 | The window has seven steps: 1 Project & options, 2 Drawings & schedule, 3 Substructure, 4 Superstructure - Structure, 5 Superstructure - Façade, 6 Targets & reporting, 7 Run, then Results. Step 3 holds every substructure input per option (basement depth without a schedule, basement wall basis / type / secant geometry / liner / perimeter, piles, caps) with the U1-U8 defaults, and can copy one option's settings to all | Confirmed (XW 22/10/2026) |
 
 ## Frame systems, rebar rates and reporting precision (v0.9 take-off, library v0.11)
 
