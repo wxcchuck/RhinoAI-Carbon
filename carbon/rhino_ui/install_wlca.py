@@ -6,7 +6,7 @@ Drafted by an AI agent (Claude) - review before trusting.
 
 Run once per PC: drag this file onto the Rhino window (or Tools > Script > Run, or _RunPythonScript).
 It
-  1. adds a command alias  WLCA  that opens the dialog from this package folder, and
+  1. adds a command alias  WLCA  that opens the WLCA window from this package folder, and
   2. writes a small WLCA toolbar (one button) to your Rhino settings folder and opens it.
 Nothing is copied: the button runs the scripts in the shared package folder, so updates there reach
 everyone automatically. Run it again if the package folder moves.
@@ -17,7 +17,7 @@ import uuid
 import Rhino
 
 PKG = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else globals().get("WLCA_PKG_DIR", "")
-DIALOG = os.path.join(PKG, "wlca_dialog.py")
+DIALOG = os.path.join(PKG, "wlca_web.py")
 MACRO = '! _-RunPythonScript "%s"' % DIALOG
 
 
@@ -71,7 +71,7 @@ def rui_xml():
 
 def main():
     if not os.path.exists(DIALOG):
-        print("WLCA install: wlca_dialog.py not found next to this installer (%s)" % PKG)
+        print("WLCA install: wlca_web.py not found next to this installer (%s)" % PKG)
         return
     aliases = Rhino.ApplicationSettings.CommandAliasList
     if aliases.IsAlias("WLCA"):

@@ -302,12 +302,10 @@ def _steps(path, name="STEPS"):
     raise AssertionError(name + " not found")
 
 
-def test_step_order_is_the_same_in_both_windows():
+def test_step_order():
     web = _steps("wlca_web.py")
-    classic = [s.split("  ", 1)[1] for s in _steps("wlca_dialog.py")]
     assert web == ["Project & options", "Drawings & schedule", "Substructure", "Superstructure - Structure",
                    "Superstructure - Façade", "Targets & reporting", "Run", "Results"]
-    assert classic == web[:-1]
     js = open(os.path.join(os.path.dirname(__file__), "..", "rhino_ui", "web", "app.js"), encoding="utf-8").read()
     assert "const PAGES = [pageProject, pageDrawings, pageSubstructure, pageStructure, pageFacade, pageTargets, pageRun, pageResults];" in js
 

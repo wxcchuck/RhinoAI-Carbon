@@ -3,7 +3,7 @@ WLCA dialog - state, office settings and config builders  v0.1  (draft for revie
 
 Drafted by an AI agent (Claude) - review before trusting.
 
-Plain Python (no Rhino), so it can be unit-tested. The Rhino dialog (wlca_dialog.py) edits a `state`
+Plain Python (no Rhino), so it can be unit-tested. The WLCA window (wlca_web.py) edits a `state`
 dict, saves it in the .3dm, and uses the functions here to
   - check it                    validate(state)
   - build one take-off CONFIG   takeoff_config(state, option, office, base_config)

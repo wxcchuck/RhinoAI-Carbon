@@ -12,7 +12,7 @@ using Rhino.PlugIns;
 namespace Wlca
 {
     /// <summary>
-    /// Launcher for the WLCA dialog. The Python scripts ship next to WLCA.rhp; the command runs wlca_dialog.py
+    /// Launcher for the WLCA window. The Python scripts ship next to WLCA.rhp; the command runs wlca_web.py
     /// from there, so a package update replaces the scripts and the plug-in together.
     /// </summary>
     public class WlcaPlugin : PlugIn
@@ -42,7 +42,7 @@ namespace Wlca
         /// <summary>
         /// Before the package, install_wlca.py added a WLCA command alias and a WLCA toolbar that ran the scripts in
         /// a shared folder. The alias would shadow this plug-in's command, so it is removed (only when it points
-        /// at wlca_dialog.py), and that toolbar file is closed.
+        /// at wlca_dialog.py or wlca_web.py), and that toolbar file is closed.
         /// </summary>
         static void RemoveScriptInstall()
         {
@@ -51,7 +51,8 @@ namespace Wlca
                 if (CommandAliasList.IsAlias("WLCA"))
                 {
                     var macro = CommandAliasList.GetMacro("WLCA") ?? "";
-                    if (macro.IndexOf("wlca_dialog.py", StringComparison.OrdinalIgnoreCase) >= 0)
+                    if (macro.IndexOf("wlca_dialog.py", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        macro.IndexOf("wlca_web.py", StringComparison.OrdinalIgnoreCase) >= 0)
                         CommandAliasList.Delete("WLCA");
                 }
                 var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
