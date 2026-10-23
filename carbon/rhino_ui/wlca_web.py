@@ -66,6 +66,7 @@ class WLCAWebForm(forms.Form):
     run_takeoff = _D.run_takeoff
     add_option = _D.add_option
     duplicate_option = _D.duplicate_option
+    massing_extent = _D.massing_extent
     sheet_names = staticmethod(_D.sheet_names)
 
     def __init__(self, doc=None):
@@ -174,6 +175,11 @@ class WLCAWebForm(forms.Form):
             src = opts[int(a["i"])]["substructure"]
             for o in opts:
                 o["substructure"] = copy.deepcopy(src)
+        elif name == "add_basement_level":
+            b = ws.fill_substructure(opts[int(a["i"])])["substructure"]["basement"]
+            b["levels"].append(ws.new_basement_level(len(b["levels"]) + 1))
+        elif name == "remove_basement_level":
+            opts[int(a["i"])]["substructure"]["basement"]["levels"].pop(int(a["j"]))
         elif name == "plan_route":
             st["plan"]["route"] = a["route"]
         elif name in ("pick_schedule", "pick_plan_json", "pick_folder", "pick_office_settings", "reset_office_settings",
@@ -329,6 +335,7 @@ class WLCAWebForm(forms.Form):
                        "error": self.office_error},
             "schedule": self.schedule_info(),
             "basement": self.basement_info(),
+            "massing_z": [self.massing_extent(o) for o in st["options"]],
             "checks": [{"level": lv, "text": m} for lv, m in checks],
             "blocked": any(lv == "error" for lv, _ in checks) or self.office is None,
             "layers_off": self.layers_off(),

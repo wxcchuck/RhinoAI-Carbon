@@ -153,16 +153,25 @@
     const P = (...k) => ["options", sel, "substructure", ...k];
     const num = (k, v) => input(P(...k), numText(v), "num", "num");
     let h = keyNote + optionPicker() + "<h2>Basement</h2>";
-    if (B) {
-      h += `<div class="msg ${B.levels.length ? "note" : "good"}">${B.levels.length
-        ? `From the area schedule: ${B.levels.length} level(s) below ground (${esc(B.levels.join(", "))}), ${fmt(B.depth_m, 2)} m deep. The basement walls use this depth; the lowest level's GEA is the lowest slab (1.2.1) and the levels above it up to ground are basement suspended slabs (1.2.2).`
-        : "From the area schedule: no levels below ground - no basement walls or basement slabs."}</div>`;
-      if (B.levels.length && B.lowest_gea > 1.05 * B.ground_gea)
-        h += `<div class="msg warn">Basement GEA ${fmt(B.lowest_gea)} m² is larger than the ground floor ${fmt(B.ground_gea)} m²: the ground-floor perimeter may understate the basement walls - enter the basement perimeter below.</div>`;
+    const bs = u.basement || {}, ext = (M.massing_z || [])[sel];
+    if (B && B.levels.length) {
+      h += `<div class="msg note">From the area schedule: ${B.levels.length} level(s) below ground, ${fmt(B.depth_m, 2)} m deep - ${B.levels.map((n, k) => `${esc(n)} (${fmt(B.ftf[k], 2)} m, GEA ${fmt(B.gea[k])} m²)`).join(", ")}. The lowest level's GEA is the lowest slab (1.2.1); the levels above it up to ground are basement suspended slabs (1.2.2).</div>`;
     } else {
-      h += "<div class='grid'>" + field("Basement depth below ground (m)", num(["basement_depth_m"], u.basement_depth_m)) + "</div>";
-      h += note("No area schedule (step 2): enter the depth for the basement walls; blank = no basement. Without a schedule the massing is measured from its lowest point, so a basement modelled in the massing is counted as storeys - the area schedule is the reliable route for basements.");
+      h += `<div class="msg ${bs.answer === "none" || bs.answer === "levels" ? "note" : "warn"}">${B ? "The area schedule has no levels below ground" : "No area schedule (step 2)"} - is there a basement? Confirm below.</div>`;
+      h += "<div class='grid'>" + field("Basement", select(P("basement", "answer"), [["none", "No basement - confirmed"], ["levels", "Yes - enter the basement levels"]], bs.answer || ""), { req: true, wide: true }) + "</div>";
+      if (bs.answer === "levels") {
+        h += `<table class="form" style="max-width:760px;margin-top:6px"><tr><th>Level (top down from ground)</th><th class="req">Floor to floor (m)</th><th>GEA (m²)</th><th>GIA (m²)</th><th></th></tr>`;
+        (bs.levels || []).forEach((x, j) => {
+          h += `<tr><td>${input(P("basement", "levels", j, "name"), x.name)}</td><td style="width:130px">${num(["basement", "levels", j, "ftf"], x.ftf)}</td>
+            <td style="width:130px">${num(["basement", "levels", j, "gea"], x.gea)}</td><td style="width:130px">${num(["basement", "levels", j, "gia"], x.gia)}</td>
+            <td style="width:80px">${button("Remove", "remove_basement_level", { i: sel, j })}</td></tr>`;
+        });
+        h += `</table><div class="row" style="margin-top:8px">${button("+ Basement level", "add_basement_level", { i: sel })}</div>`;
+        h += note("GEA / GIA blank = measured on the massing below ground level (the massing must include the basement). The depth is the sum of the floor-to-floor heights; the lowest level's GEA is the lowest slab (1.2.1), the levels above it the basement slabs (1.2.2).");
+      }
     }
+    h += "<div class='grid'>" + field("Ground floor level in the model (m)", num(["basement", "ground_level"], bs.ground_level)) + "</div>";
+    h += note(`Blank = ${B && B.levels ? "the schedule's ground AOD if it has one, else " : ""}the massing's lowest point${ext ? ` (this option's massing runs from ${fmt(ext[0], 2)} to ${fmt(ext[1], 2)} m)` : ""}. Massing below ground level is never counted as façade. Basement walls take the perimeter of the largest basement level measured on the massing; without a modelled basement, the ground-floor perimeter x √(basement GEA / ground GEA), never scaled down.`);
     const w = u.retaining_walls;
     h += "<h2>Basement walls (1.2.3)</h2><div class='grid'>" + field("Basis", select(P("retaining_walls", "source"), L.wall_sources, w.source), { wide: true });
     if (w.source === "engineer") {
@@ -180,7 +189,7 @@
         h += field("Embedment below formation (x retained height)", num(["retaining_walls", "embedment_ratio"], w.embedment_ratio));
         h += field("RC liner thickness (m; blank = no liner)", num(["retaining_walls", "liner_thickness_m"], w.liner_thickness_m));
       }
-      h += field("Basement perimeter (m; blank = ground floor from the massing)", num(["retaining_walls", "perimeter_m"], w.perimeter_m));
+      h += field("Basement perimeter (m; blank = from the massing, see above)", num(["retaining_walls", "perimeter_m"], w.perimeter_m));
       h += "</div>" + note(w.type === "secant"
         ? "Hard (reinforced) piles at the hard-to-hard spacing with one firm pile between each pair; overlaps are taken off the firm piles. The liner is perimeter x basement depth."
         : "RC wall area = perimeter x basement depth.");
@@ -208,6 +217,9 @@
       h += field("Core cap thickness (m)", num(["caps_raft", "core_thickness_m"], c.core_thickness_m), { req: true });
       h += field("Core cap margin all round (m)", num(["caps_raft", "core_margin_m"], c.core_margin_m));
       h += "</div>" + note("One cap per column sized for its piles at the core spacing, and one cap over the core area plus the margin. Follows the assumed piles only.");
+    } else if (c.source === "raft") {
+      h += field("Raft thickness (m)", num(["caps_raft", "raft_thickness_m"], c.raft_thickness_m), { req: true }) + "</div>";
+      h += note("Raft under the lowest level: thickness x the lowest level's GEA. Its top is the lowest slab (1.2.1, counted there), so this row takes the thickness less that slab. With piles it is a piled raft.");
     } else if (c.source === "engineer") {
       h += field("Caps / raft volume (m³)", num(["caps_raft", "volume_m3"], c.volume_m3), { req: true }) + "</div>";
     } else h += "</div>";

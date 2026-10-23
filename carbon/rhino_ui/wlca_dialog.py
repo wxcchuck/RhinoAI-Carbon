@@ -285,6 +285,21 @@ class WLCAForm(forms.Form):
                 out.append(lay.FullPath)
         return sorted(out)
 
+    def massing_extent(self, o):
+        """[lowest, highest] point of an option's massing layer in metres, or None (other .3dm / no solids)."""
+        if o.get("source") != "layer" or not o.get("layer"):
+            return None
+        idx = self.doc.Layers.FindByFullPath(o["layer"], -1)
+        if idx < 0:
+            return None
+        s = Rhino.RhinoMath.UnitScale(self.doc.ModelUnitSystem, Rhino.UnitSystem.Meters)
+        zs = []
+        for obj in self.doc.Objects.FindByLayer(self.doc.Layers[idx]) or []:
+            if isinstance(obj.Geometry, (rg.Brep, rg.Extrusion)):
+                bb = obj.Geometry.GetBoundingBox(True)
+                zs += [bb.Min.Z * s, bb.Max.Z * s]
+        return [round(min(zs), 2), round(max(zs), 2)] if zs else None
+
     def all_layers(self):
         return sorted(l.FullPath for l in self.doc.Layers if not l.IsDeleted and not l.FullPath.startswith("WLCA"))
 
@@ -580,22 +595,35 @@ class WLCAForm(forms.Form):
             L.EndVertical()
 
         section(L, "Basement")
-        if B:
-            if B["levels"]:
-                L.AddRow(label("From the area schedule: %d level(s) below ground (%s), %.2f m deep. The basement walls use this depth; the "
-                               "lowest level's GEA is the lowest slab (1.2.1) and the levels above it up to ground are basement "
-                               "suspended slabs (1.2.2)." % (len(B["levels"]), ", ".join(B["levels"]), B["depth_m"]), muted=True))
-                if B["lowest_gea"] > 1.05 * B["ground_gea"]:
-                    L.AddRow(label("Basement GEA {:,.0f} m² is larger than the ground floor {:,.0f} m²: the ground-floor perimeter may "
-                                   "understate the basement walls - enter the basement perimeter below.".format(B["lowest_gea"], B["ground_gea"]),
-                                   color=WARN))
-            else:
-                L.AddRow(label("From the area schedule: no levels below ground - no basement walls or basement slabs.", muted=True))
+        bs = u["basement"]
+        if B and B["levels"]:
+            L.AddRow(label("From the area schedule: %d level(s) below ground, %.2f m deep - %s. The lowest level's GEA is the lowest "
+                           "slab (1.2.1); the levels above it up to ground are basement suspended slabs (1.2.2)." % (
+                               len(B["levels"]), B["depth_m"], ", ".join("%s (%.2f m, GEA {:,.0f} m²)".format(g) % (n, f)
+                                                                       for n, f, g in zip(B["levels"], B["ftf"], B["gea"]))), muted=True))
         else:
-            rows([("Basement depth below ground (m)", numbox(u, "basement_depth_m"))])
-            L.AddRow(label("No area schedule (step 2): enter the depth for the basement walls; blank = no basement. Without a schedule the "
-                           "massing is measured from its lowest point, so a basement modelled in the massing is counted as storeys - the "
-                           "area schedule is the reliable route for basements.", muted=True))
+            answered = bs.get("answer") in ("none", "levels")
+            L.AddRow(label("%s - is there a basement? Confirm below." % ("The area schedule has no levels below ground" if B else
+                                                                          "No area schedule (step 2)"), color=MUTED if answered else WARN))
+            rows([(req("Basement"), choice(bs, "answer", [["none", "No basement - confirmed"], ["levels", "Yes - enter the basement levels"]]))])
+            if bs.get("answer") == "levels":
+                L.BeginVertical(None, drawing.Size(8, 4))
+                hrow(L, label("Level (top down)", muted=True), req("Floor to floor (m)", muted=True), label("GEA (m²)", muted=True),
+                     label("GIA (m²)", muted=True), label(""), None)
+                for j, x in enumerate(bs["levels"]):
+                    hrow(L, textbox(x.get("name") or "", self.setter(x, "name"), width=120), numbox(x, "ftf"), numbox(x, "gea", 100),
+                         numbox(x, "gia", 100), button("Remove", self._basement_remove(bs, j)), None)
+                L.EndVertical()
+                L.AddRow(stretch(button("+ Basement level", lambda: self._basement_add(bs)), None))
+                L.AddRow(label("GEA / GIA blank = measured on the massing below ground level (the massing must include the basement). "
+                               "The depth is the sum of the floor-to-floor heights.", muted=True))
+        ext = self.massing_extent(o)
+        rows([("Ground floor level in the model (m)", numbox(bs, "ground_level"))])
+        L.AddRow(label("Blank = %sthe massing's lowest point%s. Massing below ground level is never counted as façade. Basement walls take "
+                       "the perimeter of the largest basement level measured on the massing; without a modelled basement, the "
+                       "ground-floor perimeter x sqrt(basement GEA / ground GEA), never scaled down." % (
+                           "the schedule's ground AOD if it has one, else " if B else "",
+                           " (this option's massing runs from %.2f to %.2f m)" % tuple(ext) if ext else ""), muted=True))
         w = u["retaining_walls"]
         section(L, "Basement walls (1.2.3)")
         rows([("Basis", choice(w, "source", ws.WALL_SOURCES))])
@@ -610,7 +638,7 @@ class WLCAForm(forms.Form):
                           ("Pile length (m; blank = depth x (1 + embedment))", numbox(w, "pile_length_m")),
                           ("Embedment below formation (x retained height)", numbox(w, "embedment_ratio")),
                           ("RC liner thickness (m; blank = no liner)", numbox(w, "liner_thickness_m"))]
-            pairs.append(("Basement perimeter (m; blank = ground floor from the massing)", numbox(w, "perimeter_m")))
+            pairs.append(("Basement perimeter (m; blank = from the massing, see above)", numbox(w, "perimeter_m")))
             rows(pairs)
         p = u["piles"]
         section(L, "Piles (1.1)")
@@ -629,6 +657,10 @@ class WLCAForm(forms.Form):
         if c.get("source") == "assumed":
             rows([(req("Column cap depth (m)"), numbox(c, "depth_m")), ("Cap edge beyond pile (m)", numbox(c, "edge_m")),
                   (req("Core cap thickness (m)"), numbox(c, "core_thickness_m")), ("Core cap margin all round (m)", numbox(c, "core_margin_m"))])
+        elif c.get("source") == "raft":
+            rows([(req("Raft thickness (m)"), numbox(c, "raft_thickness_m"))])
+            L.AddRow(label("Raft under the lowest level: thickness x the lowest level's GEA. Its top is the lowest slab (1.2.1, counted "
+                           "there), so this row takes the thickness less that slab. With piles it is a piled raft.", muted=True))
         elif c.get("source") == "engineer":
             rows([(req("Caps / raft volume (m³)"), numbox(c, "volume_m3"))])
         if len(self.state["options"]) > 1:
@@ -636,6 +668,18 @@ class WLCAForm(forms.Form):
         L.AddRow(label("Rows resting on these assumptions are tagged [ASSUMED] in the workbook; replace them with the engineer's figures "
                        "when there are some. The lowest slab (1.2.1) and basement slabs (1.2.2) come from the schedule or the massing.",
                        muted=True))
+
+    def _basement_add(self, bs):
+        bs["levels"].append(ws.new_basement_level(len(bs["levels"]) + 1))
+        self.save()
+        self.refresh()
+
+    def _basement_remove(self, bs, j):
+        def g():
+            bs["levels"].pop(j)
+            self.save()
+            self.refresh()
+        return g
 
     def _copy_substructure(self, src):
         import copy
