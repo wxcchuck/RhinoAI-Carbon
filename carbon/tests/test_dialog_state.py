@@ -24,6 +24,7 @@ def _rows():
 def _option(mix):
     o = ws.default_option("A", layer="L")
     o["facade"] = mix
+    o["substructure"]["basement"]["answer"] = "none"
     return o
 
 
@@ -361,6 +362,7 @@ def test_option_substructure_reaches_the_takeoff(defaults):
 def test_substructure_checks():
     def errs(**upd):
         o = ws.default_option("A", layer="L")
+        o["substructure"]["basement"]["answer"] = "none"
         for k, v in upd.items():
             o["substructure"][k].update(v)
         return [(lv, m) for lv, m in ws.check_substructure(o, "A")]
@@ -384,3 +386,33 @@ def test_basement_from_schedule(schedule_xlsx):
     assert b["levels"] == ["B2", "B1"] and b["depth_m"] == 9.0
     assert b["lowest_gea"] == 1200 and b["ground_gea"] == 1000
     assert ws.basement_from_schedule("", None) is None and ws.basement_from_schedule("nope.xlsx") is None
+
+
+def test_basement_must_be_confirmed_unless_the_schedule_has_one(schedule_xlsx):
+    o = ws.default_option("A", layer="L")
+    bs = o["substructure"]["basement"]
+    msg = lambda sb=None: [(lv, m) for lv, m in ws.check_substructure(o, "A", sb) if "basement" in m.lower()]  # noqa: E731
+    assert msg()[0][0] == "error" and "no area schedule" in msg()[0][1]
+    sched = ws.basement_from_schedule(schedule_xlsx, "Office")
+    assert msg(sched) == []                                             # B2, B1 in the schedule: nothing to confirm
+    no_bsm = dict(sched, levels=[])
+    assert "no levels below ground" in msg(no_bsm)[0][1]
+    bs["answer"] = "none"
+    assert msg(no_bsm) == []
+    bs["answer"] = "levels"
+    assert "at least one basement level" in msg()[0][1]
+    bs["levels"] = [ws.new_basement_level(1)]
+    assert [lv for lv, _ in msg()] == ["warning"]                       # GEA / GIA from the massing
+    bs["levels"][0].update(gea=900.0, gia=850.0)
+    assert msg() == []
+    bs["levels"][0]["ftf"] = None
+    assert "floor-to-floor" in msg()[0][1]
+
+
+def test_raft_check():
+    o = ws.default_option("A", layer="L")
+    o["substructure"]["basement"]["answer"] = "none"
+    o["substructure"]["caps_raft"].update(source="raft")
+    assert ws.check_substructure(o, "A") == []
+    o["substructure"]["caps_raft"]["raft_thickness_m"] = None
+    assert "raft thickness" in ws.check_substructure(o, "A")[0][1]

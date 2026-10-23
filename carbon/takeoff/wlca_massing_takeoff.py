@@ -1,6 +1,6 @@
 #! python3
 """
-WLCA massing take-off  v0.9  (draft for review)
+WLCA massing take-off  v0.10  (draft for review)
 Office WLCA template - build step 4a (massing route, RIBA 0-2)
 
 Drafted by an AI agent (Claude) - review before trusting. Quantity rules live in wlca_core.py
@@ -44,6 +44,13 @@ What it does
   9. Frame systems (v0.9): RC flat slab as measured, PT flat slab, or a steel / timber frame from the PF Stage 1
      rates per m2 of floor (beams and connections in the floor build-up); steel / timber columns are scaled by
      (storeys + 1) / 9 relative to PF's ground + 7 building and tagged [ASSUMED] (core.apply_frame).
+
+ 10. Basements (v0.10): levels below ground come from the schedule, else from substructure.basement (levels entered
+     on step 3 of the dialog: name, floor-to-floor, GEA / GIA - blank = measured on the massing below ground).
+     The ground level is base_level, else substructure.basement.ground_level, else the schedule's ground AOD, else
+     the massing's lowest point. Facade is measured from ground level up only. Basement walls take the perimeter of
+     the largest basement level measured on the massing, else the ground-floor perimeter x sqrt(basement GEA /
+     ground GEA), never scaled down. Raft option: caps_raft.source = "raft".
 
 Limits
   - Exact for prismatic massing (vertical walls, flat roofs). Sloped / curved roofs and
@@ -132,8 +139,12 @@ CONFIG = {
         "caps_raft": {"source": "assumed",           # "assumed" (rule below) | "engineer" (volume_m3) | None
                       "depth_m": 1.2, "edge_m": 0.15,  # column caps: piles_per_column at core_spacing_x_dia, edge beyond pile
                       "core_thickness_m": 2.0, "core_margin_m": 0.5,   # core cap over core area + margin all round
+                      "raft_thickness_m": 1.0,       # "raft": raft under the lowest level; its top is the lowest slab (1.2.1)
                       "volume_m3": None},
-        "basement_depth_m": None,            # massing route only (schedule gives depth from basement FTFs)
+        "basement_depth_m": None,            # legacy: depth with no basement levels (walls only, no slabs)
+        # basement levels when the schedule has none (step 3): answer None (not asked) | "none" | "levels";
+        # levels top-down from ground: {"name", "ftf", "gea", "gia"} (gea / gia None = measured on the massing)
+        "basement": {"answer": None, "levels": [], "ground_level": None},
     },
     # --- scope-gap allowances (v0.8). source: "assumed" (office default) | "supplied" (your figure wins) ---
     "stairs": {"source": "drawing",          # count + flights from plan_json; "supplied" uses volume_m3
@@ -417,6 +428,12 @@ def run(cfg):
     zmax = max(bb.Max.Z for bb in boxes)
 
     # ---- floor arrangement: route (a) area schedule, or route (b) storey heights
+    # Ground level in the model: base_level, else the step 3 entry, else the schedule's ground AOD, else the massing's
+    # lowest point. Basement levels: the schedule's levels below ground, else the levels entered on step 3 (v0.10).
+    SUB = cfg["substructure"]
+    bsm = SUB.get("basement") or {}
+    ground_in = cfg["base_level"] if cfg["base_level"] is not None else bsm.get("ground_level")
+    entered = [dict(lv) for lv in (bsm.get("levels") or []) if bsm.get("answer") == "levels"]     # top-down
     sched = None
     if cfg.get("area_schedule"):
         sched = core.parse_area_schedule(cfg["area_schedule"], warnings)
@@ -425,20 +442,79 @@ def run(cfg):
             raise TakeoffError("Schedule has no ground level (named 0 / G / GF / Ground)")
         if sched[gi]["aod"] is not None:
             base = sched[gi]["aod"]
-            if abs(base - zmin) > 0.05:
-                warnings.append("Schedule ground AOD %.2f vs massing base %.2f - is the model in AOD? Using the schedule" % (base, zmin))
+            if ground_in is not None and abs(ground_in - base) > 0.005:
+                off = ground_in - base
+                for lv in sched:
+                    if lv["aod"] is not None:
+                        lv["aod"] += off
+                warnings.append("Ground level %.2f entered vs schedule ground AOD %.2f - schedule levels moved %+.2f m onto the model"
+                                % (ground_in, base, off))
+                base = ground_in
+            if any(lv["aod"] is None for lv in sched):
+                core.stack_aod(sched, gi, base)
         else:
-            base = cfg["base_level"] if cfg["base_level"] is not None else zmin
+            base = ground_in if ground_in is not None else zmin
             core.stack_aod(sched, gi, base)
+        if gi and entered:
+            warnings.append("Basement levels entered on step 3 ignored - the schedule has its own levels below ground")
+        elif not gi and entered:
+            z = base
+            for k, lv in enumerate(entered):         # top-down from ground
+                z -= float(lv["ftf"])
+                sched.insert(0, dict(name=str(lv.get("name") or "B%d" % (k + 1)), use="Basement", aod=z, ftf=float(lv["ftf"]),
+                                     gea=lv.get("gea"), gia=lv.get("gia"), nia=None, entered=True))
+            gi = ground_index(sched)
         storey_defs = [(lv["name"], lv["aod"], lv["ftf"]) for lv in sched[gi:]]
+        bas_defs = [(lv["name"], lv["aod"], lv["ftf"], lv) for lv in sched[:gi]]
     else:
-        base = cfg["base_level"] if cfg["base_level"] is not None else zmin
+        base = ground_in if ground_in is not None else zmin
         storey_defs, z0, i = [], base, 0
         while z0 < zmax - TOL:
             h = cfg["storey_height_overrides"].get(i, cfg["ground_storey_height"] if i == 0 else cfg["typical_storey_height"])
             storey_defs.append(("L%02d" % i, z0, h)); z0 += h; i += 1
-    if base > zmin + TOL:
-        warnings.append("Massing extends %.2f m below base level - below-ground volume not sliced as storeys" % (base - zmin))
+        bas_defs, z = [], base
+        for k, lv in enumerate(entered):
+            z -= float(lv["ftf"])
+            bas_defs.insert(0, (str(lv.get("name") or "B%d" % (k + 1)), z, float(lv["ftf"]),
+                                dict(gea=lv.get("gea"), gia=lv.get("gia"), entered=True)))
+    if base < zmin - TOL or base > zmax - TOL:
+        raise TakeoffError("Ground level %.2f is outside the massing (%.2f to %.2f) - check the ground level on step 3" % (base, zmin, zmax))
+
+    # ---- basement levels: sliced from the massing where it reaches below ground (perimeter, GEA check)
+    basement = []
+    for name, z0, h, lv in bas_defs:
+        secs = []
+        for b, bb in zip(breps, boxes):
+            lo, hi = max(z0, bb.Min.Z), min(z0 + h, bb.Max.Z, base)
+            if hi - lo >= 0.5 * h - TOL:
+                secs += section(b, (lo + hi) / 2.0, z0)
+        loops = union(secs) if secs else []
+        m_gea = area_of(loops) if loops else None
+        gcs = gia_curves(loops, cfg["facade_zone_m"], warnings, name) if loops else None
+        m_gia = (sum(loop_area(c) * (-1 if is_hole(c0, loops) else 1) for c, c0 in zip(gcs, loops)) if gcs else None) if loops else None
+        gea, gia = lv.get("gea"), lv.get("gia")
+        if lv.get("entered"):
+            if gea in (None, ""):
+                if m_gea is None:
+                    raise TakeoffError("Basement level %s: no GEA entered and the massing does not reach it - enter its GEA and GIA "
+                                       "on step 3, or model the basement" % name)
+                gea = m_gea
+            elif m_gea and abs(m_gea - float(gea)) > cfg["schedule_tolerance"] * float(gea):
+                warnings.append("Basement level %s: GEA entered %.0f m2 vs massing %.0f m2 - using the entry" % (name, float(gea), m_gea))
+            if gia in (None, ""):
+                if m_gia is None:
+                    raise TakeoffError("Basement level %s: no GIA entered and the massing does not reach it - enter its GIA on step 3" % name)
+                gia = m_gia if m_gea is not None and abs(float(gea) - m_gea) < 0.01 else float(gea) * m_gia / m_gea
+            lv["gea"], lv["gia"] = float(gea), float(gia)
+        basement.append(dict(name=name, z=round(z0, 3), ftf=h, gea=float(gea), gia=float(gia), loops=loops, gia_loops=gcs,
+                             massing_gea=m_gea, perimeter=sum(c.GetLength() for c in loops) if loops else None,
+                             source="entered on step 3" if lv.get("entered") else "schedule"))
+    bottom = basement[0]["z"] if basement else base
+    if zmin < bottom - TOL:
+        warnings.append(("Massing extends %.2f m below the lowest basement level - not counted" % (bottom - zmin)) if basement else
+                        ("Massing extends %.2f m below ground level %.2f and no basement is given (schedule or step 3) - "
+                         "below-ground volume not counted; if the model is not in AOD, enter its ground level on step 3"
+                         % (base - zmin, base)))
     typ_h = sorted(h for _, _, h in storey_defs)[len(storey_defs) // 2]
 
     # ---- slice the massing at each above-ground storey
@@ -466,8 +542,10 @@ def run(cfg):
     if not any(st["gea"] > 0 for st in storeys):
         raise TakeoffError("No full storey fits in the massing - check storey heights")
 
-    # ---- z-bands for envelope measurement (always from the massing)
-    zl = sorted(set([round(bb.Min.Z, 4) for bb in boxes] + [round(bb.Max.Z, 4) for bb in boxes]))
+    # ---- z-bands for envelope measurement (always from the massing), from ground level up: walls below ground are
+    # basement walls (1.2.3), not facade (v0.10)
+    zl = sorted(set([round(max(bb.Min.Z, base), 4) for bb in boxes if bb.Max.Z > base + TOL] +
+                    [round(bb.Max.Z, 4) for bb in boxes if bb.Max.Z > base + TOL]))
     bands = []
     for b0, b1 in zip(zl[:-1], zl[1:]):
         if b1 - b0 < TOL:
@@ -525,35 +603,57 @@ def run(cfg):
         hz, roof_levels = core.schedule_horizontals(sched)
         gia_total = sum(lv["gia"] for lv in sched)
         gea_total = sum(lv["gea"] for lv in sched)
-        recon_rows = core.reconcile_schedule(sched, dict((st["name"], st["gea"]) for st in storeys),
-                                             cfg["schedule_tolerance"], warnings)
+        mg = dict((st["name"], st["gea"]) for st in storeys)
+        mg.update((bl["name"], bl["massing_gea"]) for bl in basement if bl["massing_gea"] is not None)
+        recon_rows = core.reconcile_schedule(sched, mg, cfg["schedule_tolerance"], warnings)
         gia_source = "Area schedule: %s [%s]" % (os.path.basename(cfg["area_schedule"]["path"]), cfg["area_schedule"].get("sheet", ""))
     else:
-        hz = dict(lowest=bands[0]["area"], basement=0.0, upper=sum(st["gea"] for st in storeys if st["index"] > 0),
-                  roof=m_roof, podium=0.0, soffit=m_soffit)
+        if basement:          # ground slab is then a suspended slab over the basement (2.2.1), as on the schedule route
+            hz = dict(lowest=basement[0]["gea"], basement=sum(bl["gea"] for bl in basement[1:]),
+                      upper=sum(st["gea"] for st in storeys), roof=m_roof,
+                      podium=max(0.0, basement[-1]["gea"] - storeys[0]["gea"]), soffit=m_soffit)
+        else:
+            hz = dict(lowest=bands[0]["area"], basement=0.0, upper=sum(st["gea"] for st in storeys if st["index"] > 0),
+                      roof=m_roof, podium=0.0, soffit=m_soffit)
         roof_levels = m_roof_levels
-        gia_total = sum(st["gia"] for st in storeys)
-        gea_total = sum(st["gea"] for st in storeys)
+        gia_total = sum(st["gia"] for st in storeys) + sum(bl["gia"] for bl in basement)
+        gea_total = sum(st["gea"] for st in storeys) + sum(bl["gea"] for bl in basement)
         gia_source = "Massing take-off: WLCA::GIA curves = storey plates offset %.2f m (model %s)" % (cfg["facade_zone_m"], doc.Name or "unsaved")
 
     # ---- structure and substructure (rules in wlca_core)
-    S, SUB, B = cfg["structure"], cfg["substructure"], cfg["build_ups"]
+    S, B = cfg["structure"], cfg["build_ups"]
     if sched:
         lv_all = [(lv["name"], lv["ftf"], lv["gea"], lv["gia"], lv["nia"]) for lv in sched]
         n_base = ground_index(sched)
     else:
-        lv_all = [(st["name"], st["height"], st["gea"], st["gia"], None) for st in storeys if st["gea"] > 0]
-        n_base = 0
+        lv_all = [(bl["name"], bl["ftf"], bl["gea"], bl["gia"], None) for bl in basement] + \
+                 [(st["name"], st["height"], st["gea"], st["gia"], None) for st in storeys if st["gea"] > 0]
+        n_base = len(basement)
     plan = None
     if S.get("plan_json"):
         with open(S["plan_json"], encoding="utf-8") as f:
             plan = json.load(f)
     st_rows, sinfo = core.structure_rows(lv_all, plan, S, cfg["method_label"], warnings, B["core_wall"], B["column"])
     g0 = storeys[0]
+    # basement wall perimeter: measured on the massing below ground (largest basement level); else the ground-floor
+    # perimeter scaled by sqrt(largest basement GEA / ground GEA), never scaled down (v0.10)
+    base_per = None
+    cut = [bl for bl in basement if bl["perimeter"]]
+    if cut:
+        bp = max(cut, key=lambda bl: bl["perimeter"])
+        base_per = (bp["perimeter"], "measured on the massing below ground, level %s" % bp["name"])
+    elif basement:
+        g_gea = sched[ground_index(sched)]["gea"] if sched else g0["gea"]
+        big = max(basement, key=lambda bl: bl["gea"])
+        k = max(1.0, (big["gea"] / g_gea) ** 0.5) if g_gea else 1.0
+        base_per = (g0["perimeter"] * k, "ground-floor perimeter %.1f m (massing %s) x %.2f = sqrt(basement %s GEA %.0f / ground GEA %.0f), "
+                    "not scaled below 1" % (g0["perimeter"], g0["name"], k, big["name"], big["gea"], g_gea))
+    lowest_gea = sched[0]["gea"] if sched else (basement[0]["gea"] if basement else g0["gea"])
     sub_rows, depth = core.substructure_rows(lv_all, n_base, bool(sched), (g0["name"], g0["perimeter"], g0["gea"]),
-                                             sched[0]["gea"] if sched else g0["gea"], sinfo["columns_by_level"],
+                                             lowest_gea, sinfo["columns_by_level"],
                                              sinfo["core_area_m2"], sinfo["core_area_source"], SUB, cfg["method_label"],
-                                             warnings, B["liner_wall"])
+                                             warnings, B["liner_wall"], base_per=base_per,
+                                             lowest_slab_t=core.thickness_from_code(B["lowest_slab"], 0.30))
     st_rows = st_rows + sub_rows
 
     wwr = expand_wwr(cfg["wwr"])
@@ -580,7 +680,7 @@ def run(cfg):
         li_gea = ensure_layer("WLCA::_Massing::GEA floor plates", System.Drawing.Color.Gray)
         li_gia = ensure_layer("WLCA::GIA", System.Drawing.Color.FromArgb(0, 150, 80))
         clear_previous(li_gea, "GEA "); clear_previous(li_gia, "GIA ")   # re-runs replace, not duplicate
-        for st in storeys:
+        for st in basement + storeys:
             if st["loops"]:
                 bake(st["loops"], li_gea, "GEA %s" % st["name"], to_model)
             if st["gia_loops"]:
@@ -615,6 +715,11 @@ def run(cfg):
         facade_to_gia=round(sum(fac_total.values()) / gia_total, 4),
         schedule_reconciliation=recon_rows,
         structure=dict(sinfo, basement_depth_m=depth, frame=frame_info),
+        basement=[dict(name=bl["name"], z=bl["z"], ftf=bl["ftf"], gea=round(bl["gea"], 1), gia=round(bl["gia"], 1),
+                       massing_gea=None if bl["massing_gea"] is None else round(bl["massing_gea"], 1),
+                       perimeter=None if bl["perimeter"] is None else round(bl["perimeter"], 1), source=bl["source"])
+                  for bl in basement],
+        basement_wall_perimeter=None if base_per is None else dict(m=round(base_per[0], 1), source=base_per[1]),
         storeys=[dict(index=st["index"], name=st["name"], z=st["z"], height=st["height"], gea=round(st["gea"], 1),
                       gia=round(st["gia"], 1), perimeter=round(st["perimeter"], 1),
                       facade_by_orient=dict((k, round(v, 1)) for k, v in st["facade_by_orient"].items()))

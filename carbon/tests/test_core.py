@@ -159,7 +159,7 @@ def test_secant_section_warns_on_bad_spacing():
 
 
 # ----------------------------------------------------------------------------- substructure
-def _sub(schedule, defaults, **over):
+def _sub(schedule, defaults, base_per=None, **over):
     S = dict(defaults["structure"])
     rows, info = core.structure_rows(_lv_all(schedule), None, S, "Derived", [])
     SUB = {k: (dict(v) if isinstance(v, dict) else v) for k, v in defaults["substructure"].items()}
@@ -168,7 +168,7 @@ def _sub(schedule, defaults, **over):
     w = []
     sub, depth = core.substructure_rows(_lv_all(schedule), core.ground_index(schedule), True, ("0", 130.0, 1000.0),
                                         schedule[0]["gea"], info["columns_by_level"], info["core_area_m2"],
-                                        info["core_area_source"], SUB, "Derived", w)
+                                        info["core_area_source"], SUB, "Derived", w, base_per=base_per)
     return sub, depth, w, info
 
 
@@ -221,6 +221,24 @@ def test_substructure_rc_wall_and_no_embedment_warning(schedule, defaults):
     assert [r for r in sub if r[0] == "1.2.3"][0][1:4] == ("retaining_wall", 130 * 9.0, "m2")
     sub, _, w, _ = _sub(schedule, defaults, retaining_walls={"pile_length_m": 9.0})
     assert any("no embedment" in m for m in w)
+
+
+def test_basement_wall_perimeter_from_the_takeoff(schedule, defaults):
+    sub, _, w, _ = _sub(schedule, defaults, base_per=(150.0, "measured on the massing below ground, level B2"),
+                        retaining_walls={"type": "rc_wall"})
+    wall = [r for r in sub if r[0] == "1.2.3"][0]
+    assert wall[2] == pytest.approx(150.0 * 9.0) and "measured on the massing" in wall[5]
+    assert not any("exceeds ground footprint" in m for m in w)          # the take-off has dealt with it
+    sub, _, _, _ = _sub(schedule, defaults, base_per=(150.0, "x"), retaining_walls={"type": "rc_wall", "perimeter_m": 120.0})
+    assert [r for r in sub if r[0] == "1.2.3"][0][2] == pytest.approx(120.0 * 9.0)   # an input still wins
+
+
+def test_raft(schedule, defaults):
+    sub, _, w, _ = _sub(schedule, defaults, piles={"source": "none"}, caps_raft={"source": "raft", "raft_thickness_m": 1.2})
+    raft = [r for r in sub if r[1] == "cap_raft"]
+    assert len(raft) == 1 and raft[0][2] == pytest.approx(1200 * (1.2 - 0.30))       # lowest level B2 GEA 1200
+    assert not any("no piles derived" in m for m in w)
+    assert core.thickness_from_code("GF-SLAB-RC-300", 0.25) == 0.30 and core.thickness_from_code("SLAB-X", 0.25) == 0.25
 
 
 # ----------------------------------------------------------------------------- rows

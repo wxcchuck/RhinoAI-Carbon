@@ -385,17 +385,26 @@ def secant_section(d, sp, warnings=None):
     return dict(a_hard=a_c, a_firm=a_firm, lens=lens, eq_thickness=(a_c + a_firm) / sp)
 
 
+def thickness_from_code(code, default):
+    """Slab thickness in m from a build-up code ending in mm, e.g. GF-SLAB-RC-300 -> 0.30."""
+    import re
+    m = re.search(r"(\d{3})$", str(code or ""))
+    return int(m.group(1)) / 1000.0 if m else default
+
+
 def substructure_rows(lv_all, n_base, has_schedule, ground, lowest_gea, col_n, core_area, ca_src, SUB, method,
-                      warnings, liner_build_up="LINER-RC-200"):
+                      warnings, liner_build_up="LINER-RC-200", base_per=None, lowest_slab_t=0.30):
     """Basement walls (1.2.3), piles and caps/raft (1.1).
 
     ground: (name, perimeter_m, gea_m2) of the ground storey (from the massing).
-    lowest_gea: GEA of the lowest level (for the basement-larger-than-footprint warning).
+    lowest_gea: GEA of the lowest level (raft area; basement-larger-than-footprint warning).
     col_n: [(level, n_columns)] bottom -> top, from structure_rows.
+    base_per: (perimeter_m, source) of the basement walls, measured or scaled by the take-off; None = ground floor.
+    lowest_slab_t: thickness of the lowest slab build-up (the top of a raft).
     """
     rows = []
     ret = SUB["retaining_walls"]
-    depth = sum(x[1] for x in lv_all[:n_base]) if has_schedule else (SUB.get("basement_depth_m") or 0)
+    depth = sum(x[1] for x in lv_all[:n_base]) if n_base else (SUB.get("basement_depth_m") or 0)
     if ret.get("source") == "engineer":
         if ret.get("volume_m3"):
             rows.append(("1.2.3", "secant_wall", ret["volume_m3"], "m3", "Supplied", "Engineer's figures: piled wall %.0f m3" % ret["volume_m3"]))
@@ -407,8 +416,8 @@ def substructure_rows(lv_all, n_base, has_schedule, ground, lowest_gea, col_n, c
                     "%.1f m x %.2f m" % (ret.get("perimeter_m") or 0, ret.get("depth_m") or depth))))
     elif depth > 0:
         g_name, g_per, g_gea = ground
-        per = ret.get("perimeter_m") or g_per
-        src_p = "input" if ret.get("perimeter_m") else "ground-floor footprint, massing %s" % g_name
+        per = ret.get("perimeter_m") or (base_per[0] if base_per else g_per)
+        src_p = "input" if ret.get("perimeter_m") else (base_per[1] if base_per else "ground-floor footprint, massing %s" % g_name)
         if ret.get("type", "secant") == "secant":
             d, sp = ret["pile_diameter_m"], ret["pile_spacing_m"]
             L = ret.get("pile_length_m") or depth * (1 + ret.get("embedment_ratio", 0.5))
@@ -432,7 +441,7 @@ def substructure_rows(lv_all, n_base, has_schedule, ground, lowest_gea, col_n, c
         else:
             rows.append(("1.2.3", "retaining_wall", per * depth, "m2", method,
                          ASSUMED + "RC basement walls = perimeter %.1f m (%s) x basement depth %.2f m (BR-04)" % (per, src_p, depth)))
-        if has_schedule and lowest_gea > 1.05 * g_gea and not ret.get("perimeter_m"):
+        if has_schedule and lowest_gea > 1.05 * g_gea and not ret.get("perimeter_m") and not base_per:
             warnings.append("Basement GEA %.0f m2 exceeds ground footprint %.0f m2 - footprint perimeter may understate basement walls (x%.2f if same shape)"
                             % (lowest_gea, g_gea, (lowest_gea / g_gea) ** 0.5))
 
@@ -458,7 +467,15 @@ def substructure_rows(lv_all, n_base, has_schedule, ground, lowest_gea, col_n, c
         elif p.get("core_group"):
             warnings.append("Core pile group not derived - no core area (input, % GIA or schedule NIA)")
     c = SUB["caps_raft"]
-    if c.get("source") == "engineer" and c.get("volume_m3"):
+    if c.get("source") == "raft":
+        t = float(c.get("raft_thickness_m") or 1.0)
+        net = max(0.0, t - lowest_slab_t)
+        rows.append(("1.1", "cap_raft", lowest_gea * net, "m3", method,
+                     ASSUMED + "Raft %.2f m thick under the lowest level (GEA %.0f m2); its top %.2f m is the lowest slab (1.2.1), "
+                     "so %.2f m x %.0f m2 here" % (t, lowest_gea, lowest_slab_t, net, lowest_gea)))
+        if t <= lowest_slab_t:
+            warnings.append("Raft %.2f m is no thicker than the lowest slab %.2f m - check" % (t, lowest_slab_t))
+    elif c.get("source") == "engineer" and c.get("volume_m3"):
         rows.append(("1.1", "cap_raft", c["volume_m3"], "m3", "Supplied", "Engineer's figures: pile caps / raft %.0f m3" % c["volume_m3"]))
     elif c.get("source") == "assumed" and p.get("source") == "assumed":
         D, e, t = p["diameter_m"], c.get("edge_m", 0.15), c.get("depth_m", 1.2)

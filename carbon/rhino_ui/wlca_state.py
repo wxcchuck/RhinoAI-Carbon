@@ -66,16 +66,24 @@ def default_substructure():
         "piles": {"source": "assumed", "diameter_m": 0.75, "per_column": 3, "length_m": 25.0,
                   "core_group": True, "core_spacing_x_dia": 3.0, "count": None},
         "caps_raft": {"source": "assumed", "depth_m": 1.2, "edge_m": 0.15, "core_thickness_m": 2.0, "core_margin_m": 0.5,
-                      "volume_m3": None},
+                      "raft_thickness_m": 1.0, "volume_m3": None},
         "basement_depth_m": None,
+        # basement when the area schedule has none: answer None (not confirmed yet) | "none" | "levels";
+        # levels top-down from ground {"name", "ftf", "gea", "gia"} (gea / gia None = measured on the massing)
+        "basement": {"answer": None, "levels": [], "ground_level": None},
     }
 
 
-WALL_SOURCES = [["footprint", "Assumed - ground-floor perimeter x basement depth"], ["engineer", "Engineer's figures"]]
+def new_basement_level(n):
+    return {"name": "B%d" % n, "ftf": 4.0, "gea": None, "gia": None}
+
+
+WALL_SOURCES = [["footprint", "Assumed - basement perimeter x basement depth"], ["engineer", "Engineer's figures"]]
 WALL_TYPES = [["secant", "Secant piled wall + RC liner"], ["rc_wall", "RC retaining wall"]]
 PILE_SOURCES = [["assumed", "Assumed - bored piles under columns and core"], ["engineer", "Engineer's figures"],
                 ["none", "None - not counted (the QA sheet flags the gap)"]]
-CAP_SOURCES = [["assumed", "Assumed - caps under columns and core"], ["engineer", "Engineer's volume"], ["none", "None"]]
+CAP_SOURCES = [["assumed", "Assumed - caps under columns and core"], ["raft", "Raft - thickness x lowest level GEA"],
+               ["engineer", "Engineer's volume"], ["none", "None"]]
 
 
 def fill_substructure(option):
@@ -188,11 +196,22 @@ def facade_catalogue(office):
 
 
 
+_BASEMENT_CACHE = {}
+
+
 def basement_from_schedule(path, sheet=None):
     """Levels below ground in the area schedule, as the take-off will read them: {levels, depth_m, lowest_gea,
-    ground_gea}, or None (no schedule, unreadable, or no ground level)."""
+    ground_gea, ftf, gea}, or None (no schedule, unreadable, or no ground level). Cached per file version."""
     if not path or not os.path.exists(path):
         return None
+    key = (path, sheet or "", os.path.getmtime(path))
+    if key not in _BASEMENT_CACHE:
+        _BASEMENT_CACHE.clear()
+        _BASEMENT_CACHE[key] = _read_basement(path, sheet)
+    return _BASEMENT_CACHE[key]
+
+
+def _read_basement(path, sheet):
     try:
         import wlca_core as core
         lv = core.parse_area_schedule({"path": path, "sheet": sheet or None}, [])
@@ -203,7 +222,8 @@ def basement_from_schedule(path, sheet=None):
         return None
     below = lv[:gi]
     return {"levels": [x["name"] for x in below], "depth_m": round(sum(float(x["ftf"] or 0) for x in below), 2),
-            "lowest_gea": float(lv[0]["gea"] or 0), "ground_gea": float(lv[gi]["gea"] or 0)}
+            "lowest_gea": float(lv[0]["gea"] or 0), "ground_gea": float(lv[gi]["gea"] or 0),
+            "ftf": [float(x["ftf"] or 0) for x in below], "gea": [float(x["gea"] or 0) for x in below]}
 
 # ------------------------------------------------------------------------------------- state I/O
 def dumps(state):
@@ -291,6 +311,7 @@ def validate(state, office=None):
     if len(set(names)) != len(names) or any(not n for n in names):
         out.append(("error", "Option names must be filled in and different from each other (step 1)."))
     cat = {f["id"]: f for f in facade_catalogue(office or {})}
+    sched_bsm = basement_from_schedule(state["schedule"].get("path"), state["schedule"].get("sheet"))
     for o in opts:
         tag = "Option '%s'" % o["name"]
         if o["source"] == "layer" and not o.get("layer"):
@@ -308,7 +329,7 @@ def validate(state, office=None):
                 out.append(("error", "%s: facade type %s is not in the office library list (step 5)." % (tag, f["build_up"])))
             if f.get("kind") == FACADE_PUNCHED and not (0 <= float(f.get("wwr") or 0) <= 0.95):
                 out.append(("error", "%s: glazing ratio for %s must be 0-95%% (step 5)." % (tag, f["build_up"])))
-        out += check_substructure(o, tag)
+        out += check_substructure(o, tag, sched_bsm)
     sch = state["schedule"]
     if not sch.get("path"):
         out.append(("warning", "No area schedule: GIA and levels come from the massing and storey heights (step 2)."))
@@ -343,10 +364,28 @@ def validate(state, office=None):
     return out
 
 
-def check_substructure(option, tag):
-    """Step 3 checks for one option: figures the chosen route needs."""
+def check_substructure(option, tag, sched_basement=None):
+    """Step 3 checks for one option: figures the chosen route needs. sched_basement: basement_from_schedule()."""
     out = []
     sub = option.get("substructure") or default_substructure()
+    bsm = sub.get("basement") or {}
+    if not (sched_basement and sched_basement["levels"]):
+        where = "the area schedule has no levels below ground" if sched_basement else "there is no area schedule"
+        if bsm.get("answer") not in ("none", "levels"):
+            out.append(("error", "%s: %s - confirm there is no basement, or enter the basement levels (step 3)." % (tag, where)))
+        elif bsm.get("answer") == "levels":
+            lv = bsm.get("levels") or []
+            if not lv:
+                out.append(("error", "%s: enter at least one basement level, or confirm there is no basement (step 3)." % tag))
+            for x in lv:
+                if x.get("ftf") in (None, "") or float(x["ftf"]) <= 0:
+                    out.append(("error", "%s: basement level %s needs a floor-to-floor height (step 3)." % (tag, x.get("name") or "?")))
+                for k in ("gea", "gia"):
+                    if x.get(k) not in (None, "") and float(x[k]) <= 0:
+                        out.append(("error", "%s: basement level %s %s must be more than 0 (step 3)." % (tag, x.get("name") or "?", k.upper())))
+            if any(x.get(k) in (None, "") for x in lv for k in ("gea", "gia")):
+                out.append(("warning", "%s: blank basement GEA / GIA are measured on the massing below ground level - the massing "
+                                       "must include the basement (step 3)." % tag))
     pos = lambda d, k: d.get(k) not in (None, "") and float(d[k]) > 0      # noqa: E731
     ret, p, c = sub["retaining_walls"], sub["piles"], sub["caps_raft"]
     if ret.get("source") == "engineer":
@@ -378,6 +417,8 @@ def check_substructure(option, tag):
                                "the cap volume or set caps to none; no caps are counted (step 3)." % tag))
     elif c.get("source") == "assumed" and not all(pos(c, k) for k in ("depth_m", "core_thickness_m")):
         out.append(("error", "%s: assumed pile caps need a cap depth and a core cap thickness (step 3)." % tag))
+    elif c.get("source") == "raft" and not pos(c, "raft_thickness_m"):
+        out.append(("error", "%s: enter the raft thickness (step 3)." % tag))
     return out
 
 
