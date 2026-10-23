@@ -32,7 +32,7 @@ p { margin: 4px 0 8px; }
 .key { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
 .req::after { content: " *"; color: var(--req); font-weight: 700; }
 /* form grid: label / field pairs, two pairs per row when there is room */
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 8px 24px; max-width: 1100px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 8px 24px; max-width: 1100px; }
 .field { display: grid; grid-template-columns: 190px 1fr; align-items: center; gap: 8px; }
 .field.wide { grid-column: 1 / -1; }
 label { color: var(--ink); }
@@ -79,7 +79,7 @@ table.data td.n, table.data th.n { text-align: right; font-variant-numeric: tabu
 .tile .t { color: var(--muted); font-size: 12px; }
 .tile .v { font-size: 26px; font-weight: 600; line-height: 1.2; margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
 .tile .u { color: var(--muted); font-size: 12px; }
-.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 14px; max-width: 1100px; }
+.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr)); gap: 14px; max-width: 1100px; }
 .charts .card { margin: 0; }
 .legend { display: grid; gap: 4px; font-size: 12px; }
 .legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
@@ -91,10 +91,16 @@ svg .val { fill: var(--ink); font-variant-numeric: tabular-nums; }
 .busy { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%;
   animation: spin 0.8s linear infinite; vertical-align: -2px; margin-right: 6px; }
 @keyframes spin { to { transform: rotate(360deg); } }
+/* narrow (the panel docked at the side): steps become a strip of numbers along the top, the current one named */
 @media (max-width: 760px) {
   #app { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto; }
   #nav { grid-row: auto; display: flex; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 0; }
-  #nav button { width: auto; border-left: 0; border-bottom: 3px solid transparent; }
+  #nav button { width: auto; border-left: 0; border-bottom: 3px solid transparent; padding: 7px 9px; gap: 4px; flex: none; }
+  #nav button:not(.on) .t { display: none; }
+  #nav .n { width: auto; }
+  #main { padding: 12px 12px 20px; }
+  #main table.form { display: block; overflow-x: auto; max-width: 100%; }
+  #footer { padding: 8px 12px; }
   #nav button.on { border-bottom-color: var(--accent); }
   #nav hr { display: none; }
   .field { grid-template-columns: 1fr; gap: 3px; }

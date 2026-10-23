@@ -5,8 +5,10 @@ WLCA window for Rhino 8 - web interface  v0.1  (draft for review)
 
 Drafted by an AI agent (Claude) - review before trusting.
 
-The window is an Eto form holding one WebView (Edge WebView2 on Windows) that shows web/index.html. The page draws
-the steps and the results; everything that touches Rhino, files or the workbook stays in Python:
+The page (web/index.html) runs in one WebView (Edge WebView2 on Windows). That WebView sits in the dockable WLCA panel
+registered by the plug-in (WLCA.rhp, class WlcaPanel: dock it, tab it with other panels or float it; Rhino stays usable
+while it is open). Run as a plain script without the plug-in, the page opens in a floating Eto window instead.
+The page draws the steps and the results; everything that touches Rhino, files or the workbook stays in Python:
   page -> Python   window.chrome.webview.postMessage(JSON)   {"type": "set" | "action" | "ready", ...}
   Python -> page   window.wlca.receive(model)                state + lists + checks + run status + results
 The Rhino side (office settings, layers, plan reader, take-off run) lives in wlca_rhino.WLCARhino and is borrowed
@@ -42,7 +44,25 @@ STEPS = ["Project & options", "Drawings & schedule", "Substructure", "Superstruc
 PLAN_ROUTES = [("rhino", "Plan in Rhino (layers)"), ("pdf", "PDF plan extract (.json)"), ("none", "None - use office defaults")]
 
 
-class WLCAWebForm(forms.Form):
+PANEL_VIEW_KEY = "WLCA.WebView"      # AppDomain data set by WlcaPanel (WLCA.rhp): the panel's WebView
+PANEL_ATTACHED_KEY = "WLCA.Attached"  # set here once the page is attached to it
+
+
+class WLCAFloat(forms.Form):
+    """Floating window for the page when the WLCA panel is not available (script run without the plug-in)."""
+
+    def __init__(self, title):
+        super().__init__()
+        self.Title = title
+        self.ClientSize = drawing.Size(1080, 760)
+        self.MinimumSize = drawing.Size(420, 480)
+        self.Resizable = True
+        self.view = forms.WebView()
+        self.Content = self.view
+
+
+class WLCAWindow(object):
+    """Drives the page in one WebView: state, actions and the model the page draws."""
     # ---- Rhino-side logic (wlca_rhino.py)
     load_office = _D.load_office
     massing_layers = _D.massing_layers
@@ -69,20 +89,62 @@ class WLCAWebForm(forms.Form):
     massing_extent = _D.massing_extent
     sheet_names = staticmethod(_D.sheet_names)
 
-    def __init__(self, doc=None):
-        super().__init__()
-        self.doc = doc or DOC
+    def __init__(self, view, doc=None, host=None):
+        self.view, self.host, self.dead = view, host, False
         name, ver = ws.package_info(PKG)
         self.Title = "%s%s - whole life carbon (RICS PS 2nd ed.)" % (name, (" " + ver) if ver else "")
-        self.ClientSize = drawing.Size(1080, 760)
-        self.MinimumSize = drawing.Size(720, 480)
-        self.Resizable = True
+        self._proc, self._timer = None, None
+        self.load_doc(doc or DOC)
+        self._on_msg, self._on_open, self._on_new = self.on_message, self.on_doc_open, self.on_doc_new
+        self.view.MessageReceived += self._on_msg
+        Rhino.RhinoDoc.EndOpenDocument += self._on_open      # the panel stays open across models: follow the open one
+        Rhino.RhinoDoc.NewDocument += self._on_new
+        self.view.Url = System.Uri(os.path.join(PKG, "web", "index.html"))     # (re)load: the page then says "ready"
+
+    @property
+    def dialog_parent(self):
+        """Owner for file dialogs."""
+        return self.host or self.view
+
+    def detach(self):
+        """Stop driving the WebView (a newer run of the WLCA command takes over, or the floating window closed)."""
+        self.dead = True
+        self.stop_timer()
+        for ev, h in ((self.view.MessageReceived, self._on_msg), (Rhino.RhinoDoc.EndOpenDocument, self._on_open),
+                      (Rhino.RhinoDoc.NewDocument, self._on_new)):
+            try:
+                ev -= h
+            except Exception:
+                pass
+
+    def on_doc_open(self, sender, e):
+        if self.dead or getattr(e, "Merge", False) or getattr(e, "Reference", False):
+            return
+        self.reload_doc(e.Document)
+
+    def on_doc_new(self, sender, e):
+        if not self.dead:
+            self.reload_doc(e.Document)
+
+    def reload_doc(self, doc):
+        if PKG and PKG not in sys.path:
+            sys.path.insert(0, PKG)
+        try:
+            self.stop_timer()
+            self._proc = None
+            self.load_doc(doc or Rhino.RhinoDoc.ActiveDoc)
+        except Exception:
+            self.messages = ["The WLCA page could not read this model:\n" + traceback.format_exc(limit=3)]
+        self.refresh()
+
+    def load_doc(self, doc):
+        """Everything that belongs to one model: its saved settings, the office settings, run and results."""
+        self.doc = doc
         self.state = ws.loads(self.doc.Strings.GetValue(ws.STATE_KEY) or "")
         self.load_office()
         self.exports, self.run_rows, self.messages = [], [], []
         self.calc = {"status": "", "message": ""}       # Excel calculation: "" | running | done | failed
         self.results = None
-        self._proc, self._timer = None, None
         if not self.state["project"]["name"]:
             self.state["project"]["name"] = os.path.splitext(self.doc.Name or "")[0]
         if not self.state["output"]["folder"] and self.doc.Path:
@@ -91,24 +153,22 @@ class WLCAWebForm(forms.Form):
             layers = self.massing_layers()
             self.state["options"] = [ws.default_option("A", layer=layers[0] if layers else "")]
         self.load_results(quiet=True)
-        self.view = forms.WebView()
-        self.view.MessageReceived += self.on_message
-        self.Content = self.view
-        self.view.Url = System.Uri(os.path.join(PKG, "web", "index.html"))
-        self.Closed += lambda s, e: self.stop_timer()
 
     # ---------------------------------------------------------------- bridge
     def save(self):
         self.doc.Strings.SetString(ws.STATE_KEY, ws.dumps(self.state))
 
     def refresh(self):
-        self.post(self.model())
+        if not self.dead:
+            self.post(self.model())
 
     def post(self, obj):
         script = "window.wlca && window.wlca.receive(%s);" % json.dumps(obj, default=str)
         self.view.ExecuteScriptAsync(script)
 
     def on_message(self, sender, e):
+        if self.dead:
+            return
         # Rhino may reset sys.path between script runs; the window lives on, so put the package back first
         if PKG and PKG not in sys.path:
             sys.path.insert(0, PKG)
@@ -346,10 +406,24 @@ class WLCAWebForm(forms.Form):
 
 
 def main():
-    form = WLCAWebForm()
-    form.Owner = Rhino.UI.RhinoEtoApp.MainWindow
-    form.Show()
-    return form
+    """Attach the page to the WLCA panel's WebView (plug-in installed), else open it in a floating window."""
+    old = getattr(sys, "_wlca_window", None)        # an earlier run still driving a WebView: hand over
+    if old is not None:
+        old.detach()
+    domain = System.AppDomain.CurrentDomain
+    view = domain.GetData(PANEL_VIEW_KEY)
+    if view is not None:
+        w = WLCAWindow(view)
+        domain.SetData(PANEL_ATTACHED_KEY, True)
+    else:
+        name, ver = ws.package_info(PKG)
+        f = WLCAFloat("%s%s - whole life carbon (RICS PS 2nd ed.)" % (name, (" " + ver) if ver else ""))
+        w = WLCAWindow(f.view, host=f)
+        f.Closed += lambda s, e: w.detach()
+        f.Owner = Rhino.UI.RhinoEtoApp.MainWindow
+        f.Show()
+    sys._wlca_window = w
+    return w
 
 
 if __name__ == "__main__" and not globals().get("WLCA_NO_AUTORUN"):
