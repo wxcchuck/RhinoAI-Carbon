@@ -310,6 +310,7 @@ class WLCARhino(object):
                 h2, r2 = ws.read_export(csv)
                 r2 = ws.apply_facade_mix(r2, o, self.office, glazed_code=cfg["build_ups"]["facade_glazed"],
                                          opaque_code=cfg["build_ups"]["facade_opaque"])
+                h2.update(ws.facade_header(o, self.office))
                 ws.write_export(csv, h2, r2)
                 self.exports.append((o, csv))
                 glaz = sum(float(r["quantity"]) for r in r2 if r["unit"] == "m2" and (str(r["nrm_code"]) == "2.5.2" or

@@ -537,6 +537,21 @@ def apply_facade_mix(rows, option, office, glazed_code="CW-UNIT-01", opaque_code
     return out
 
 
+def facade_header(option, office):
+    """Export header lines describing the option's facade mix, so the workbook's scope check knows whether to expect
+    curtain walling (2.5.2) and punched windows (2.6): shares of the net facade."""
+    cat = dict((f["id"], f) for f in facade_catalogue(office or {}))
+    cw = punched = 0.0
+    for f in option.get("facade") or []:
+        kind = f.get("kind") or cat.get(f["build_up"], {}).get("kind")
+        s = float(f.get("share") or 0)
+        if kind == FACADE_UNITISED:
+            cw += s
+        elif float(f.get("wwr") or 0) > 0:
+            punched += s
+    return {"facade_curtain_wall_share": round(cw, 4), "facade_punched_window_share": round(punched, 4)}
+
+
 def read_export(path):
     """(header, rows) from a take-off CSV (same format the take-off writes)."""
     import csv

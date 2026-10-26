@@ -185,6 +185,31 @@ COVERAGE = [
     ("4", "FF&E", "Y"), ("5", "Services (MEP)", "Y"), ("6", "Prefabricated buildings", "N"),
     ("7", "Works to existing buildings", "N"), ("8", "External works", "Y"),
 ]
+def coverage_expected(code, default, header):
+    """Whether the scope check expects an element, from what the take-off export says the design has
+    (basement levels, facade mix). Returns (expected, reason); exports without that information keep the default."""
+    h = header or {}
+
+    def num(k):
+        try:
+            return float(h[k])
+        except (KeyError, TypeError, ValueError):
+            return None
+    n_b, depth = num("basement_levels"), num("basement_depth_m")
+    cw = num("facade_curtain_wall_share")
+    if code == "1.2.2" and n_b is not None:
+        if n_b >= 2:
+            return "Y", "%d basement levels: suspended slabs between the lowest slab and ground" % n_b
+        return "N", ("one basement level: its floor is the lowest slab (1.2.1) and the ground-floor slab over it is a suspended floor "
+                     "at the ground line (2.2.1, BR-03) - no basement suspended slabs") if n_b == 1 else "no basement"
+    if code == "1.2.3" and n_b is not None:
+        return ("Y", "basement %.1f m deep" % (depth or 0)) if (n_b >= 1 or (depth or 0) > 0) else ("N", "no basement")
+    if code == "2.5.2" and cw is not None:
+        return ("Y", "curtain wall %.0f%% of the net facade" % (100 * cw)) if cw > 0 else \
+            ("N", "no curtain wall in the facade mix: the glazing is in punched windows (2.6)")
+    return default, ""
+
+
 MODULES = ["A1-A3", "A4", "A5.1", "A5.2", "A5.3", "A1-A5", "B4", "C1", "C2", "C3", "C4", "A-C", "D", "Bio"]
 
 
@@ -1359,13 +1384,15 @@ def build_option(wb, ctx, o):
     r += 1
     Q.cell(r, 1, "Scope coverage").font = BOLD
     r += 1
-    head(Q, r, ["Code", "Element", "Expected? (Y/N)", "Modelled (kgCO2e)", "Benchmarked", "Status"], None, 30)
+    head(Q, r, ["Code", "Element", "Expected? (Y/N)", "Modelled (kgCO2e)", "Benchmarked", "Status", "Why (from the take-off)"], None, 30)
     r += 1
     cov_first = r
     for code, label, exp in COVERAGE:
         Q.cell(r, 1, code)
         Q.cell(r, 2, label)
+        exp, why = coverage_expected(code, exp, header)
         Q.cell(r, 3, '=IF(%s>0,"Y","N")' % GIA_DEMO if exp == "DEMO" else exp).fill = INPUT
+        Q.cell(r, 7, why)
         crit = '"%s"' % code if code.count(".") >= 1 and code not in ("2.4",) else '"%s*"' % code
         if code in ("2.4",):
             crit = '"2.4*"'
@@ -1376,6 +1403,7 @@ def build_option(wb, ctx, o):
         Q.cell(r, 6, '=IF(C{r}<>"Y","n/a",IF(D{r}>0,"Modelled",IF(E{r}="Y","Benchmark","GAP")))'.format(r=r))
         r += 1
     cov_last = r - 1
+    Q.column_dimensions["G"].width = 80
     for rr_, crit_ in method_rows:
         cs = 'INDEX(%s!$F${a}:$F${b},MATCH(A{r}&"",%s!$A${a}:$A${b},0))' % (QS, QS)
         R.cell(rr_, 3, ('=IF(COUNTIFS({g},{c},{j},1)>0,"Modelled",IFERROR(IF(' + cs + '="Benchmark","see benchmark",'

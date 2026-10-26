@@ -699,7 +699,9 @@ def run(cfg):
                   riba_stage=cfg["riba_stage"], gia_m2=round(gia_total, 1),
                   existing_gia_demolished_m2=cfg["existing_gia_demolished_m2"], fitout_scope=cfg["fitout_scope"],
                   schema_version=cfg["schema_version"], library_version=cfg["library_version"],
-                  model_version=cfg["model_version"], gia_source=gia_source)
+                  model_version=cfg["model_version"], gia_source=gia_source,
+                  # what the design has, so the workbook's scope check expects only the elements that exist
+                  basement_levels=len(basement), basement_depth_m=round(depth or 0, 2))
 
     geometry = dict(
         floor_source=hsrc, base_level=round(base, 3), top_level=round(zmax, 3), height_m=round(zmax - base, 2),

@@ -447,3 +447,11 @@ def test_paths_follow_a_moved_project(tmp_path):
     assert copied["output"]["folder"] == str(lone / "WLCA")
     assert ws.loads(saved)["schedule"]["path"] == str(old / "schedule.xlsx")         # unsaved model: as saved
     assert ws.loads(ws.dumps(moved, str(new)), str(new)) == moved
+
+
+def test_facade_header():
+    o = _option([{"build_up": "CW", "kind": ws.FACADE_UNITISED, "share": 0.25},
+                 {"build_up": "SFS", "kind": ws.FACADE_PUNCHED, "share": 0.75, "wwr": 0.2}])
+    assert ws.facade_header(o, OFFICE) == {"facade_curtain_wall_share": 0.25, "facade_punched_window_share": 0.75}
+    o = _option([{"build_up": "SFS", "kind": ws.FACADE_PUNCHED, "share": 1.0, "wwr": 0.0}])
+    assert ws.facade_header(o, OFFICE) == {"facade_curtain_wall_share": 0.0, "facade_punched_window_share": 0.0}
