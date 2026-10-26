@@ -60,6 +60,15 @@ Drafted by an AI agent (Claude) from the working sessions; review before relying
 | U12 | Raft option (pile caps / raft basis): raft = thickness (default 1.0 m) × lowest level GEA; its top is the lowest slab (1.2.1, counted there), so the 1.1 row takes the thickness less the lowest slab build-up thickness. With piles it is a piled raft | Assumed (default thickness) |
 | U13 | Substructure inputs are set per option (option picker on step 3, as on steps 4 and 5), with a button to copy one option's settings to all | Confirmed (XW 23/10/2026) |
 
+## Maintenance and repair (B2 / B3, calculation template)
+
+| # | Decision | Status |
+|---|---|---|
+| M1 | B2 (PS 5.2.2, London Plan Guidance 2.5.12) = the greater of 10 kgCO2e/m2 GIA and 1% of A1-A5, as a one-off total over the RSP (not per year), covering all element categories. The 1% is of the whole A1-A5 incl. external works and the site lumps, before contingency | Confirmed (XW 26/10/2026) |
+| M2 | B3 (PS 5.2.3) = 25% of the non-MEP part of B2 (B2 x non-services share of A1-A5) + 10% of the A1-A3 of element group 5 services (CIBSE TM65), initial installation only (replacements are in B4) | Confirmed (XW 26/10/2026) |
+| M3 | B2 / B3 are whole-building allowances: a block under the element table on O<k>_Results, not allocated to element groups; own bars in the module charts (workbook Dashboard and panel). The PS Table 10 contingency is applied at the end, as for every embodied module | Confirmed (XW 26/10/2026) |
+| M4 | A-C, B-C and their target boundaries (LETI life cycle, RIBA 2030, GLA A-C) now include B2 / B3; UKNZCBS upfront (A1-A5) unchanged. Material decarbonisation halves B2 / B3 with B4 (PS 4.11.5 Table 15). B2 / B3 sit with "modelled + site" in the budget and scenario figures (PS defaults, not benchmarks) | Confirmed (XW 26/10/2026) |
+
 ## Rhino window (dialog v0.1, web window from v0.2)
 
 | # | Decision | Status |

@@ -322,7 +322,8 @@
     const b = M.branding || {}, hx = (c, d) => "#" + String(c || d).replace("#", "");
     return {
       project: hx(b.project, "1F4E79"), target: hx(b.target, "7F2A3C"), cont: hx(b.contingency_bar, "8FB9BE"),
-      modules: (b.modules || ["1F5F66", "5B8DB8", "2C4A68", "B8C4C8", "B5A82A"]).map((c) => hx(c)),
+      modules: (b.modules || ["1F5F66", "5B8DB8", "2C4A68", "B8C4C8", "B5A82A"]).map((c) => hx(c)),   // A1-A3, A4, A5, B4, C1-C4
+      b23: (b.modules_b23 || ["C98A3E", "E6C190"]).map((c) => hx(c)),                                   // B2, B3
       groups: (b.groups || ["8C6D4F", "2F4F4F", "5B8DB8", "E07B1A", "7A3B5A", "79A88B", "D9534F", "9FB3BC"]).map((c) => hx(c)),
       basis: (b.basis || ["1F5F66", "E07B1A", "9FB3BC", "B8C4C8", "D9D2C5"]).map((c) => hx(c)),
     };
@@ -356,7 +357,7 @@
     const tile = (t, val, unit, sub) => `<div class="tile"><div class="t">${esc(t)}</div><div class="v">${val == null ? "–" : fmt(sf(val, sfN))}</div><div class="u">${esc(unit)}${sub ? " · " + esc(sub) : ""}</div></div>`;
     let h = '<div class="tiles">';
     h += tile("Upfront carbon A1-A5", v.UP_ALL, "kgCO2e/m² GIA", v.UP_T != null ? fmt(sf(v.UP_T, sfN)) + " tCO2e" : "");
-    h += tile("Embodied carbon A-C", v.AC_ALL, "kgCO2e/m² GIA", "excl. B6/B7");
+    h += tile("Embodied carbon A-C", v.AC_ALL, "kgCO2e/m² GIA", "incl. B2-B4, excl. B6/B7");
     if (v.WLC_ND != null && (v.B6_ND || v.B7_ND)) {
       h += tile("Whole life carbon - non-decarbonised", v.WLC_ND, "kgCO2e/m² GIA", "A-C + B6 + B7");
       h += tile("Whole life carbon - decarbonised", v.WLC_D, "kgCO2e/m² GIA", "PS Table 15 / FES grid");
@@ -380,9 +381,11 @@
       .map(([label, value], i) => ({ label, value, color: P.basis[i % P.basis.length] }));
     h += `<div class="card"><h2>Basis of A1-A5</h2>${donut(basis, { center: fmt(sf(v.UP_ALL, sfN)), unit: "kgCO2e/m²", title: "basis of the A1-A5 figure" })}
       ${note("How much of the upfront figure rests on project information, on assumed quantities, on benchmarks for elements not yet designed, on site lumps and on the contingency.")}</div>`;
-    const mods = [["A1-A3 (product)", v.M_A13], ["A4 (transport)", v.M_A4], ["A5 (construction)", v.M_A5], ["B4 (replacement)", v.M_B4], ["C1-C4 (end of life)", v.M_C]]
-      .map(([label, value], i) => ({ label, value, color: P.modules[i % P.modules.length] }));
-    h += `<div class="card"><h2>By life-cycle module</h2>${hbars(mods, { unit: "kgCO2e/m²", title: "by life-cycle module" })}<p class="note">kgCO2e/m² GIA incl. contingency. D (memo, outside A-C): ${fmt(v.M_D)}.</p></div>`;
+    const mc = [P.modules[0], P.modules[1], P.modules[2], P.b23[0], P.b23[1], P.modules[3], P.modules[4]];
+    const mods = [["A1-A3 (product)", v.M_A13], ["A4 (transport)", v.M_A4], ["A5 (construction)", v.M_A5], ["B2 (maintenance)", v.M_B2],
+      ["B3 (repair)", v.M_B3], ["B4 (replacement)", v.M_B4], ["C1-C4 (end of life)", v.M_C]]
+      .map(([label, value], i) => ({ label, value, color: mc[i] }));
+    h += `<div class="card"><h2>By life-cycle module</h2>${hbars(mods, { unit: "kgCO2e/m²", title: "by life-cycle module" })}<p class="note">kgCO2e/m² GIA incl. contingency. B2 / B3: PS default allowances for the whole building (B2 = the greater of 10 kgCO2e/m² GIA and 1% of A1-A5${v.B2_BASIS ? " - here " + esc(v.B2_BASIS) : ""}; B3 = 25% of the non-MEP part of B2 + 10% of services A1-A3). D (memo, outside A-C): ${fmt(v.M_D)}.</p></div>`;
     const groups = M.group_labels.map((label, i) => ({ label, value: v["E_" + i], color: P.groups[i % P.groups.length] }));
     groups.push({ label: "Contingency", value: v.E_CONT, color: P.cont });
     h += `<div class="card"><h2>A1-A5 by element group</h2>${hbars(groups, { unit: "kgCO2e/m²", title: "A1-A5 by element group" })}<p class="note">kgCO2e/m² GIA, before contingency; contingency shown as its own bar.</p></div>`;

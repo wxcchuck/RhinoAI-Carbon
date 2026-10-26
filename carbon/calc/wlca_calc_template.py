@@ -116,6 +116,8 @@ SUMMARY = [
     ("AC_X8", "A-C incl. biogenic, excl. external works (LETI life cycle, RIBA)", "kgCO2e/m2"),
     ("M_A13", "A1-A3 incl. contingency", "kgCO2e/m2"), ("M_A4", "A4", "kgCO2e/m2"), ("M_A5", "A5", "kgCO2e/m2"),
     ("M_B4", "B4", "kgCO2e/m2"), ("M_C", "C1-C4", "kgCO2e/m2"), ("M_D", "D (memo)", "kgCO2e/m2"),
+    ("M_B2", "B2 maintenance incl. contingency (PS 5.2.2)", "kgCO2e/m2"), ("M_B3", "B3 repair incl. contingency (PS 5.2.3)", "kgCO2e/m2"),
+    ("B2_BASIS", "B2 basis (the greater of GIA x rate and % of A1-A5)", ""),
 ] + [("E_%d" % i, "A1-A5 %s (before contingency)" % g, "kgCO2e/m2") for i, g in enumerate(GROUPS)] + [
     ("E_CONT", "A1-A5 contingency", "kgCO2e/m2"),
     ("B_MOD", "A1-A5 modelled from project information", "kgCO2e/m2"), ("B_ASM", "A1-A5 modelled on [ASSUMED] quantities", "kgCO2e/m2"),
@@ -354,7 +356,8 @@ def build(cfg):
                   scenario="GLA aspirational", budget_target="UKNZCBS", pm_group=None,
                   sc_share=dict(finishes=1.0, ffe=1.0, services=1.0), catb_allowance=None,
                   efw_route=EFW_OPTS[0], bio_standin=STANDIN_OPTS[1], grid_d1=None, grid_d1_source=None,
-                  op_route=OP_ROUTES[2], op_year=None, dh_factor=0.0, occupancy=None, occ_days=None)
+                  op_route=OP_ROUTES[2], op_year=None, dh_factor=0.0, occupancy=None, occ_days=None,
+                  b2_rate=10.0, b2_share=0.01, b3_share=0.25, b3_mep_share=0.10)
     params.update(cfg.get("params", {}))
     if params["op_year"] is None:
         params["op_year"] = int(params["construction_start_year"]) + 3
@@ -586,6 +589,15 @@ def build(cfg):
         ("A5.1 rate (pre-construction demolition)", site["A51"], "kgCO2e/m2 existing GIA", "PS default", "R_A51"),
         ("A5.2 rate (construction activities)", site["A52"], "kgCO2e/m2 GIA", "PS default", "R_A52"),
         ("C1 rate (deconstruction / demolition)", site["C1"], "kgCO2e/m2 GIA", site.get("C1_note", "Lump sum"), "R_C1"),
+        ("B2 maintenance - rate", params["b2_rate"], "kgCO2e/m2 GIA",
+         "PS 5.2.2 / London Plan Guidance 2.5.12: 10 kgCO2e/m2 GIA or a share of A1-A5, whichever is greater - a one-off total over the RSP "
+         "(XW 26/10/2026), covering all element categories", "B2_RATE"),
+        ("B2 maintenance - share of A1-A5", params["b2_share"], "",
+         "1% of A1-A5: all elements incl. external works and the site lumps, before contingency (contingency is added at the end)", "B2_PCT"),
+        ("B3 repair - share of B2 (non-MEP)", params["b3_share"], "",
+         "PS 5.2.3: 25% of B2 for the relevant items. B2 split by the non-MEP share of A1-A5 (services = element group 5)", "B3_PCT"),
+        ("B3 repair - MEP, share of services A1-A3", params["b3_mep_share"], "",
+         "PS 5.2.3 / CIBSE TM65: 10% of A1-A3 of element group 5, initial installation (its replacements are in B4)", "B3_MEP"),
         ("Benchmark C1 shares", params["benchmark_c1"], "",
          "Exclude = C1 only from the whole-building lump above (avoids counting C1 twice)", "BM_C1"),
         ("A4 road vehicle (REF_Vehicles mode ID)", params["road_vehicle"], "", "PS 5.1.3: average rigid HGV", "VEH_A4"),
@@ -648,7 +660,7 @@ def build(cfg):
         P.cell(r, 5, note)
         if nm:
             name(wb, nm, "Project!$C$%d" % r)
-        if nm in ("CONT", "SC_FIN", "SC_FFE", "SC_MEP"):
+        if nm in ("CONT", "SC_FIN", "SC_FFE", "SC_MEP", "B2_PCT", "B3_PCT", "B3_MEP"):
             c.number_format = "0%"
         if nm in lists and lists[nm]:
             v = DataValidation(type="list", formula1='"%s"' % lists[nm])
@@ -786,7 +798,7 @@ def build(cfg):
         ("Inputs", "Take-offs: %s\nLibrary: %s\nBenchmarks: %s\nTargets: %s" % (
             "; ".join("%s = %s" % (o["name"], os.path.basename(o["csv"])) for o in opts), lib_src, bm_src,
             os.path.basename(cfg["targets_xlsx"]) if cfg.get("targets_xlsx") else "none")),
-        ("Standard", "RICS Whole life carbon assessment for the built environment, 2nd ed. (PS). RSP 60 years. Modules A1-A5, B4, C1-C4 (embodied) and B6, B7 (operational, when assessed); D and biogenic carbon reported separately. B1-B3, B5 not in this version."),
+        ("Standard", "RICS Whole life carbon assessment for the built environment, 2nd ed. (PS). RSP 60 years. Modules A1-A5, B2, B3, B4, C1-C4 (embodied) and B6, B7 (operational, when assessed); D and biogenic carbon reported separately. B1 and B5 not in this version."),
         ("How to use", "1 Project: GIA per option, use class, stage, facade route, targets.\n2 O<k>_QA: every FLAG must be fixed or justified.\n"
                        "3 Dashboard: pick an option at the top. Compare: all options side by side. O<k>_Results: the element x module table.\n"
                        "Change factors or layer quantities on Materials / Layers only for project-specific overrides; library-wide changes go to the library owner."),
@@ -798,6 +810,10 @@ def build(cfg):
                "Spread over the material's project mass. DEFRA factors already include the return leg, so the empty running factor is 1.0 (see REF_T17_Transport)."),
         ("A5", "A5.1 = existing GIA demolished x rate; A5.2 = GIA x rate (PS defaults). A5.3 = Table 18 waste rate x (A1-A3 + A3 offsite + A4 + C2-C4 of the wasted material) (PS 5.1.4). "
                "A layer may carry its own site waste rate (e.g. unitised curtain wall). A5.4 not assessed."),
+        ("B2 / B3", "Whole-building allowances (PS 5.2.2 - 5.2.3), one-off totals over the RSP: B2 = the greater of GIA x 10 kgCO2e/m2 and 1% of A1-A5 "
+                    "(all elements incl. external works and site lumps, before contingency). B3 = 25% of the non-MEP part of B2 (B2 x non-services share of A1-A5) "
+                    "+ 10% of services (group 5) A1-A3 (CIBSE TM65). Contingency added at the end, like the other modules. Not allocated to elements: "
+                    "see the B2 / B3 block under the element table on O<k>_Results."),
         ("B4", "Replacements = ROUNDUP(RSP / life) - 1 (PS 5.2.4: whole replacements, rounded up). Life = layer override, else Table 20 by material. "
                "B4 = replacements x (A1-A3 + A3 offsite + A4 + A5.3). End of life of replaced items is counted in C2-C4 (x (1 + replacements))."),
         ("C1-C4", "C1 = GIA x lump rate. C2 = lorry loads to processing / EfW / landfill (Table 26 distances, 50% laden). "
@@ -824,7 +840,7 @@ def build(cfg):
         ("Targets", "Each scheme is compared on its own boundary, incl. contingency: UKNZCBS and LETI upfront = A1-A5 excl. external works (cat. 8), excl. sequestration; "
                     "LETI life cycle and RIBA 2030 = A1-A5 + B + C1-C4 excl. cat. 8, incl. sequestration; GLA = A1-A5 and A-C (excl. B6/B7) incl. cat. 8. "
                     "UKNZCBS Offices whole building includes Cat B and loose FF&E, which this shell & core + Cat A assessment does not - the comparison flatters the building. "
-                    "B1-B3 and B5 are not assessed (B5 = 0 like-for-like)."),
+                    "B2 and B3 are PS default allowances; B1 and B5 are not assessed (B5 = 0 like-for-like)."),
         ("Scenario and budget", "The headline always uses typical benchmarks for elements not yet designed. The scenario re-runs those elements at the GLA aspirational (or benchmark) "
                                 "tier, scaled per module group, and the budget chart shows what is left for them under the chosen target. Neither is a compliance result."),
     ]
@@ -1011,7 +1027,8 @@ def build_option(wb, ctx, o):
     # ---------------------------------------------------------------- Results
     R = wb[RS]
     title(R, "%s - whole life carbon by RICS element and module (tCO2e unless stated)" % o["name"],
-          "RICS WLCA PS 2nd ed., RSP from Project. A-C = A1-A5 + B4 + C1-C4 (B1-B3, B5 not assessed; B6/B7 not in this version). D and biogenic are reported separately.")
+          "RICS WLCA PS 2nd ed., RSP from Project. A-C = A1-A5 + B2 + B3 + B4 + C1-C4 (B2 / B3 whole-building allowances in the block below the table; "
+          "B1, B5 not assessed; B6 / B7 in the Summary). D and biogenic are reported separately.")
     rh = ["Code", "Element", "Method", "A1-A3", "A4", "A5.1", "A5.2", "A5.3", "A1-A5", "B4", "C1", "C2", "C3", "C4",
           "A-C excl. biogenic", "D (memo)", "Biogenic stored, A1-A3 (reported separately)", "A1-A5 kgCO2e/m2 GIA", "A-C excl. biogenic kgCO2e/m2 GIA", "Group (GLA)", "Kind", "Structure (P&M)"]
     head(R, 13, rh, [8, 46, 12] + [10] * 14 + [11, 11, 16, 11, 9])
@@ -1117,11 +1134,47 @@ def build_option(wb, ctx, o):
         R.cell(rr, c).fill = TOTAL
         R.cell(rr, c).font = BOLD
 
+    # ---- B2 / B3: whole-building allowances (PS 5.2.2 - 5.2.3), one-off totals over the RSP, tCO2e, before contingency
+    rr += 2
+    R.cell(rr, 1, "B2 / B3 - whole-building allowances (PS 5.2.2 - 5.2.3), tCO2e over the RSP; not allocated to elements").font = BOLD
+    for c in range(1, 23):
+        R.cell(rr, c).fill = SECTION
+    rr += 1
+    RGc = lambda c: "$%s$%d:$%s$%d" % (c, mod_first, c, site_last)        # noqa: E731
+    mep_up = 'SUMIFS(%s,%s,"Services/MEP")' % (RGc("I"), RGc("T"))
+    keys = ["g", "p", "b2", "sh", "b2n", "b3n", "mep", "b3m", "b3", "b2c", "b3c"]
+    b = dict((k_, rr + i) for i, k_ in enumerate(keys))                   # row of each line
+    fx = dict(GIA=GIA, sub=sub, **b)
+    lines = {
+        "g": ("B2 option 1: GIA x rate", "={GIA}*B2_RATE/1000", '="GIA "&TEXT({GIA},"#,##0")&" m2 x "&B2_RATE&" kgCO2e/m2"'),
+        "p": ("B2 option 2: share of A1-A5 (before contingency)", "=B2_PCT*I{sub}", '=TEXT(B2_PCT,"0%")&" x A1-A5 "&TEXT(I{sub},"#,##0")&" t"'),
+        "b2": ("B2 maintenance - the greater of the two", "=MAX(C{g},C{p})", '=IF(C{g}>=C{p},"GIA x rate","% of A1-A5")'),
+        "sh": ("Services (group 5) share of A1-A5", "=IF(I{sub}=0,0,MEP_UP/I{sub})", '="element group 5, before contingency"'),
+        "b2n": ("B2 non-MEP part", "=C{b2}*(1-C{sh})", '="B2 x (1 - services share)"'),
+        "b3n": ("B3 repair - non-MEP: share of B2 non-MEP", "=B3_PCT*C{b2n}", '=TEXT(B3_PCT,"0%")&" of the non-MEP part of B2"'),
+        "mep": ("Services A1-A3 (initial installation)", "=MEP_A13", '="element group 5"'),
+        "b3m": ("B3 repair - MEP: share of services A1-A3", "=B3_MEP*C{mep}", '=TEXT(B3_MEP,"0%")&" of services A1-A3 (CIBSE TM65)"'),
+        "b3": ("B3 repair", "=C{b3n}+C{b3m}", '="25% non-MEP + 10% MEP rule (PS 5.2.3)"'),
+        "b2c": ("B2 incl. contingency", "=C{b2}*(1+CONT)", '="kgCO2e/m2 GIA: "&TEXT(IF({GIA}>0,C{b2c}*1000/{GIA},0),"#,##0.0")'),
+        "b3c": ("B3 incl. contingency", "=C{b3}*(1+CONT)", '="kgCO2e/m2 GIA: "&TEXT(IF({GIA}>0,C{b3c}*1000/{GIA},0),"#,##0.0")'),
+    }
+    for key in keys:
+        lbl, f, note = lines[key]
+        r_ = b[key]
+        R.cell(r_, 2, lbl)
+        R.cell(r_, 3, f.format(**fx).replace("MEP_UP", mep_up).replace("MEP_A13", 'SUMIFS(%s,%s,"Services/MEP")' % (RGc("D"), RGc("T"))))
+        R.cell(r_, 4, note.format(**fx))
+        R.cell(r_, 3).number_format = "0%" if key == "sh" else "#,##0.0"
+        if key in ("b2", "b3"):
+            R.cell(r_, 2).font = BOLD
+            R.cell(r_, 3).font = BOLD
+    rr = b["b3c"] + 1
+
     # headline block
     R["A4"] = "Headline (incl. contingency; building-level figures to 2 s.f. at RIBA 0-2, 3 s.f. from RIBA 3 - PS 6.1.4)"
     R["A4"].font = BOLD
     hl = [("Upfront carbon A1-A5", "=" + sf("R%d" % tot), "kgCO2e/m2 GIA"),
-          ("Embodied carbon A-C incl. biogenic (excl. B6/B7)", "=" + sf("Y%d" % SUM_ROW["AC_ALL"]), "kgCO2e/m2 GIA"),
+          ("Embodied carbon A-C incl. B2 / B3 and biogenic (excl. B6/B7)", "=" + sf("Y%d" % SUM_ROW["AC_ALL"]), "kgCO2e/m2 GIA"),
           ("A1-A5 total", "=" + sf("I%d" % tot), "tCO2e"),
           ("Modelled share of A1-A5 (before contingency)", "=IF(I%d=0,0,SUM(I%d:I%d)/I%d)" % (sub, mod_first, mod_last, sub), ""),
           ("Benchmarked share of A1-A5", "=IF(I%d=0,0,SUM(I%d:I%d)/I%d)" % (sub, bm_first, bm_last, sub), ""),
@@ -1140,7 +1193,9 @@ def build_option(wb, ctx, o):
     # ---------------------------------------------------------------- Summary block (X:Z) for Dashboard / Compare
     RG = lambda c: "$%s$%d:$%s$%d" % (c, mod_first, c, site_last)        # noqa: E731
     G1 = "(1+CONT)*1000/%s" % GIA
-    I_, O_ = "I%d" % sub, "O%d" % sub
+    I_ = "I%d" % sub
+    BB = "($C$%d+$C$%d)" % (b["b2"], b["b3"])                              # B2 + B3 before contingency (tCO2e)
+    O_ = "(O%d+%s)" % (sub, BB)                                             # A-C incl. B2 / B3, before contingency
     BIO = "(Y%d+Y%d)" % (SUM_ROW["BIO_STORED"], SUM_ROW["BIO_RELEASED"])     # nets to zero unless products stay stored
     ext = lambda c, kind=None: ('SUMIFS(%s,%s,"External works"%s)' % (RG(c), RG("T"), ',%s,"%s"' % (RG("U"), kind) if kind else ""))  # noqa: E731
     kind = lambda c, k_: 'SUMIFS(%s,%s,"%s")' % (RG(c), RG("U"), k_)       # noqa: E731
@@ -1156,7 +1211,7 @@ def build_option(wb, ctx, o):
     tsub = "%s,\"%s\",%s,USE,%s,\"<\"&%s"      # band = first band whose limit the project does not exceed
     TGc = ctx["TGc"]
     F = {
-        "GIA": "=%s" % GIA, "UP_T": "=I%d" % tot, "AC_T": "=O%d" % tot,
+        "GIA": "=%s" % GIA, "UP_T": "=I%d" % tot, "AC_T": "=O%d+C%d+C%d" % (tot, b["b2c"], b["b3c"]),
         "UP_ALL": "=IF(%s>0,%s*%s,0)" % (GIA, I_, G1),
         "UP_X8": "=IF(%s>0,(%s-%s)*%s,0)" % (GIA, I_, ext("I"), G1),
         "BC_ALL": "=IF(%s>0,(%s-%s)*%s,0)" % (GIA, O_, I_, G1),
@@ -1168,6 +1223,8 @@ def build_option(wb, ctx, o):
         "M_A13": "=IF(%s>0,D%d*1000/%s,0)" % (GIA, tot, GIA), "M_A4": "=IF(%s>0,E%d*1000/%s,0)" % (GIA, tot, GIA),
         "M_A5": "=IF(%s>0,SUM(F%d:H%d)*1000/%s,0)" % (GIA, tot, tot, GIA), "M_B4": "=IF(%s>0,J%d*1000/%s,0)" % (GIA, tot, GIA),
         "M_C": "=IF(%s>0,SUM(K%d:N%d)*1000/%s,0)" % (GIA, tot, tot, GIA), "M_D": "=IF(%s>0,P%d*1000/%s,0)" % (GIA, sub, GIA),
+        "M_B2": "=IF(%s>0,C%d*1000/%s,0)" % (GIA, b["b2c"], GIA), "M_B3": "=IF(%s>0,C%d*1000/%s,0)" % (GIA, b["b3c"], GIA),
+        "B2_BASIS": "=D%d" % b["b2"],
         "E_CONT": "=IF(%s>0,I%d*1000/%s,0)" % (GIA, cont, GIA),
         "B_ASM": "=IF(%s>0,%s*1000/%s,0)" % (GIA, asm, GIA),
         "B_MOD": "=IF(%s>0,%s*1000/%s,0)-Y%d" % (GIA, kind("I", "Modelled"), GIA, SUM_ROW["B_ASM"]),
@@ -1184,7 +1241,7 @@ def build_option(wb, ctx, o):
         "UK_LIM_SC": "=UK_LIM_SC",
         "MOD_UP_ALL": "=IF(%s>0,(%s-%s)*%s,0)" % (GIA, I_, bm_up, G1),
         "MOD_UP_X8": "=IF(%s>0,(%s-%s-%s)*%s,0)" % (GIA, I_, bm_up, ext("I", "Modelled"), G1),
-        "MOD_AC_ALL": "=IF(%s>0,(%s-%s)*%s,0)+%s" % (GIA, O_, bm_ac, G1, BIO),
+        "MOD_AC_ALL": "=IF(%s>0,(%s-%s)*%s,0)+%s" % (GIA, O_, bm_ac, G1, BIO),        # B2 / B3 sit with modelled + site
         "MOD_AC_X8": "=IF(%s>0,(%s-%s-%s)*%s,0)+%s" % (GIA, O_, bm_ac, ext("O", "Modelled"), G1, BIO),
         "BM_UP_ALL": "=IF(%s>0,%s*%s,0)" % (GIA, bm_up, G1), "BM_UP_X8": "=IF(%s>0,%s*%s,0)" % (GIA, bm_up8, G1),
         "BM_AC_ALL": "=IF(%s>0,%s*%s,0)" % (GIA, bm_ac, G1), "BM_AC_X8": "=IF(%s>0,%s*%s,0)" % (GIA, bm_ac8, G1),
@@ -1219,7 +1276,7 @@ def build_option(wb, ctx, o):
         "WLC_ND": '=IF(OP_ROUTE="%s","not assessed",%s+%s+%s)' % (OP_ROUTES[2], y("AC_ALL"), y("B6_ND"), y("B7_ND")),
         "WLC_D": '=IF(OP_ROUTE="%s","not assessed",%s+%s+%s)' % (OP_ROUTES[2], y("AC_DEC"), y("B6_D"), y("B7_D")),
         "W_M3": "=IF(N(O%d_W)>0,O%d_W,W_BUDGET)" % (k, k),
-        "AC_DEC": "=IF(%s>0,(I%d+0.5*J%d+0.5*(K%d+L%d)+M%d+N%d)*%s,0)+%s" % (GIA, sub, sub, sub, sub, sub, sub, G1, BIO),
+        "AC_DEC": "=IF(%s>0,(I%d+0.5*(J%d+%s)+0.5*(K%d+L%d)+M%d+N%d)*%s,0)+%s" % (GIA, sub, sub, BB, sub, sub, sub, sub, G1, BIO),
         "D_DEC": "=IF(%s>0,0.5*P%d*1000/%s,0)" % (GIA, sub, GIA),
         "OP_STATUS": ('=IF(OP_ROUTE="%s","Energy not assessed - embodied carbon only",IF(%s,"Energy: engineer prediction",'
                       'IF(N(O%d_EUI_IN)>0,"Energy: indicative (EUI estimate)","Energy: indicative (UKNZCBS limit)")))'

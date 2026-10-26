@@ -513,7 +513,7 @@ def test_b6_b7_both_scenarios_and_routes(built, tmp_path):
     # Table 15: B2-B4 and C1-C2 halved, A1-A5, C3-C4 and biogenic unchanged (contingency on both)
     R = w["O1_Results"]
     tot = next(r for r in range(14, R.max_row + 1) if str(R.cell(r, 2).value or "").startswith("TOTAL"))
-    half = 0.5 * (R["J%d" % tot].value + R["K%d" % tot].value + R["L%d" % tot].value) * 1000 / GIA
+    half = 0.5 * (R["J%d" % tot].value + R["K%d" % tot].value + R["L%d" % tot].value) * 1000 / GIA + 0.5 * (g("M_B2") + g("M_B3"))
     assert half > 0 and g("AC_DEC") == pytest.approx(g("AC_ALL") - half, rel=1e-9)
     assert g("WLC_D") == pytest.approx(g("AC_DEC") + g("B6_D") + g("B7_D"), rel=1e-12)
     i, _ = got["ind"]                                                    # UKNZCBS EUI limit x GIA, all electric; gas and PV ignored
@@ -542,3 +542,41 @@ def test_results_reader_for_the_window(built2, tmp_path):
     assert res["options"][1]["values"]["UP_ALL"] > res["options"][0]["values"]["UP_ALL"]   # Opt B has more slab
     assert wr.judge(100, 120, 0.15) == "Meets" and wr.judge(130, 120, 0.15) == "Meets before contingency only"
     assert wr.judge(200, 120, 0.15) == "Above" and wr.judge(None, 120, 0.15) == "Not assessed"
+
+
+def test_b2_b3_allowances(built, tmp_path):
+    """PS 5.2.2 / 5.2.3 (XW 26/10/2026): B2 = max(GIA x 10, 1% x A1-A5 before contingency), one-off over the RSP;
+    B3 = 25% x B2 x non-services share of A1-A5 + 10% x services A1-A3; contingency at the end; in A-C and its boundaries."""
+    bm = str(tmp_path / "bench_mep.xlsx")                                  # add a services benchmark so the MEP rule is exercised
+    b = openpyxl.load_workbook(built["benchmarks"]["path"])
+    b["Bench"].append(["", "Office", "5 Services (MEP)", 60, 2, 3, 40, 1, 0.5, 0.5, 0.1, None])
+    b.save(bm)
+    for tag, extra in (("gia", {}), ("pct", dict(b2_share=0.5))):
+        cfg = dict(built, out=str(tmp_path / ("b2_%s.xlsx" % tag)), params=dict(built["params"], **extra),
+                   benchmarks=dict(built["benchmarks"], path=bm))
+        ct.build(cfg).save(cfg["out"])
+        w = _calc(cfg["out"], str(tmp_path / ("c_b2_" + tag)))
+        R = w["O1_Results"]
+        g = lambda key: R["Y%d" % ct.SUM_ROW[key]].value                  # noqa: E731
+        rows = dict((str(R.cell(r, 2).value or ""), r) for r in range(14, R.max_row + 1))
+        sub = rows["Subtotal"]
+        a15 = R["I%d" % sub].value
+        svc = [r for r in range(14, sub) if R.cell(r, 20).value == "Services/MEP"]
+        svc_a15 = sum(R["I%d" % r].value or 0 for r in svc)
+        svc_a13 = sum(R["D%d" % r].value or 0 for r in svc)
+        gia, cont = g("GIA"), w["Project"]["C%d" % next(r for r in range(5, 80) if w["Project"].cell(r, 2).value == "Contingency")].value
+        share = extra.get("b2_share", 0.01)
+        b2 = max(gia * 10 / 1000, share * a15)
+        b3 = 0.25 * b2 * (1 - svc_a15 / a15) + 0.10 * svc_a13
+        assert R["C%d" % rows["B2 maintenance - the greater of the two"]].value == pytest.approx(b2, rel=1e-9)
+        assert R["C%d" % rows["B3 repair"]].value == pytest.approx(b3, rel=1e-9)
+        assert g("M_B2") == pytest.approx(b2 * (1 + cont) * 1000 / gia, rel=1e-9)
+        assert g("M_B3") == pytest.approx(b3 * (1 + cont) * 1000 / gia, rel=1e-9)
+        assert g("B2_BASIS") == ("GIA x rate" if tag == "gia" else "% of A1-A5")
+        tot = rows["TOTAL incl. contingency"]
+        assert g("AC_T") == pytest.approx(R["O%d" % tot].value + (b2 + b3) * (1 + cont), rel=1e-9)
+        bio = g("BIO_STORED") + g("BIO_RELEASED")
+        assert g("AC_ALL") == pytest.approx((R["O%d" % tot].value + (b2 + b3) * (1 + cont)) * 1000 / gia + bio, rel=1e-9)
+        assert g("BC_ALL") == pytest.approx(g("AC_ALL") - bio - g("UP_ALL"), rel=1e-9)
+        assert g("UP_ALL") == pytest.approx(R["I%d" % tot].value * 1000 / gia, rel=1e-9)       # upfront untouched
+        assert svc and svc_a13 > 0
