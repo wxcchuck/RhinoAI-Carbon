@@ -580,3 +580,15 @@ def test_b2_b3_allowances(built, tmp_path):
         assert g("BC_ALL") == pytest.approx(g("AC_ALL") - bio - g("UP_ALL"), rel=1e-9)
         assert g("UP_ALL") == pytest.approx(R["I%d" % tot].value * 1000 / gia, rel=1e-9)       # upfront untouched
         assert svc and svc_a13 > 0
+
+
+def test_scope_check_expects_what_the_design_has():
+    ce = ct.coverage_expected
+    assert ce("1.2.2", "Y", {}) == ("Y", "")                                   # older exports: as before
+    assert ce("1.2.2", "Y", {"basement_levels": "1"})[0] == "N"                 # one level: lowest slab + ground slab only
+    assert ce("1.2.2", "Y", {"basement_levels": "2"})[0] == "Y"
+    assert ce("1.2.3", "Y", {"basement_levels": "0", "basement_depth_m": "0"}) == ("N", "no basement")
+    assert ce("1.2.3", "Y", {"basement_levels": "1", "basement_depth_m": "5.5"})[0] == "Y"
+    assert ce("2.5.2", "Y", {"facade_curtain_wall_share": "0.0"})[0] == "N"     # brick + punched windows: glazing in 2.6
+    assert ce("2.5.2", "Y", {"facade_curtain_wall_share": "0.25"})[0] == "Y"
+    assert ce("2.6", "Y", {"facade_curtain_wall_share": "1.0"}) == ("Y", "")    # entrance doors are always there
