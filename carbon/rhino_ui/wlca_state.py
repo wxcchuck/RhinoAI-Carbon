@@ -226,16 +226,68 @@ def _read_basement(path, sheet):
             "ftf": [float(x["ftf"] or 0) for x in below], "gea": [float(x["gea"] or 0) for x in below]}
 
 # ------------------------------------------------------------------------------------- state I/O
-def dumps(state):
-    return json.dumps(state, sort_keys=True)
+# File paths in the state. Each is saved as it is (absolute) and, when it lies in or under the model's folder, also
+# relative to that folder (under "_rel"), so a project folder that is moved or copied keeps working (v0.3.1).
+PATH_FIELDS = [("schedule", "path"), ("output", "folder"), ("output", "last_workbook"), ("output", "logo"),
+               ("plan", "json"), ("plan", "pdf_json")]
+FOLLOWS_MODEL = ("output.folder",)       # always taken relative to the model when it was saved that way
 
 
-def loads(text):
-    """State from the .3dm; missing keys are filled from the defaults so older saves keep working."""
+def _path_slots(state):
+    """(key, container, field) for every file path in the state."""
+    out = [("%s.%s" % (g, k), state.get(g) or {}, k) for g, k in PATH_FIELDS]
+    out += [("options.%d.file" % i, o, "file") for i, o in enumerate(state.get("options") or [])]
+    return out
+
+
+def relative_to(path, base):
+    """`path` relative to folder `base` if it lies in or under it, else None."""
+    if not path or not base or not os.path.isabs(path):
+        return None
+    try:
+        r = os.path.relpath(path, base)
+    except ValueError:                       # another drive
+        return None
+    if r == os.pardir or r.startswith(os.pardir + os.sep) or os.path.isabs(r):
+        return None
+    return r
+
+
+def dumps(state, base=None):
+    """State as saved in the .3dm. base = the model's folder (None for an unsaved model)."""
+    out = dict(state)
+    out.pop("_rel", None)
+    if base:
+        rel = {}
+        for key, d, k in _path_slots(state):
+            r = relative_to(d.get(k), base)
+            if r is not None:
+                rel[key] = r
+        if rel:
+            out["_rel"] = rel
+    return json.dumps(out, sort_keys=True)
+
+
+def resolve_paths(st, rel, base, exists=os.path.exists):
+    """Re-anchor saved paths on the model's folder: the output folder always follows the model; an input file
+    (schedule, plan, logo, option model) is taken from the model's folder when it is there, else from where it was."""
+    for key, d, k in _path_slots(st):
+        if key not in rel:
+            continue
+        here = os.path.normpath(os.path.join(base, rel[key]))
+        if key in FOLLOWS_MODEL or exists(here) or not exists(d.get(k) or ""):
+            d[k] = here
+    return st
+
+
+def loads(text, base=None, exists=os.path.exists):
+    """State from the .3dm; missing keys are filled from the defaults so older saves keep working.
+    base = the model's folder: paths saved relative to it are re-anchored there (resolve_paths)."""
     st = default_state()
     if not text:
         return st
     saved = json.loads(text)
+    rel = saved.pop("_rel", None) or {}
     for k, v in saved.items():
         if isinstance(v, dict) and isinstance(st.get(k), dict):
             st[k].update(v)
@@ -243,6 +295,8 @@ def loads(text):
             st[k] = v
     for o in st.get("options") or []:
         fill_substructure(o)
+    if base and rel:
+        resolve_paths(st, rel, base, exists)
     return st
 
 
