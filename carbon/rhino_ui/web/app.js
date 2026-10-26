@@ -5,7 +5,7 @@
 // All checks and calculations happen in Python / Excel; this file only draws and forwards.
 (function () {
   "use strict";
-  const { hbars, donut, bullet, targetColumns, legend, fmt, sf, esc } = window.WlcaCharts;
+  const { hbars, donut, bullet, targetColumns, stackColumns, legend, fmt, sf, esc } = window.WlcaCharts;
   const host = window.chrome && window.chrome.webview ? window.chrome.webview : window.eto || null;
   let M = null;              // the latest model from Rhino
   let step = 0;              // page shown
@@ -322,6 +322,8 @@
     const b = M.branding || {}, hx = (c, d) => "#" + String(c || d).replace("#", "");
     return {
       project: hx(b.project, "1F4E79"), target: hx(b.target, "7F2A3C"), cont: hx(b.contingency_bar, "8FB9BE"),
+      target_ac: hx(b.target_lifecycle, "C2600F"),                         // A-C target lines (A1-A5 lines use target)
+      stages: (b.stages || ["1F4E79", "5B8DB8", "E3B448", "6BAA75"]).map((c) => hx(c)),   // upfront, B-C, operational, sequestered
       modules: (b.modules || ["1F5F66", "5B8DB8", "2C4A68", "B8C4C8", "B5A82A"]).map((c) => hx(c)),   // A1-A3, A4, A5, B4, C1-C4
       b23: (b.modules_b23 || ["C98A3E", "E6C190"]).map((c) => hx(c)),                                   // B2, B3
       groups: (b.groups || ["8C6D4F", "2F4F4F", "5B8DB8", "E07B1A", "7A3B5A", "79A88B", "D9534F", "9FB3BC"]).map((c) => hx(c)),
@@ -379,19 +381,40 @@
     const groups = M.group_labels.map((label, i) => ({ label, value: v["E_" + i], color: P.groups[i % P.groups.length] }));
     groups.push({ label: "Contingency", value: v.E_CONT, color: P.cont });
     h += `<div class="card"><h2>A1-A5 by element group</h2>${hbars(groups, { unit: "kgCO2e/m²", title: "A1-A5 by element group" })}<p class="note">kgCO2e/m² GIA, before contingency; contingency shown as its own bar.</p></div>`;
-    if (v.WLC_ND != null && (v.B6_ND || v.B7_ND)) {
-      h += `<div class="card"><h2>Operational and whole life</h2><table class="data"><tr><th>kgCO2e/m² GIA over the RSP</th><th class="n">Non-decarbonised</th><th class="n">Decarbonised</th></tr>
-        <tr><td>Embodied A-C</td><td class="n">${fmt(sf(v.AC_ALL, sfN))}</td><td class="n">${fmt(sf(v.AC_DEC, sfN))}</td></tr>
-        <tr><td>B6 operational energy</td><td class="n">${fmt(sf(v.B6_ND, sfN))}</td><td class="n">${fmt(sf(v.B6_D, sfN))}</td></tr>
-        <tr><td>B7 operational water</td><td class="n">${fmt(v.B7_ND, 1)}</td><td class="n">${fmt(v.B7_D, 1)}</td></tr>
-        <tr><td><b>Whole life A-C + B6 + B7</b></td><td class="n"><b>${fmt(sf(v.WLC_ND, sfN))}</b></td><td class="n"><b>${fmt(sf(v.WLC_D, sfN))}</b></td></tr></table>
-        <p class="note">${esc(v.OP_STATUS || "")}${v.EUI != null ? ` · EUI ${fmt(v.EUI)} kWh/m²/yr${v.EUI_LIM ? " (UKNZCBS limit " + fmt(v.EUI_LIM) + ")" : ""}` : ""}</p></div>`;
-    }
+    h += wholeLifeCard(v, sfN, P);
     h += "</div>";
     if (v.BIO_STORED) h += note(`Biogenic carbon stored in products: ${fmt(v.BIO_STORED)} kgCO2e/m² GIA (reported separately, not in A1-A5; released at end of life within A-C).`);
     return h;
   }
 
+
+  // ------------------------------------------------------------------ whole life by stage
+  function wholeLifeCard(v, sfN, P) {
+    if (v.AC_ALL == null) return "";
+    const op = typeof v.WLC_ND === "number" && (v.B6_ND || v.B7_ND);
+    const stored = v.BIO_STORED || 0, up = v.UP_ALL || 0;
+    const col = (label, sub, ac, b6, b7, total) => ({
+      label, sub, total: sf(total, sfN), totalLabel: "Net ",
+      segs: [{ label: "Upfront A1-A5", short: "A1-A5", value: up, color: P.stages[0] },
+             { label: "In-use & EoL B-C", short: "B-C", value: ac - up - stored, color: P.stages[1] },
+             { label: "Operational B6-B7", short: "B6-B7", value: op ? b6 + b7 : 0, color: P.stages[2], ink: "#3a2e00" },
+             { label: "Sequestered A1-A3", short: "Sequestered", value: stored, color: P.stages[3] }] });
+    const cols = op
+      ? [col("Non-decarbonised", "today's factors", v.AC_ALL, v.B6_ND, v.B7_ND, v.WLC_ND),
+         col("Decarbonised", "PS Table 15 · FES grid", v.AC_DEC, v.B6_D, v.B7_D, v.WLC_D)]
+      : [col("Embodied A-C", "operational not assessed", v.AC_ALL, 0, 0, v.AC_ALL)];
+    cols.forEach((c) => c.segs.forEach((g) => { g.text = sf(g.value, sfN); }));    // stage figures to the reporting precision
+    const items = cols[0].segs.filter((g) => g.value).map((g) => ({ label: g.label, color: g.color }));
+    const table = !op ? "" : `<table class="data"><tr><th>kgCO2e/m² GIA over the RSP</th><th class="n">Non-decarbonised</th><th class="n">Decarbonised</th></tr>
+        <tr><td>Upfront A1-A5</td><td class="n">${fmt(sf(up, sfN))}</td><td class="n">${fmt(sf(up, sfN))}</td></tr>
+        <tr><td>Embodied A-C (incl. B2-B4, C1-C4, biogenic)</td><td class="n">${fmt(sf(v.AC_ALL, sfN))}</td><td class="n">${fmt(sf(v.AC_DEC, sfN))}</td></tr>
+        <tr><td>B6 operational energy</td><td class="n">${fmt(sf(v.B6_ND, sfN))}</td><td class="n">${fmt(sf(v.B6_D, sfN))}</td></tr>
+        <tr><td>B7 operational water</td><td class="n">${fmt(v.B7_ND, 1)}</td><td class="n">${fmt(v.B7_D, 1)}</td></tr>
+        <tr><td><b>Whole life A-C + B6 + B7</b></td><td class="n"><b>${fmt(sf(v.WLC_ND, sfN))}</b></td><td class="n"><b>${fmt(sf(v.WLC_D, sfN))}</b></td></tr></table>
+        <p class="note">${esc(v.OP_STATUS || "")}${v.EUI != null ? ` · EUI ${fmt(v.EUI)} kWh/m²/yr${v.EUI_LIM ? " (UKNZCBS limit " + fmt(v.EUI_LIM) + ")" : ""}` : ""}</p>`;
+    return `<div class="card wide"><h2>Whole life by stage</h2><div class="tchart"><div>${stackColumns(cols, { unit: "kgCO2e/m² GIA", title: "whole life carbon by stage" })}${legend(items)}</div><div>${table}
+      <p class="note">kgCO2e/m² GIA over the RSP, incl. contingency on embodied carbon. B-C includes B2-B4, C1-C4 and the biogenic carbon released at end of life; the carbon stored in bio-based products (A1-A3) is shown below the line. ${op ? "Both grid scenarios as the PS requires (4.11.4)." : "B6 / B7 not assessed - set the operational basis on step 6."}</p></div></div></div>`;
+  }
 
   // ------------------------------------------------------------------ against targets
   const MAX_CHART_TARGETS = 4;
@@ -428,8 +451,8 @@
       segs.push({ label: "Contingency (PS Table 10)", value: Math.max(0, total - sum), color: P.cont });
     } else {
       const up = key === "AC_X8" ? v.UP_X8 : v.UP_ALL;
-      segs = [{ label: "Upfront A1-A5", value: up, color: P.project },
-              { label: "In use and end of life B-C", value: Math.max(0, total - up), color: P.modules[1] }];
+      segs = [{ label: "Upfront A1-A5", value: up, color: P.stages[0] },
+              { label: "In use and end of life B-C", value: Math.max(0, total - up), color: P.stages[1] }];
     }
     return { segs, total };
   }
@@ -452,7 +475,8 @@
       const cols = keys.filter((k) => sel.some(([t]) => t.key === k)).map((k) => {
         const { segs, total } = boundarySegs(k, v, R, P);
         return { label: TCOL[k][0], sub: TCOL[k][1], segs, total: total == null ? null : sf(total, sfN),
-          lines: sel.filter(([t]) => t.key === k).map(([t]) => ({ label: t.label, short: short(t.label), value: t.target, color: P.target })) };
+          lines: sel.filter(([t]) => t.key === k).map(([t]) => ({ label: t.label, short: short(t.label), value: t.target,
+            color: k.startsWith("AC_") ? P.target_ac : P.target })) };
       });
       if (!cols.length) return "";
       const order = (g) => { const i = M.group_labels.indexOf(g.label); return i >= 0 ? i : g.label.startsWith("Contingency") ? 99 : 50; };
