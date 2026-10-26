@@ -9,7 +9,7 @@ import subprocess
 
 # the keys the window shows, from each option's O<k>_Results summary (column X key, column Y value)
 KEYS = ["NAME", "GIA", "UP_T", "AC_T", "UP_ALL", "UP_X8", "UP_SC", "UP_WB", "AC_ALL", "AC_X8", "AC_DEC",
-        "M_A13", "M_A4", "M_A5", "M_B4", "M_C", "M_D",
+        "M_A13", "M_A4", "M_A5", "M_B2", "M_B3", "M_B4", "M_C", "M_D", "B2_BASIS",
         "E_0", "E_1", "E_2", "E_3", "E_4", "E_5", "E_6", "E_7", "E_CONT",
         "B_MOD", "B_ASM", "B_BM", "B_SITE", "B_CONT", "SH_ASM",
         "BIO_STORED", "QA_FLAGS", "EUI", "EUI_LIM", "B6_ND", "B6_D", "B7_ND", "B7_D", "WLC_ND", "WLC_D", "OP_STATUS"]
@@ -75,7 +75,7 @@ def read_results(path):
             vals = {}
             for row in R.iter_rows(min_row=5, max_row=120, min_col=24, max_col=25, values_only=True):
                 if row[0] in KEYS:
-                    vals[row[0]] = row[1] if row[0] in ("NAME", "OP_STATUS") else _num(row[1])
+                    vals[row[0]] = row[1] if row[0] in ("NAME", "OP_STATUS", "B2_BASIS") else _num(row[1])
             opts.append({"k": k, "values": vals})
             k += 1
         D = wb["Dashboard"]

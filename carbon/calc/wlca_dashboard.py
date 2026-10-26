@@ -34,7 +34,8 @@ DEFAULT = dict(
     project="1F4E79", target="7F2A3C", ink="222222", muted="7F7F7F", tile="F2F2F2", rule="D9D9D9",
     groups=["8C6D4F", "2F4F4F", "5B8DB8", "E07B1A", "7A3B5A", "79A88B", "D9534F", "9FB3BC"],
     contingency="D9D2C5", contingency_bar="8FB9BE", warn="FCE8C3",
-    modules=["1F5F66", "5B8DB8", "2C4A68", "B8C4C8", "B5A82A"],
+    modules=["1F5F66", "5B8DB8", "2C4A68", "B8C4C8", "B5A82A"],      # A1-A3, A4, A5, B4, C1-C4
+    modules_b23=["C98A3E", "E6C190"],                                # B2 maintenance, B3 repair (PS default allowances)
     basis=["1F5F66", "E07B1A", "9FB3BC", "B8C4C8", "D9D2C5"],
     good="DCEFE1", bad="F8D7D3",
 )
@@ -254,22 +255,25 @@ def build_dashboard(wb, ctx, opts, branding):
     xc = 24      # column X
     tables = {}
 
-    def table(r0, title, rows, header=None):
-        ws.cell(r0, xc, title).font = _f(B, 8, True, B["muted"])
+    def table(r0, title, rows, header=None, x0=None):
+        x0 = x0 or xc
+        ws.cell(r0, x0, title).font = _f(B, 8, True, B["muted"])
         if header:
             for j, h in enumerate(header):
-                ws.cell(r0, xc + 1 + j, h).font = _f(B, 8, True, B["muted"])
+                ws.cell(r0, x0 + 1 + j, h).font = _f(B, 8, True, B["muted"])
         for i, row in enumerate(rows, start=1):
             for j, val in enumerate(row):
-                cc = ws.cell(r0 + i, xc + j, val)
+                cc = ws.cell(r0 + i, x0 + j, val)
                 cc.font = _f(B, 8, color=B["muted"])
                 if j:
                     cc.number_format = "#,##0"     # chart labels and axes follow the source format
         return r0 + 1, r0 + len(rows)
 
+    mc = xc + 6       # column AD: the modules table has 7 rows and would run into the element-group table in X
     tables["mod"] = table(5, "Modules (kgCO2e/m2, incl. contingency)",
                           [("A1-A3", "=%s" % v("M_A13")), ("A4", "=%s" % v("M_A4")), ("A5", "=%s" % v("M_A5")),
-                           ("B4", "=%s" % v("M_B4")), ("C1-C4", "=%s" % v("M_C"))])
+                           ("B2", "=%s" % v("M_B2")), ("B3", "=%s" % v("M_B3")),
+                           ("B4", "=%s" % v("M_B4")), ("C1-C4", "=%s" % v("M_C"))], x0=mc)
     tables["grp"] = table(12, "Element groups A1-A5 (kgCO2e/m2)",
                           [(GROUP_LABELS[i], "=%s" % v("E_%d" % i)) for i in range(len(GROUPS))] + [("Contingency", "=%s" % v("E_CONT"))])
     tables["basis"] = table(23, "Basis of A1-A5 (kgCO2e/m2)",
@@ -391,7 +395,7 @@ def build_dashboard(wb, ctx, opts, branding):
     _note(ws, B, t1 + 1, "Targets and limits are bare thresholds (no contingency); the result uses the project figure incl. the PS Table 10 contingency, "
                          "the figure the PS requires for reporting (4.10). Building-level results shown to 2 s.f. at RIBA 0-2 and 3 s.f. from RIBA 3 (PS 6.1.4); "
                          "results are judged on the unrounded values. UKNZCBS offices: shell & core = this result less the Cat A share of finishes, FF&E and services "
-                       "(Project inputs, 100% shell & core by default); whole building needs a Cat B + loose FF&E allowance. B1-B3, B5 not assessed.", h=36)
+                       "(Project inputs, 100% shell & core by default); whole building needs a Cat B + loose FF&E allowance. A-C includes B2 / B3 (PS default allowances); B1, B5 not assessed.", h=36)
     na = FormulaRule(formula=["ISNA(F%d)" % t0], font=Font(color="FFFFFF"))      # hide #N/A kept for the chart
     ws.conditional_formatting.add("F%d:H%d" % (t0, t1), na)
     # chart rows (X:AA from row 60): per target one stacked project bar (before + contingency) and one target bar
@@ -428,9 +432,10 @@ def build_dashboard(wb, ctx, opts, branding):
     a, b = tables["mod"]
     ch = BarChart()
     ch.type = "col"
-    ch.add_data(Reference(ws, min_col=xc + 1, min_row=a, max_row=b), titles_from_data=False)
-    ch.set_categories(Reference(ws, min_col=xc, min_row=a, max_row=b))
-    _points(ch.series[0], B["modules"])
+    ch.add_data(Reference(ws, min_col=mc + 1, min_row=a, max_row=b), titles_from_data=False)
+    ch.set_categories(Reference(ws, min_col=mc, min_row=a, max_row=b))
+    m5 = (list(B["modules"]) + DEFAULT["modules"])[:5]
+    _points(ch.series[0], m5[:3] + list(B.get("modules_b23") or DEFAULT["modules_b23"])[:2] + m5[3:5])
     _labels(ch.series[0], B)
     ch.gapWidth = 50
     _style_chart(ch, B, "By life-cycle module (kgCO2e/m2 GIA)", legend=False, w=15.5, h=8)
