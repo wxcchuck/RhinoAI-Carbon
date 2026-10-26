@@ -139,5 +139,53 @@
     return h + "</div>";
   }
 
-  window.WlcaCharts = { hbars, donut, bullet, targetColumns, legend, fmt, sf, esc };
+  /**
+   * Stacked columns with labelled segments; negative segments hang below the axis (e.g. sequestered biogenic carbon).
+   * cols [{label, sub, segs: [{label, value, color, ink}], total}]   o {unit, title, height}
+   */
+  function stackColumns(cols, o = {}) {
+    const H = o.height || 380, left = 46, right = 70, top = 18, bottom = 46;
+    const W = Math.max(300, 230 * cols.length + left + right), plotW = W - left - right;
+    const pos = (c) => c.segs.reduce((a, g) => a + Math.max(0, g.value || 0), 0);
+    const neg = (c) => c.segs.reduce((a, g) => a + Math.min(0, g.value || 0), 0);
+    const hi = Math.max(1, ...cols.map(pos)), lo = Math.min(0, ...cols.map(neg));
+    const step = niceStep((hi - lo) * 1.08), ymax = Math.ceil((hi * 1.1) / step) * step;
+    const fine = step / 5, ymin = lo < 0 ? -Math.max(fine, Math.ceil((-lo * 1.3) / fine) * fine) : 0;   // a small band below zero
+    const plotH = H - top - bottom, y = (v) => top + ((ymax - v) / (ymax - ymin)) * plotH;
+    let s = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px" role="img" aria-label="${esc(o.title || "stacked columns")}">`;
+    for (let t = Math.ceil(ymin / step) * step; t <= ymax + 1e-9; t += step) {
+      s += `<line x1="${left}" x2="${W - right}" y1="${y(t)}" y2="${y(t)}" stroke="#e3e3e3"/>`;
+      s += `<text class="lab" x="${left - 6}" y="${y(t) + 4}" text-anchor="end" style="font-size:11px">${fmt(t + 0)}</text>`;
+    }
+    s += `<line x1="${left}" x2="${W - right}" y1="${y(0)}" y2="${y(0)}" stroke="#555" stroke-width="1.2"/>`;
+    const slot = plotW / cols.length, bw = Math.min(124, slot * 0.52);
+    cols.forEach((c, i) => {
+      const cx = left + slot * (i + 0.5), x0 = cx - bw / 2;
+      let up = 0, down = 0;
+      c.segs.forEach((g) => {
+        const v = g.value || 0;
+        if (!v) return;
+        const a = v > 0 ? up : down + v, b = v > 0 ? up + v : down;
+        const y1 = y(b), y0 = y(a), hgt = Math.max(0.5, y0 - y1 - 1);
+        s += `<rect x="${x0}" y="${y1}" width="${bw}" height="${hgt}" fill="${g.color}"><title>${esc(g.label)}: ${fmt(v)} ${esc(o.unit || "")}</title></rect>`;
+        const shown = g.text != null ? g.text : v, txt = `${esc(g.short || g.label)} ${fmt(shown)}`;
+        if (hgt >= 30) {                                         // label inside the segment
+          s += `<text x="${cx}" y="${y1 + hgt / 2 - 2}" text-anchor="middle" style="font-size:11px;fill:${g.ink || "#fff"}">${esc(g.label)}</text>`;
+          s += `<text x="${cx}" y="${y1 + hgt / 2 + 12}" text-anchor="middle" style="font-size:11.5px;font-weight:600;fill:${g.ink || "#fff"}">${fmt(shown)}</text>`;
+        } else {                                                 // thin segment: label beside it
+          s += `<text class="lab" x="${x0 + bw + 6}" y="${y1 + hgt / 2 + 4}" style="font-size:10.5px">${txt}</text>`;
+        }
+        if (v > 0) up += v; else down += v;
+      });
+      if (c.total != null) s += `<text class="val" x="${cx}" y="${y(up) - 6}" text-anchor="middle" style="font-size:12px;font-weight:600">${esc(c.totalLabel || "")}${fmt(c.total)}</text>`;
+      s += `<text x="${cx}" y="${H - bottom + 18}" text-anchor="middle" style="font-size:11.5px;font-weight:600">${esc(c.label)}</text>`;
+      String(c.sub || "").split(" · ").forEach((t, j) => {
+        if (t) s += `<text class="lab" x="${cx}" y="${H - bottom + 32 + 13 * j}" text-anchor="middle" style="font-size:10.5px">${esc(t)}</text>`;
+      });
+    });
+    s += `<text class="lab" transform="translate(11 ${top + plotH / 2}) rotate(-90)" text-anchor="middle" style="font-size:10.5px">${esc(o.unit || "")}</text>`;
+    return s + "</svg>";
+  }
+
+  window.WlcaCharts = { hbars, donut, bullet, targetColumns, stackColumns, legend, fmt, sf, esc };
 })();
