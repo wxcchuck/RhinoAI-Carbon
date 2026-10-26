@@ -382,7 +382,8 @@ def build(cfg):
                   sc_share=dict(finishes=1.0, ffe=1.0, services=1.0), catb_allowance=None,
                   efw_route=EFW_OPTS[0], bio_standin=STANDIN_OPTS[1], grid_d1=None, grid_d1_source=None,
                   op_route=OP_ROUTES[2], op_year=None, dh_factor=0.0, occupancy=None, occ_days=None,
-                  b2_rate=10.0, b2_share=0.01, b3_share=0.25, b3_mep_share=0.10)
+                  b2_rate=10.0, b2_share=0.01, b3_share=0.25, b3_mep_share=0.10,
+                  bench_life={"2.7/2.8": 30, "3": 15, "4": 10, "5": 20, "8": 35})
     params.update(cfg.get("params", {}))
     if params["op_year"] is None:
         params["op_year"] = int(params["construction_start_year"]) + 3
@@ -395,7 +396,7 @@ def build(cfg):
     for nm in ["README", "Project", "Dashboard", "Compare"]:
         wb.create_sheet(nm)
     for o in opts:
-        for s in ("Results", "QA", "Takeoff", "Lines", "Mat"):
+        for s in ("Results", "QA", "Takeoff", "Lines", "Mat", "Traj"):
             wb.create_sheet("O%d_%s" % (o["k"], s))
     for nm in ["Materials", "Layers", "Buildups", "Benchmarks", "Targets"]:
         wb.create_sheet(nm)
@@ -623,6 +624,14 @@ def build(cfg):
          "PS 5.2.3: 25% of B2 for the relevant items. B2 split by the non-MEP share of A1-A5 (services = element group 5)", "B3_PCT"),
         ("B3 repair - MEP, share of services A1-A3", params["b3_mep_share"], "",
          "PS 5.2.3 / CIBSE TM65: 10% of A1-A3 of element group 5, initial installation (its replacements are in B4)", "B3_MEP"),
+        ("Trajectory: life of benchmarked internal walls and doors (2.7 / 2.8)", params["bench_life"]["2.7/2.8"], "yrs",
+         "Times the benchmark B4 of an element group on the 60-year trajectory only (PS Table 20: studwork 30 years). Totals unchanged", "BL_2728"),
+        ("Trajectory: life of benchmarked finishes (3)", params["bench_life"]["3"], "yrs",
+         "PS Table 20: paint 5-10, carpet 7, ceilings 25, raised floor 30 - a representative cycle", "BL_3"),
+        ("Trajectory: life of benchmarked FF&E (4)", params["bench_life"]["4"], "yrs", "PS Table 20: loose furniture and fittings 10 years", "BL_4"),
+        ("Trajectory: life of benchmarked services (5)", params["bench_life"]["5"], "yrs",
+         "PS Table 20: heat source and space heating 20, cooling and controls 15, water 25, electrical 30 - a representative cycle", "BL_5"),
+        ("Trajectory: life of benchmarked external works (8)", params["bench_life"]["8"], "yrs", "PS Table 20: asphalt 35, paving 60, decking 15", "BL_8"),
         ("Benchmark C1 shares", params["benchmark_c1"], "",
          "Exclude = C1 only from the whole-building lump above (avoids counting C1 twice)", "BM_C1"),
         ("A4 road vehicle (REF_Vehicles mode ID)", params["road_vehicle"], "", "PS 5.1.3: average rigid HGV", "VEH_A4"),
@@ -782,6 +791,11 @@ def build(cfg):
         ("Electricity, with grid decarbonisation (FES; upstream x decarbonisation; infrastructure x 0.5)",
          "=FES_AVG+(%s+%s+%s)*DECARB+(%s+%s)*%s" % tuple(rb(x) for x in ("ELEC-TD", "ELEC-WTT-GEN", "ELEC-WTT-TD", "ELEC-INFRA", "ELEC-INFRA-TD", "EMB-DECARB")),
          "kgCO2e/kWh", "F_E_D"),
+        ("Electricity upstream scaled with the grid (T&D + WTT), per kWh", "=%s+%s+%s" % tuple(rb(x) for x in ("ELEC-TD", "ELEC-WTT-GEN", "ELEC-WTT-TD")), "kgCO2e/kWh", "E_UP"),
+        ("Electricity infrastructure, decarbonised (x 0.5)", "=(%s+%s)*%s" % tuple(rb(x) for x in ("ELEC-INFRA", "ELEC-INFRA-TD", "EMB-DECARB")), "kgCO2e/kWh", "E_INF_D"),
+        ("Current grid generation factor", "=" + rb("ELEC-GEN"), "kgCO2/kWh", "E_GEN"),
+        ("Natural gas combustion", "=" + rb("GAS"), "kgCO2e/kWh", "G_COMB"),
+        ("Natural gas WTT", "=" + rb("GAS-WTT"), "kgCO2e/kWh", "G_WTT"),
         ("Natural gas, without grid decarbonisation (combustion + WTT)", "=%s+%s" % (rb("GAS"), rb("GAS-WTT")), "kgCO2e/kWh", "F_G_ND"),
         ("Natural gas, with grid decarbonisation (WTT decarbonised)", "=%s+%s*DECARB" % (rb("GAS"), rb("GAS-WTT")), "kgCO2e/kWh", "F_G_D"),
         ("Water, without grid decarbonisation (supply + wastewater share x treatment)",
@@ -858,6 +872,11 @@ def build(cfg):
                     "Water without an engineer's figure: occupancy x RIBA 2025 potable water target x occupied days (a budget). PV exported is reported in D2 (memo). "
                     "Material decarbonisation (PS 4.11.5 Table 15): B2-B4 and C1-C2 x 0.5, A1-A5, C3-C4 and biogenic unchanged, D x 0.5; "
                     "the decarbonised whole life figure = decarbonised A-C + decarbonised B6 + B7."),
+        ("Trajectory", "O<k>_Traj: the carbon year by year over the RSP (the window's trajectory chart). A1-A5 and biogenic stored at year 0 "
+                       "(practical completion); each replacement in its year - modelled layers at their own life, benchmarked groups at the trajectory "
+                       "lives on Project (PS Table 20) - with the end of life of the removed items; biogenic of a new item stored as the old one is "
+                       "released (net zero); B2 + B3 spread evenly; B6 + B7 each year (decarbonised: that year's FES factor); C1-C4 of what is left "
+                       "and the biogenic release at the RSP. Cumulative columns end at A-C and A-C + B6 + B7, both scenarios."),
         ("Benchmarks", "Elements not taken off use kgCO2e/m2 GIA by use class (PS 4.5.2 method 2). Benchmark A5 is reported in A5.3. Modelled layers in a benchmarked group are dropped (no double counting)."),
         ("Contingency", "PS Table 10 percentage applied to A-C (not D, not biogenic) as a separate row."),
         ("Assumptions", "Take-off rows whose notes start with [ASSUMED] rest on office defaults (no SI, no detail yet). Takeoff column Z marks them; QA, Results and the Dashboard show how many and "
@@ -958,8 +977,8 @@ def build_option(wb, ctx, o):
              "Dropped (benchmarked)", "Active", "Qty/unit (decl.)", "Mass/unit (kg)", "Take-off qty", "Qty (decl. unit)",
              "Mass (kg)", "Materials row", "A1-A3", "Offsite flag", "Fab. waste rate", "A3 offsite (CWCT)", "A4",
              "Site waste rate", "A5.3", "Life (yrs)", "Replacements", "B4", "C2", "C3", "C4", "D", "Biogenic stored",
-             "Biogenic released"]
-    head(N, 4, n_hdr, [7, 5, 18, 8, 5, 20, 8, 7, 9, 6, 9, 9, 10, 11, 11, 8] + [10] * 16)
+             "Biogenic released", "Group (GLA)"]
+    head(N, 4, n_hdr, [7, 5, 18, 8, 5, 20, 8, 7, 9, 6, 9, 9, 10, 11, 11, 8] + [10] * 16 + [14])
     n_first = 5
     MAcol = "Materials!$A$%d:$A$%d" % (m_first, m_last)
     mi = lambda c: "INDEX(Materials!$%s$%d:$%s$%d,P{r})" % (c, m_first, c, m_last)   # noqa: E731
@@ -1000,6 +1019,9 @@ def build_option(wb, ctx, o):
                 30: '=IF(P{r}=0,0,O{r}*%s*(1+Y{r}))' % mi("AO"),
                 31: '=IF(P{r}=0,0,N{r}*N(%s)*(1+Y{r}))' % mi("G"),
                 32: '=-AE{r}',
+                33: ('=IF(G{r}="","",IF(LEFT(G{r},1)="1","Substructure",IF(OR(LEFT(G{r},5)="2.5.1",LEFT(G{r},5)="2.5.2",LEFT(G{r},3)="2.6"),'
+                     '"Facade",IF(LEFT(G{r},1)="3","Internal finishes",IF(LEFT(G{r},1)="4","FFE",IF(LEFT(G{r},1)="5","Services/MEP",'
+                     'IF(LEFT(G{r},1)="8","External works",IF(LEFT(G{r},1)="0","Site","Superstructure"))))))))'),
             }
             for c, f in fx.items():
                 N.cell(r, c, f.format(r=r) if isinstance(f, str) else f)
@@ -1319,6 +1341,8 @@ def build_option(wb, ctx, o):
         c.number_format = "0%" if key.startswith("SH_") else "#,##0.0"
         R.cell(rr_, 26, "%s%s" % (lbl, " (%s)" % unit if unit else ""))
     # NB: the Summary block sits in rows 5..~65 of columns X:Z, right of the element table (A:V)
+    build_trajectory(wb, o, dict(LN=LN, RS=RS, NR=NR, GIA=GIA, sub=sub, bm_first=bm_first, bm_last=bm_last, b=b,
+                                 E_=E_, G_=G_, DH_=DH_, W_=W_, rsp=int(params["rsp"])))
 
     # ---------------------------------------------------------------- QA
     Q = wb[QS]
@@ -1418,6 +1442,103 @@ def build_option(wb, ctx, o):
     T.conditional_formatting.add("Y%d:Y%d" % (t_first, t_last),
                                  FormulaRule(formula=['AND(Y%d<>"",Y%d<>"OK")' % (t_first, t_first)], fill=AMBER))
     return dict(TK=TK, LN=LN, MT=MT, RS=RS, QS=QS, sub=sub, cont=cont, tot=tot, t_first=t_first, t_last=t_last)
+
+
+TRAJ_FIRST = 6       # first data row (year 0) on O<k>_Traj
+TRAJ_COLS = (["Year from completion", "Calendar year", "Upfront A1-A5 (t)", "Biogenic stored (-) / released (+) (t)"]
+             + ["B4 %s (t)" % g for g in GROUPS]
+             + ["B4 total (t)", "B4 decarbonised (t)", "B2 + B3 (t)", "End of life C1-C4 (t)", "End of life decarbonised (t)",
+                "Operational B6 + B7, non-decarbonised (kgCO2e/m2)", "Operational B6 + B7, decarbonised (kgCO2e/m2)",
+                "Embodied cumulative, non-decarbonised (kgCO2e/m2)", "Embodied cumulative, decarbonised (kgCO2e/m2)",
+                "Whole life cumulative, non-decarbonised (kgCO2e/m2)", "Whole life cumulative, decarbonised (kgCO2e/m2)",
+                "FES grid factor of the year (kgCO2/kWh)"])
+TRAJ_KEY = dict(t=1, year=2, b4_first=5, emb_nd=20, emb_d=21, wlc_nd=22, wlc_d=23)
+
+
+def build_trajectory(wb, o, c):
+    """O<k>_Traj: when the carbon happens over the RSP (XW 26/10/2026), one row per year, tCO2e before contingency
+    and kgCO2e/m2 cumulative. Year 0: A1-A5 and biogenic stored. Each replacement year: B4 of the items replaced
+    (modelled layers at their own life; benchmarked groups at the Project trajectory lives) incl. the end of life of the
+    removed items; biogenic of the new item stored as the old one is released (net zero). Every year: B2 + B3 / RSP
+    and B6 + B7 (decarbonised: the FES factor of that year). Year RSP: C1-C4 of what is left and the biogenic release.
+    The cumulative columns end at A-C (AC_ALL / AC_DEC) and A-C + B6 + B7 (WLC_ND / WLC_D)."""
+    T = wb["O%d_Traj" % o["k"]]
+    NR, GIA, sub, b, rsp, RS = c["NR"], c["GIA"], c["sub"], c["b"], c["rsp"], c["RS"]
+    title(T, "%s - carbon over the reference study period (read by the window's trajectory chart)" % o["name"],
+          "Rows = years from practical completion (0) to the RSP on Project at build time (%d). tCO2e before contingency unless stated; "
+          "cumulative columns incl. contingency on embodied carbon, kgCO2e/m2 GIA." % rsp)
+    head(T, 5, TRAJ_COLS, [8, 8, 11, 11] + [10] * 8 + [10, 10, 9, 10, 10, 12, 12, 12, 12, 12, 12, 10], height=60)
+    Xs = "(%s+(%s<=0)*RSP)" % (NR("X"), NR("X"))                       # life; RSP where none
+    Y = NR("Y")
+    cap = lambda k: "(%s-(%s>%s)*(%s-%s))" % (k, k, Y, k, Y)            # noqa: E731  element-wise MIN(k, replacements)
+    n_mod = lambda t: "(%s-%s)" % (cap("INT(%s/%s)" % (t, Xs)), cap("INT((%s-1)/%s)" % (t, Xs)))   # noqa: E731
+    inst = "(%s+%s+%s+%s)" % (NR("Q"), NR("T"), NR("U"), NR("W"))
+    eol = "(%s+%s+%s)/(1+%s)" % (NR("AA"), NR("AB"), NR("AC"), Y)
+    eol_d = "(0.5*%s+%s+%s)/(1+%s)" % (NR("AA"), NR("AB"), NR("AC"), Y)
+    bio0 = "SUMPRODUCT(%s/(1+%s))/1000" % (NR("AE"), Y)
+    rs = lambda cell: "%s!%s" % (RS, cell)                               # noqa: E731
+    life = {"2.7/2.8": "BL_2728", "3": "BL_3", "4": "BL_4", "5": "BL_5", "8": "BL_8"}
+
+    def bench(t, group, dec=False):
+        parts = []
+        for rr in range(c["bm_first"], c["bm_last"] + 1):
+            key = BENCH_KEYS[rr - c["bm_first"]][0]
+            if GROUP_OF.get(key) != group:
+                continue
+            L_, n_ = life[key], "MAX(1,ROUNDUP(RSP/%s,0)-1)" % life[key]
+            cnt = "(MIN(%s,INT(%s/%s))-MIN(%s,INT((%s-1)/%s)))" % (n_, t, L_, n_, t, L_)
+            parts.append("%s%s*%s/%s" % ("0.5*" if dec else "", rs("$J$%d" % rr), cnt, n_))
+        return "+".join(parts)
+    first, last = TRAJ_FIRST, TRAJ_FIRST + rsp
+    na = 'OP_ROUTE="%s"' % OP_ROUTES[2]
+    op_nd = "IF(%s,0,(%s+%s)/RSP)" % (na, rs("$Y$%d" % SUM_ROW["B6_ND"]), rs("$Y$%d" % SUM_ROW["B7_ND"]))
+    fy, fv = "REF_B6B7!$G$5:$G$60", "REF_B6B7!$H$5:$H$60"
+    for i in range(rsp + 1):
+        r, t = first + i, "$A%d" % (first + i)
+        T.cell(r, 1, i)
+        T.cell(r, 2, "=OP_YEAR+A%d-1" % r)
+        T.cell(r, 3, ("=%s" % rs("$I$%d" % sub)) if i == 0 else 0)
+        T.cell(r, 4, ("=%s" % bio0) if i == 0 else ("=-%s" % bio0 if i == rsp else 0))
+        for j, g in enumerate(GROUPS):
+            if i == 0:
+                T.cell(r, 5 + j, 0)
+                continue
+            f = 'SUMPRODUCT((%s="%s")*%s*(%s+%s))/1000' % (NR("AG"), g, n_mod(t), inst, eol)
+            bm = bench(t, g)
+            T.cell(r, 5 + j, "=" + f + ("+" + bm if bm else ""))
+        T.cell(r, 13, "=SUM(E%d:L%d)" % (r, r))
+        if i == 0:
+            T.cell(r, 14, 0)
+        else:
+            bm_d = "+".join(x for x in (bench(t, g, True) for g in GROUPS) if x)
+            T.cell(r, 14, "=SUMPRODUCT(%s*(0.5*%s+%s))/1000%s" % (n_mod(t), inst, eol_d, ("+" + bm_d) if bm_d else ""))
+        T.cell(r, 15, "=(%s+%s)/RSP" % (rs("$C$%d" % b["b2"]), rs("$C$%d" % b["b3"])) if i else 0)
+        if i == rsp:
+            T.cell(r, 16, "=SUM(%s)-SUMPRODUCT((%s+%s+%s)*%s/(1+%s))/1000" % (rs("$K$%d:$N$%d" % (sub, sub)), NR("AA"), NR("AB"), NR("AC"), Y, Y))
+            T.cell(r, 17, "=0.5*(%s+%s)+%s+%s-SUMPRODUCT((0.5*%s+%s+%s)*%s/(1+%s))/1000"
+                   % (rs("$K$%d" % sub), rs("$L$%d" % sub), rs("$M$%d" % sub), rs("$N$%d" % sub), NR("AA"), NR("AB"), NR("AC"), Y, Y))
+        else:
+            T.cell(r, 16, 0)
+            T.cell(r, 17, 0)
+        T.cell(r, 24, ("=IF(B{r}<MIN({fy}),INDEX({fv},MATCH(MIN({fy}),{fy},0)),IF(B{r}>MAX({fy}),INDEX({fv},MATCH(MAX({fy}),{fy},0)),"
+                       "SUMIFS({fv},{fy},B{r})))").format(r=r, fy=fy, fv=fv))
+        if i == 0:
+            T.cell(r, 18, 0)
+            T.cell(r, 19, 0)
+        else:
+            T.cell(r, 18, "=" + op_nd)
+            T.cell(r, 19, ("=IF({na},0,IF({g}>0,({E}*(X{r}+E_UP*X{r}/E_GEN+E_INF_D)+{G}*(G_COMB+G_WTT*X{r}/E_GEN)+{DH}*F_DH"
+                           "+{W}*F_W_ND*X{r}/E_GEN)/{g},0))").format(na=na, g=GIA, r=r, E=c["E_"], G=c["G_"], DH=c["DH_"],
+                                                                         W=rs(c["W_"].replace("Y", "$Y$"))))
+        prev = lambda col: ("+%s%d" % (col, r - 1)) if i else ""            # noqa: E731
+        T.cell(r, 20, "=IF(%s>0,((C{r}+M{r}+O{r}+P{r})*(1+CONT)+D{r})*1000/%s,0)%s".format(r=r) % (GIA, GIA, prev("T")))
+        T.cell(r, 21, "=IF(%s>0,((C{r}+N{r}+0.5*O{r}+Q{r})*(1+CONT)+D{r})*1000/%s,0)%s".format(r=r) % (GIA, GIA, prev("U")))
+        T.cell(r, 22, "=T%d+SUM(R$%d:R%d)" % (r, first, r))
+        T.cell(r, 23, "=U%d+SUM(S$%d:S%d)" % (r, first, r))
+        for col in range(3, 25):
+            T.cell(r, col).number_format = "#,##0.0"
+    T.freeze_panes = "C%d" % first
+    return first, last
 
 
 def apply_font(wb, font):

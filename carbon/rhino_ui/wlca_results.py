@@ -76,7 +76,7 @@ def read_results(path):
             for row in R.iter_rows(min_row=5, max_row=120, min_col=24, max_col=25, values_only=True):
                 if row[0] in KEYS:
                     vals[row[0]] = row[1] if row[0] in ("NAME", "OP_STATUS", "B2_BASIS") else _num(row[1])
-            opts.append({"k": k, "values": vals})
+            opts.append({"k": k, "values": vals, "traj": read_trajectory(wb, k)})
             k += 1
         D = wb["Dashboard"]
         targets = []
@@ -92,6 +92,28 @@ def read_results(path):
                 "options": opts, "targets": targets, "workbook": os.path.abspath(path)}
     finally:
         wb.close()
+
+
+# O<k>_Traj (wlca_calc_template.build_trajectory): first data row and columns
+TRAJ_FIRST, TRAJ_COLS = 6, dict(t=1, year=2, b4_first=5, emb_nd=20, emb_d=21, wlc_nd=22, wlc_d=23)
+TRAJ_GROUPS = 8
+
+
+def read_trajectory(wb, k):
+    """Per-year series for the trajectory chart, or None for workbooks made before it existed.
+    {"t", "year", "emb_nd", "emb_d", "wlc_nd", "wlc_d": [...], "b4": [[tCO2e per GLA group] per year]}"""
+    name = "O%d_Traj" % k
+    if name not in wb.sheetnames:
+        return None
+    T, c = wb[name], TRAJ_COLS
+    out = dict((key, []) for key in ("t", "year", "emb_nd", "emb_d", "wlc_nd", "wlc_d", "b4"))
+    for row in T.iter_rows(min_row=TRAJ_FIRST, max_col=24, values_only=True):
+        if row[c["t"] - 1] is None:
+            break
+        for key in ("t", "year", "emb_nd", "emb_d", "wlc_nd", "wlc_d"):
+            out[key].append(_num(row[c[key] - 1]))
+        out["b4"].append([_num(row[c["b4_first"] - 1 + j]) or 0.0 for j in range(TRAJ_GROUPS)])
+    return out if out["t"] and out["emb_nd"][-1] is not None else None
 
 
 def judge(value, target, cont):

@@ -187,5 +187,62 @@
     return s + "</svg>";
   }
 
-  window.WlcaCharts = { hbars, donut, bullet, targetColumns, stackColumns, legend, fmt, sf, esc };
+  /**
+   * Cumulative lines over years (the trajectory chart).
+   * series [{label, color, dash, x: [...], y: [...]}]; events [{x, label}] = dotted verticals labelled at the top;
+   * o {unit, title, x2: (x) => secondary tick label, height}
+   */
+  function lineChart(series, events, o = {}) {
+    const W = o.width || 760, H = o.height || 340, left = 52, right = 16, top = 46, bottom = 44;
+    const xs = series.flatMap((s_) => s_.x), ys = series.flatMap((s_) => s_.y).filter((v) => v != null);
+    if (!xs.length || !ys.length) return "";
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), ymax0 = Math.max(1, ...ys), ymin0 = Math.min(0, ...ys);
+    const step = niceStep(ymax0 - ymin0), ymax = Math.ceil((ymax0 * 1.05) / step) * step, ymin = ymin0 < 0 ? -Math.ceil(-ymin0 / step) * step : 0;
+    const px = (x) => left + ((x - x0) / Math.max(1e-9, x1 - x0)) * (W - left - right);
+    const py = (v) => top + ((ymax - v) / (ymax - ymin)) * (H - top - bottom);
+    let s = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px" role="img" aria-label="${esc(o.title || "trajectory")}">`;
+    for (let t = ymin; t <= ymax + 1e-9; t += step) {
+      s += `<line x1="${left}" x2="${W - right}" y1="${py(t)}" y2="${py(t)}" stroke="#e3e3e3"/>`;
+      s += `<text class="lab" x="${left - 6}" y="${py(t) + 4}" text-anchor="end" style="font-size:11px">${fmt(t + 0)}</text>`;
+    }
+    const xstep = 10, xstart = x0;                                // ticks every 10 years from year 0
+    for (let x = xstart; x <= x1; x += xstep) {
+      s += `<text class="lab" x="${px(x)}" y="${H - bottom + 16}" text-anchor="middle" style="font-size:11px">${x}</text>`;
+      if (o.x2) s += `<text class="lab" x="${px(x)}" y="${H - bottom + 30}" text-anchor="middle" style="font-size:10px">${esc(o.x2(x))}</text>`;
+    }
+    s += `<line x1="${left}" x2="${W - right}" y1="${py(0)}" y2="${py(0)}" stroke="#555" stroke-width="1.2"/>`;
+    // events: dotted verticals with labels in up to three staggered rows
+    const rowsEnd = [-1e9, -1e9, -1e9];
+    (events || []).forEach((e) => {
+      const ex = px(e.x);
+      s += `<line x1="${ex}" x2="${ex}" y1="${top - 6}" y2="${py(ymin)}" stroke="#9a9a9a" stroke-dasharray="2 3"/>`;
+      const w = 6.2 * e.label.length;
+      let row = rowsEnd.findIndex((end) => ex - w / 2 > end + 6);
+      if (row < 0) row = 2;
+      rowsEnd[row] = ex + w / 2;
+      s += `<text x="${ex}" y="${top - 30 + 12 * row}" text-anchor="middle" style="font-size:10px;font-weight:600;fill:#555;paint-order:stroke;stroke:#fff;stroke-width:3px">${esc(e.label)}<title>${esc(e.title || e.label)}</title></text>`;
+    });
+    const ends = [];
+    series.forEach((sr) => {
+      const pts = sr.x.map((x, i) => (sr.y[i] == null ? null : `${px(x).toFixed(1)},${py(sr.y[i]).toFixed(1)}`)).filter(Boolean).join(" ");
+      s += `<polyline points="${pts}" fill="none" stroke="${sr.color}" stroke-width="${sr.width || 2}" ${sr.dash ? 'stroke-dasharray="7 4"' : ""}><title>${esc(sr.label)}</title></polyline>`;
+      const n = sr.y.length - 1;
+      if (sr.end !== false && sr.y[n] != null) ends.push({ y: py(sr.y[n]) - 6, x: px(sr.x[n]) - 2, c: sr.color, t: fmt(sr.endValue != null ? sr.endValue : sr.y[n]) });
+    });
+    ends.sort((a, b) => a.y - b.y);                              // end values, nudged apart so they never overlap
+    for (let i = 1; i < ends.length; i++) if (ends[i].y < ends[i - 1].y + 12) ends[i].y = ends[i - 1].y + 12;
+    ends.forEach((e) => {
+      s += `<text x="${e.x}" y="${e.y}" text-anchor="end" style="font-size:11px;font-weight:600;fill:${e.c};paint-order:stroke;stroke:#fff;stroke-width:3px">${e.t}</text>`;
+    });
+    s += `<text class="lab" transform="translate(12 ${top + (H - top - bottom) / 2}) rotate(-90)" text-anchor="middle" style="font-size:10.5px">${esc(o.unit || "")}</text>`;
+    return s + "</svg>";
+  }
+
+  /** Legend for lines: [{label, color, dash}]. */
+  function lineLegend(items) {
+    return '<div class="legend inline">' + items.map((it) =>
+      `<span><svg width="26" height="10" style="vertical-align:0"><line x1="1" x2="25" y1="5" y2="5" stroke="${it.color}" stroke-width="2.4" ${it.dash ? 'stroke-dasharray="6 3"' : ""}/></svg> ${esc(it.label)}</span>`).join("") + "</div>";
+  }
+
+  window.WlcaCharts = { hbars, donut, bullet, targetColumns, stackColumns, lineChart, lineLegend, legend, fmt, sf, esc };
 })();

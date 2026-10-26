@@ -536,6 +536,8 @@ def test_results_reader_for_the_window(built2, tmp_path):
     assert res["sc"] == {"fin": 1.0, "ffe": 1.0, "mep": 1.0} and res["catb"] is None        # for the targets chart columns
     for o in res["options"]:          # the A1-A5 column of the targets chart: element groups + contingency = the headline
         v = o["values"]
+        assert o["traj"]["emb_nd"][-1] == pytest.approx(v["AC_ALL"], rel=1e-6)                   # trajectory ends at A-C
+        assert len(o["traj"]["t"]) == 61 and len(o["traj"]["b4"][0]) == 8
         assert sum(v["E_%d" % i] for i in range(8)) + v["E_CONT"] == pytest.approx(v["UP_ALL"], rel=1e-6)
     for o in res["options"]:
         v = o["values"]
@@ -596,3 +598,45 @@ def test_scope_check_expects_what_the_design_has():
     assert ce("2.5.2", "Y", {"facade_curtain_wall_share": "0.0"})[0] == "N"     # brick + punched windows: glazing in 2.6
     assert ce("2.5.2", "Y", {"facade_curtain_wall_share": "0.25"})[0] == "Y"
     assert ce("2.6", "Y", {"facade_curtain_wall_share": "1.0"}) == ("Y", "")    # entrance doors are always there
+
+
+def test_trajectory_ends_at_the_totals(built, tmp_path):
+    """O<k>_Traj (XW 26/10/2026): per-year carbon over the RSP; cumulative columns end at A-C and A-C + B6 + B7,
+    both scenarios; year 0 = A1-A5; replacements land in their years; B2 + B3 and B6 + B7 every year."""
+    lib2, tg = str(tmp_path / "lib_tr.xlsx"), str(tmp_path / "tg_tr.xlsx")
+    _b6_library(built["library_xlsx"], lib2)
+    _targets(tg)
+    bm = str(tmp_path / "bench_tr.xlsx")
+    b = openpyxl.load_workbook(built["benchmarks"]["path"])
+    b["Bench"].append(["", "Office", "5 Services (MEP)", 60, 2, 3, 40, 1, 0.5, 0.5, 0.1, None])
+    b.save(bm)
+    cfg = dict(built, library_xlsx=lib2, targets_xlsx=tg, out=str(tmp_path / "tr.xlsx"), benchmarks=dict(built["benchmarks"], path=bm),
+               params=dict(built["params"], op_route=ct.OP_ROUTES[0], op_year=2030, construction_start_year=2027))
+    cfg.pop("takeoff_csv")
+    cfg["options"] = [dict(name="A", takeoff_csv=built["takeoff_csv"], operational=dict(elec=100000, gas=20000, water=1000))]
+    ct.build(cfg).save(cfg["out"])
+    w = _calc(cfg["out"], str(tmp_path / "c_tr"))
+    R, T = w["O1_Results"], w["O1_Traj"]
+    g = lambda key: R["Y%d" % ct.SUM_ROW[key]].value                      # noqa: E731
+    f0, rsp = ct.TRAJ_FIRST, 60
+    col = lambda c, r: T.cell(r, c).value                                 # noqa: E731
+    last = f0 + rsp
+    K = ct.TRAJ_KEY
+    assert col(K["t"], f0) == 0 and col(K["t"], last) == rsp and col(K["year"], f0 + 1) == 2030
+    assert col(K["emb_nd"], last) == pytest.approx(g("AC_ALL"), rel=1e-9)
+    assert col(K["emb_d"], last) == pytest.approx(g("AC_DEC"), rel=1e-9)
+    assert col(K["wlc_nd"], last) == pytest.approx(g("WLC_ND"), rel=1e-9)
+    assert col(K["wlc_d"], last) == pytest.approx(g("WLC_D"), rel=1e-9)
+    assert col(K["emb_nd"], f0) == pytest.approx(g("UP_ALL") + g("BIO_STORED"), rel=1e-9)        # year 0: upfront (+ stored)
+    b4 = [sum(col(c, r) or 0 for c in range(K["b4_first"], K["b4_first"] + 8)) for r in range(f0, last + 1)]
+    gia = g("GIA")
+    assert sum(b4) * 1000 / gia > g("M_B4") / 1.15 - 1e-6                 # B4 incl. the end of life of replaced items
+    svc = [col(K["b4_first"] + 5, r) or 0 for r in range(f0, last + 1)]  # benchmarked services: every 20 years
+    assert [i for i, x in enumerate(svc) if x > 1e-9] == [20, 40]
+    nd = [col(K["wlc_nd"], r) for r in range(f0, last + 1)]
+    assert all(b_ >= a_ - 1e-9 for a_, b_ in zip(nd, nd[1:]))              # cumulative never falls (no storage after year 0)
+
+
+def test_trajectory_layout_shared_with_the_reader():
+    import wlca_results as wr
+    assert wr.TRAJ_FIRST == ct.TRAJ_FIRST and wr.TRAJ_COLS == ct.TRAJ_KEY and wr.TRAJ_GROUPS == len(ct.GROUPS)

@@ -69,6 +69,16 @@ Drafted by an AI agent (Claude) from the working sessions; review before relying
 | M3 | B2 / B3 are whole-building allowances: a block under the element table on O<k>_Results, not allocated to element groups; own bars in the module charts (workbook Dashboard and panel). The PS Table 10 contingency is applied at the end, as for every embodied module | Confirmed (XW 26/10/2026) |
 | M4 | A-C, B-C and their target boundaries (LETI life cycle, RIBA 2030, GLA A-C) now include B2 / B3; UKNZCBS upfront (A1-A5) unchanged. Material decarbonisation halves B2 / B3 with B4 (PS 4.11.5 Table 15). B2 / B3 sit with "modelled + site" in the budget and scenario figures (PS defaults, not benchmarks) | Confirmed (XW 26/10/2026) |
 
+## Trajectory over the RSP (window chart, O<k>_Traj)
+
+| # | Decision | Status |
+|---|---|---|
+| T1 | A1-A5 at year 0 (practical completion); B4 in the year of each replacement; B2 / B3 spread evenly over the RSP; B6 / B7 every year; C1-C4 of what is left at the RSP; D not shown (memo). Biogenic carbon is stored at year 0 and released when the product leaves (−1/+1 rule): at each replacement the new item stores what the old releases (net zero), the last release at the RSP - the end-of-life route changes C3 / C4, not this timing | Confirmed (XW 26/10/2026) |
+| T2 | The end of life (C2-C4) of replaced items is placed in the replacement year; the building's own C1-C4 at the RSP | Confirmed (XW 26/10/2026) |
+| T3 | Benchmarked groups have no life of their own: their B4 is spread over replacement years at PS Table 20 representative lives (Project inputs: 2.7/2.8 30, finishes 15, FF&E 10, services 20, external works 35 years) | Confirmed (XW 26/10/2026) |
+| T4 | Calendar years from the first year of operation, years from completion as a second scale; two lines per option, solid non-decarbonised and dashed decarbonised (that year's FES factor; Table 15 on B2-B4, C1-C2); contingency on every embodied step, so the end points equal the headline figures | Confirmed (XW 26/10/2026) |
+| T5 | Replacement years carrying at least 1.5% of the final embodied figure are marked and named by their largest element groups; the Compare tab overlays one line pair per option with summary cards | Confirmed (XW 26/10/2026) |
+
 ## Rhino window (dialog v0.1, web window from v0.2)
 
 | # | Decision | Status |
