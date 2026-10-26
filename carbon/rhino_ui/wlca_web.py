@@ -140,7 +140,7 @@ class WLCAWindow(object):
     def load_doc(self, doc):
         """Everything that belongs to one model: its saved settings, the office settings, run and results."""
         self.doc = doc
-        self.state = ws.loads(self.doc.Strings.GetValue(ws.STATE_KEY) or "")
+        self.state = ws.loads(self.doc.Strings.GetValue(ws.STATE_KEY) or "", self.model_folder())
         self.load_office()
         self.exports, self.run_rows, self.messages = [], [], []
         self.calc = {"status": "", "message": ""}       # Excel calculation: "" | running | done | failed
@@ -156,7 +156,11 @@ class WLCAWindow(object):
 
     # ---------------------------------------------------------------- bridge
     def save(self):
-        self.doc.Strings.SetString(ws.STATE_KEY, ws.dumps(self.state))
+        self.doc.Strings.SetString(ws.STATE_KEY, ws.dumps(self.state, self.model_folder()))
+
+    def model_folder(self):
+        """Folder of the open .3dm (None while it is unsaved): paths under it are also saved relative to it."""
+        return os.path.dirname(self.doc.Path) if self.doc.Path else None
 
     def refresh(self):
         if not self.dead:

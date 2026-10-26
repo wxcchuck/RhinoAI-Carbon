@@ -414,3 +414,36 @@ def test_raft_check():
     assert ws.check_substructure(o, "A") == []
     o["substructure"]["caps_raft"]["raft_thickness_m"] = None
     assert "raft thickness" in ws.check_substructure(o, "A")[0][1]
+
+
+def test_paths_follow_a_moved_project(tmp_path):
+    old, new = tmp_path / "P" / "proj", tmp_path / "C" / "samples" / "proj"
+    for base in (old, new):
+        (base / "WLCA").mkdir(parents=True)
+        (base / "schedule.xlsx").write_text("x")
+    other = tmp_path / "V" / "logo.png"
+    other.parent.mkdir()
+    other.write_text("x")
+    st = ws.default_state()
+    st["schedule"]["path"] = str(old / "schedule.xlsx")
+    st["output"].update(folder=str(old / "WLCA"), logo=str(other), last_workbook=str(old / "WLCA" / "P_WLCA.xlsx"))
+    st["options"] = [dict(ws.default_option("A"), source="file", file=str(tmp_path / "elsewhere.3dm"))]
+    saved = ws.dumps(st, str(old))
+    rel = json.loads(saved)["_rel"]
+    assert rel == {"schedule.path": "schedule.xlsx", "output.folder": "WLCA",
+                   "output.last_workbook": os.path.join("WLCA", "P_WLCA.xlsx")}          # logo / option file are elsewhere
+    assert "_rel" not in st                                                           # in-memory state untouched
+    # the whole folder moved: inputs found there, output follows the model, outside paths unchanged
+    moved = ws.loads(saved, str(new))
+    assert moved["schedule"]["path"] == str(new / "schedule.xlsx")
+    assert moved["output"]["folder"] == str(new / "WLCA")
+    assert moved["output"]["logo"] == str(other) and moved["options"][0]["file"] == str(tmp_path / "elsewhere.3dm")
+    assert moved["output"]["last_workbook"] == str(new / "WLCA" / "P_WLCA.xlsx")      # neither exists: follows the model
+    # only the .3dm copied somewhere else: the schedule is still read from where it is
+    lone = tmp_path / "D" / "copy"
+    lone.mkdir(parents=True)
+    copied = ws.loads(saved, str(lone))
+    assert copied["schedule"]["path"] == str(old / "schedule.xlsx")
+    assert copied["output"]["folder"] == str(lone / "WLCA")
+    assert ws.loads(saved)["schedule"]["path"] == str(old / "schedule.xlsx")         # unsaved model: as saved
+    assert ws.loads(ws.dumps(moved, str(new)), str(new)) == moved
