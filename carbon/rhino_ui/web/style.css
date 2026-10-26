@@ -70,6 +70,8 @@ table.data td.n, table.data th.n { text-align: right; font-variant-numeric: tabu
 .chip.before { background: var(--warn-bg); color: var(--warn); }
 .chip.above { background: var(--bad-bg); color: var(--bad); }
 .chip.na { background: #eee; color: var(--muted); }
+.vdot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; background: #bbb; }
+.vdot.meets { background: var(--good); } .vdot.before { background: #c78a1c; } .vdot.above { background: var(--bad); }
 .logo-preview { max-height: 40px; max-width: 260px; margin: 4px 0 0 198px; }
 /* results */
 .tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 14px; }
@@ -83,6 +85,17 @@ table.data td.n, table.data th.n { text-align: right; font-variant-numeric: tabu
 .charts .card { margin: 0; }
 .legend { display: grid; gap: 4px; font-size: 12px; }
 .legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+.legend.inline { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 6px 0 2px; }
+.picker { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 2px 0 10px; }
+.picker .grp { font-size: 12px; color: var(--muted); margin-right: 2px; }
+.picker button { height: 24px; padding: 1px 10px; border-radius: 12px; font-size: 12px; background: #fff; }
+.picker button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.picker .sep { width: 12px; }
+.tchart { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: 10px 24px; }
+.tchart.one { grid-template-columns: minmax(0, 720px); }
+.tchart h3 { font-size: 13px; margin: 4px 0 2px; font-weight: 600; }
+details.all { margin-top: 8px; }
+details.all summary { cursor: pointer; color: var(--accent); font-size: 12px; }
 .legend .lv { font-variant-numeric: tabular-nums; color: var(--muted); }
 .donut-wrap { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
 svg text { font: 12px "Segoe UI", system-ui, sans-serif; fill: var(--ink); }

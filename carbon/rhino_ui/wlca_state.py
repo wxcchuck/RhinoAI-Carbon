@@ -36,7 +36,8 @@ def default_state():
                  "json": "", "summary": []},
         "targets": {"show": {"UKNZCBS": True, "LETI": True, "RIBA": True, "GLA": True},
                     "sc_share": {"finishes": 1.0, "ffe": 1.0, "services": 1.0},
-                    "catb_allowance": None, "scenario": "GLA aspirational", "budget_target": "UKNZCBS"},
+                    "catb_allowance": None, "scenario": "GLA aspirational", "budget_target": "UKNZCBS",
+                    "chart": None},        # targets drawn on the Results page (labels); None = a default few
         # font: one family for the whole workbook; logo: None = the office settings logo, "" = none, else an image file
         "output": {"folder": "", "workbook": "", "font": "Arial", "logo": None},
         # B6 / B7 (PS 5.3 / 5.4): basis for the whole building; energy and water per option

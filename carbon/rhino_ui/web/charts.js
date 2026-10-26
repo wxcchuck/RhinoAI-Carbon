@@ -71,5 +71,73 @@
     return s + "</svg>";
   }
 
-  window.WlcaCharts = { hbars, donut, bullet, fmt, sf, esc };
+  /** "Nice" axis step for a maximum: 1, 2 or 5 x 10^n giving about `n` ticks. */
+  function niceStep(max, n = 5) {
+    const raw = max / n, p = Math.pow(10, Math.floor(Math.log10(raw))), m = raw / p;
+    return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p;
+  }
+
+  /**
+   * Stacked columns against target lines (the "benchmarking" chart).
+   * cols  [{label, sub, segs: [{label, value, color}], total, lines: [{label, value, color}]}]
+   *       Each column is one reporting boundary; its target lines span that column only, because targets on
+   *       different boundaries cannot share a line.
+   * o     {unit, title, max, height}
+   */
+  function targetColumns(cols, o = {}) {
+    const H = o.height || 330, left = 44, right = 8, top = 16, bottom = 58;
+    const W = Math.max(300, 150 * cols.length + left + right), plotH = H - top - bottom, plotW = W - left - right;
+    const peak = Math.max(1, o.max || 0, ...cols.map((c) => Math.max(c.total || 0, ...(c.lines || []).map((l) => l.value || 0))));
+    const step = niceStep(peak * 1.08), ymax = Math.ceil((peak * 1.12) / step) * step;
+    const y = (v) => top + plotH - (Math.max(0, v) / ymax) * plotH;
+    let s = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px" role="img" aria-label="${esc(o.title || "project against targets")}">`;
+    for (let t = 0; t <= ymax + 1e-9; t += step) {             // recessive grid
+      s += `<line x1="${left}" x2="${W - right}" y1="${y(t)}" y2="${y(t)}" stroke="#e3e3e3" stroke-width="1"/>`;
+      s += `<text class="lab" x="${left - 6}" y="${y(t) + 4}" text-anchor="end" style="font-size:11px">${fmt(t)}</text>`;
+    }
+    s += `<line x1="${left}" x2="${W - right}" y1="${y(0)}" y2="${y(0)}" stroke="#555" stroke-width="1.2"/>`;
+    const slot = plotW / cols.length, bw = Math.min(64, slot * 0.42);
+    cols.forEach((c, i) => {
+      const cx = left + slot * (i + 0.5), x0 = cx - bw / 2;
+      let acc = 0;
+      c.segs.forEach((g) => {                                  // stack from the baseline; a 1 px surface gap between fills
+        const v = Math.max(0, g.value || 0);
+        if (!v) return;
+        const y1 = y(acc + v), y0 = y(acc);
+        s += `<rect x="${x0}" y="${y1}" width="${bw}" height="${Math.max(0.5, y0 - y1 - 1)}" fill="${g.color}"><title>${esc(g.label)}: ${fmt(v)} ${esc(o.unit || "")}</title></rect>`;
+        acc += v;
+      });
+      if (c.total != null) s += `<text class="val" x="${cx}" y="${y(c.total) - 6}" text-anchor="middle" style="font-size:12px;font-weight:600">${fmt(c.total)}</text>`;
+      // target lines across this column's slot, labels on the left, nudged apart when two are close
+      const lines = (c.lines || []).slice().sort((a, b) => b.value - a.value);
+      let lastY = -1e9;
+      lines.forEach((l) => {
+        const ly = y(l.value), x1 = cx - slot * 0.46, x2 = cx + slot * 0.46;
+        s += `<line x1="${x1}" x2="${x2}" y1="${ly}" y2="${ly}" stroke="${l.color}" stroke-width="2" stroke-dasharray="6 4"><title>${esc(l.label)}: ${fmt(l.value)}</title></line>`;
+        const ty = Math.max(ly - 4, lastY + 12);
+        s += `<text x="${x1}" y="${ty}" style="font-size:10.5px;fill:${l.color};font-weight:600;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round">${esc(l.short || l.label)} ${fmt(l.value)}</text>`;
+        lastY = ty;
+      });
+      s += `<text x="${cx}" y="${H - bottom + 16}" text-anchor="middle" style="font-size:11.5px;font-weight:600">${esc(c.label)}</text>`;
+      String(c.sub || "").split(" · ").forEach((t, j) => {
+        s += `<text class="lab" x="${cx}" y="${H - bottom + 30 + 13 * j}" text-anchor="middle" style="font-size:10.5px">${esc(t)}</text>`;
+      });
+    });
+    s += `<text class="lab" transform="translate(11 ${top + plotH / 2}) rotate(-90)" text-anchor="middle" style="font-size:10.5px">${esc(o.unit || "")}</text>`;
+    return s + "</svg>";
+  }
+
+  /** Legend for stacked segments: [{label, color}] (one entry per distinct label, in order). */
+  function legend(items) {
+    const seen = new Set();
+    let h = '<div class="legend inline">';
+    items.forEach((it) => {
+      if (seen.has(it.label)) return;
+      seen.add(it.label);
+      h += `<span><span class="sw" style="background:${it.color}"></span>${esc(it.label)}</span>`;
+    });
+    return h + "</div>";
+  }
+
+  window.WlcaCharts = { hbars, donut, bullet, targetColumns, legend, fmt, sf, esc };
 })();

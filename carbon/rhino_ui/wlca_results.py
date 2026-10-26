@@ -12,7 +12,7 @@ KEYS = ["NAME", "GIA", "UP_T", "AC_T", "UP_ALL", "UP_X8", "UP_SC", "UP_WB", "AC_
         "M_A13", "M_A4", "M_A5", "M_B2", "M_B3", "M_B4", "M_C", "M_D", "B2_BASIS",
         "E_0", "E_1", "E_2", "E_3", "E_4", "E_5", "E_6", "E_7", "E_CONT",
         "B_MOD", "B_ASM", "B_BM", "B_SITE", "B_CONT", "SH_ASM",
-        "BIO_STORED", "QA_FLAGS", "EUI", "EUI_LIM", "B6_ND", "B6_D", "B7_ND", "B7_D", "WLC_ND", "WLC_D", "OP_STATUS"]
+        "BIO_STORED", "BIO_RELEASED", "BC_ALL", "QA_FLAGS", "EUI", "EUI_LIM", "B6_ND", "B6_D", "B7_ND", "B7_D", "WLC_ND", "WLC_D", "OP_STATUS"]
 # Dashboard rows 13-22 (wlca_dashboard trows): the summary key each target is judged on
 TARGET_KEYS = ["UP_SC", "UP_WB", "UP_X8", "UP_X8", "AC_X8", "AC_X8", "UP_ALL", "UP_ALL", "AC_ALL", "AC_ALL"]
 TARGET_ROW0 = 13
@@ -86,7 +86,9 @@ def read_results(path):
             if label and tgt:
                 targets.append({"label": label, "key": key, "target": tgt})
         calculated = any(o["values"].get("UP_ALL") is not None for o in opts)
+        sc = dict((k, _num(named(nm))) for k, nm in (("fin", "SC_FIN"), ("ffe", "SC_FFE"), ("mep", "SC_MEP")))
         return {"calculated": calculated, "cont": _num(named("CONT")) or 0.0, "stage": _num(named("STAGE")) or 2,
+                "sc": dict((k, 1.0 if v is None else v) for k, v in sc.items()), "catb": _num(named("CATB")),
                 "options": opts, "targets": targets, "workbook": os.path.abspath(path)}
     finally:
         wb.close()
