@@ -199,8 +199,9 @@ def test_numbers_against_hand_calculation(built, tmp_path):
     assert T["R6"].value == pytest.approx(500 * (g_a13 + st_a13 + off), rel=1e-9)
     assert T["R7"].value == pytest.approx(200 * (g_a13 + st_a13 + off), rel=1e-9)      # routed opaque row
     assert T["K7"].value == "PANEL" and T["L7"].value == "2.5.2"
-    # B4: glass life 35 -> ROUNDUP(60/35)-1 = 1 replacement (ROUNDDOWN would give 0); steel life 60 -> 0
-    g_b4 = g_a13 + p_g_off + 20 * a4["GLASS"] + 0.01 * (g_a13 + p_g_off + 20 * a4["GLASS"] + 20 * eol["GLASS"])
+    # B4: glass life 35 -> ROUNDUP(60/35)-1 = 1 replacement (ROUNDDOWN would give 0); steel life 60 -> 0.
+    # B4 includes the end of life (C2-C4) of the glass it removes (PS 5.2.4, XW 26/10/2026)
+    g_b4 = g_a13 + p_g_off + 20 * a4["GLASS"] + 0.01 * (g_a13 + p_g_off + 20 * a4["GLASS"] + 20 * eol["GLASS"]) + 20 * eol["GLASS"]
     assert T["W6"].value == pytest.approx(500 * g_b4, rel=1e-9)
     # unknown build-up is not counted and is flagged
     assert T["U8"].value == 0 and T["Y8"].value.startswith("NOT IN LIBRARY")
@@ -627,10 +628,15 @@ def test_trajectory_ends_at_the_totals(built, tmp_path):
     assert col(K["emb_d"], last) == pytest.approx(g("AC_DEC"), rel=1e-9)
     assert col(K["wlc_nd"], last) == pytest.approx(g("WLC_ND"), rel=1e-9)
     assert col(K["wlc_d"], last) == pytest.approx(g("WLC_D"), rel=1e-9)
-    assert col(K["emb_nd"], f0) == pytest.approx(g("UP_ALL") + g("BIO_STORED"), rel=1e-9)        # year 0: upfront (+ stored)
+    assert col(K["emb_nd"], f0) == pytest.approx(g("UP_ALL"), rel=1e-9)            # year 0 = the headline A1-A5 (no biogenic)
+    assert col(K["emb_d"], f0) == pytest.approx(g("UP_ALL"), rel=1e-9)
+    assert col(K["bio"], f0) == pytest.approx(g("BIO_STORED"), rel=1e-9)            # biogenic in its own column ...
+    assert col(K["bio"], last) == pytest.approx(0, abs=1e-9)                        # ... netting to zero at the RSP
     b4 = [sum(col(c, r) or 0 for c in range(K["b4_first"], K["b4_first"] + 8)) for r in range(f0, last + 1)]
     gia = g("GIA")
-    assert sum(b4) * 1000 / gia > g("M_B4") / 1.15 - 1e-6                 # B4 incl. the end of life of replaced items
+    assert sum(b4) * 1000 / gia == pytest.approx(g("M_B4") / 1.15, rel=1e-6)      # every replacement lands in a year (B4 incl. its EoL)
+    c_end = col(16, last) * 1000 / gia
+    assert c_end == pytest.approx(g("M_C") / 1.15, rel=1e-6)                       # C1-C4 at the RSP = the C module
     svc = [col(K["b4_first"] + 5, r) or 0 for r in range(f0, last + 1)]  # benchmarked services: every 20 years
     assert [i for i, x in enumerate(svc) if x > 1e-9] == [20, 40]
     nd = [col(K["wlc_nd"], r) for r in range(f0, last + 1)]

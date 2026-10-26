@@ -13,6 +13,8 @@
   let resTab = 0;            // option shown on the results page (-1 = compare)
   let busy = "";             // text shown while Rhino works on an action
   let trajScope = "wlc";     // trajectory: "wlc" whole life (A-C + B6/B7) | "emb" embodied A-C
+  let trajBio = false;       // trajectory: add the biogenic -1/+1 flows (stored at year 0, released at the RSP)
+  let trajD = false;         // trajectory: show module D beyond the RSP (memo, not netted)
 
   // ------------------------------------------------------------------ bridge
   function send(msg) {
@@ -325,6 +327,7 @@
       project: hx(b.project, "1F4E79"), target: hx(b.target, "7F2A3C"), cont: hx(b.contingency_bar, "8FB9BE"),
       target_ac: hx(b.target_lifecycle, "C2600F"),                         // A-C target lines (A1-A5 lines use target)
       stages: (b.stages || ["1F4E79", "5B8DB8", "E3B448", "6BAA75"]).map((c) => hx(c)),   // upfront, B-C, operational, sequestered
+      module_d: hx(b.module_d, "8C9A9E"),                                   // module D (memo, outside A-C)
       modules: (b.modules || ["1F5F66", "5B8DB8", "2C4A68", "B8C4C8", "B5A82A"]).map((c) => hx(c)),   // A1-A3, A4, A5, B4, C1-C4
       b23: (b.modules_b23 || ["C98A3E", "E6C190"]).map((c) => hx(c)),                                   // B2, B3
       groups: (b.groups || ["8C6D4F", "2F4F4F", "5B8DB8", "E07B1A", "7A3B5A", "79A88B", "D9534F", "9FB3BC"]).map((c) => hx(c)),
@@ -378,7 +381,8 @@
     const mods = [["A1-A3 (product)", v.M_A13], ["A4 (transport)", v.M_A4], ["A5 (construction)", v.M_A5], ["B2 (maintenance)", v.M_B2],
       ["B3 (repair)", v.M_B3], ["B4 (replacement)", v.M_B4], ["C1-C4 (end of life)", v.M_C]]
       .map(([label, value], i) => ({ label, value, color: mc[i] }));
-    h += `<div class="card"><h2>By life-cycle module</h2>${hbars(mods, { unit: "kgCO2e/m²", title: "by life-cycle module" })}<p class="note">kgCO2e/m² GIA incl. contingency. B2 / B3: PS default allowances for the whole building (B2 = the greater of 10 kgCO2e/m² GIA and 1% of A1-A5${v.B2_BASIS ? " - here " + esc(v.B2_BASIS) : ""}; B3 = 25% of the non-MEP part of B2 + 10% of services A1-A3). D (memo, outside A-C): ${fmt(v.M_D)}.</p></div>`;
+    if (v.M_D) mods.push({ label: "D (memo, not in A-C)", value: v.M_D, color: P.module_d, sep: true, muted: true });
+    h += `<div class="card"><h2>By life-cycle module</h2>${hbars(mods, { unit: "kgCO2e/m²", title: "by life-cycle module" })}<p class="note">kgCO2e/m² GIA incl. contingency. B2 / B3: PS default allowances for the whole building (B2 = the greater of 10 kgCO2e/m² GIA and 1% of A1-A5${v.B2_BASIS ? " - here " + esc(v.B2_BASIS) : ""}; B3 = 25% of the non-MEP part of B2 + 10% of services A1-A3). B4 includes the end of life of the items replaced (PS 5.2.4); C1-C4 covers what is in place at the end. D: benefits beyond the system boundary (reuse, recycling, energy recovery), before contingency, reported separately and never netted off A-C.</p></div>`;
     const groups = M.group_labels.map((label, i) => ({ label, value: v["E_" + i], color: P.groups[i % P.groups.length] }));
     groups.push({ label: "Contingency", value: v.E_CONT, color: P.cont });
     h += `<div class="card"><h2>A1-A5 by element group</h2>${hbars(groups, { unit: "kgCO2e/m²", title: "A1-A5 by element group" })}<p class="note">kgCO2e/m² GIA, before contingency; contingency shown as its own bar.</p></div>`;
@@ -412,22 +416,36 @@
     if (!have.length) return "";
     const anyOp = have.some((o) => typeof o.values.WLC_ND === "number" && (o.values.B6_ND || o.values.B7_ND));
     const scope = anyOp ? trajScope : "emb", series = [], items = [];
+    const bioOk = have.every((o) => Array.isArray(o.traj.bio)), anyBio = bioOk && have.some((o) => o.traj.bio.some((x) => Math.abs(x) > 1e-9));
+    const anyD = have.some((o) => o.values.M_D), showBio = trajBio && anyBio, showD = trajD && anyD;
+    const DX = 4;                                                  // module D drawn this many years beyond the RSP
     have.forEach((o, i) => {
       const tr = o.traj, v = o.values, nm = v.NAME || "Option " + o.k;
       const col = opts.length > 1 ? OPTION_COLOURS[i % OPTION_COLOURS.length] : P.project;
-      const nd = scope === "wlc" ? tr.wlc_nd : tr.emb_nd, d = scope === "wlc" ? tr.wlc_d : tr.emb_d;
-      const pre = opts.length > 1 ? nm + " - " : "";
-      series.push({ label: pre + "non-decarbonised", color: col, x: tr.year, y: nd, endValue: sf(nd[nd.length - 1], sfN) });
-      series.push({ label: pre + "decarbonised", color: col, dash: true, x: tr.year, y: d, endValue: sf(d[d.length - 1], sfN) });
+      const add = (ys) => (showBio ? ys.map((y, j) => (y == null ? y : y + (tr.bio[j] || 0))) : ys);
+      const nd = add(scope === "wlc" ? tr.wlc_nd : tr.emb_nd), d = add(scope === "wlc" ? tr.wlc_d : tr.emb_d);
+      const pre = opts.length > 1 ? nm + " - " : "", n = tr.year.length - 1, xe = tr.year[n];
+      series.push({ label: pre + "non-decarbonised", color: col, x: tr.year, y: nd, endValue: sf(nd[n], sfN) });
+      series.push({ label: pre + "decarbonised", color: col, dash: true, x: tr.year, y: d, endValue: sf(d[n], sfN) });
+      if (showD && v.M_D) {
+        series.push({ label: pre + "with module D (memo), non-decarbonised", color: col, dot: true, x: [xe, xe + DX], y: [nd[n], nd[n] + v.M_D], endValue: sf(nd[n] + v.M_D, sfN), end: opts.length === 1 });
+        series.push({ label: pre + "with module D (memo), decarbonised", color: col, dot: true, x: [xe, xe + DX], y: [d[n], d[n] + (v.D_DEC != null ? v.D_DEC : v.M_D)], end: false });
+      }
       if (opts.length > 1) items.push({ label: nm, color: col });
       else items.push({ label: "non-decarbonised", color: col }, { label: "decarbonised (PS Table 15, FES grid)", color: col, dash: true });
     });
     if (opts.length > 1) items.push({ label: "solid: non-decarbonised", color: "#777" }, { label: "dashed: decarbonised (PS Table 15, FES grid)", color: "#777", dash: true });
+    if (showD) items.push({ label: "dotted: + module D beyond the RSP (memo, not netted)", color: opts.length > 1 ? "#777" : P.project, dot: true });
     const tr0 = have[0].traj, first = tr0.year[0];
     const events = opts.length === 1 ? trajEvents(tr0, R, have[0].values.GIA) : [];
+    if (showD) events.push({ x: tr0.year[tr0.year.length - 1] + DX, label: "D", title: "Module D: benefits beyond the system boundary, reported separately (not part of A-C)" });
     let h = `<div class="card wide"><h2>${opts.length > 1 ? "Options over the reference study period" : "Over the reference study period"}</h2>`;
-    if (anyOp) h += `<div class="tabs" style="margin-bottom:6px">${[["wlc", "Whole life (A-C + B6-B7)"], ["emb", "Embodied A-C"]].map(([k, l]) =>
+    const tog = (ui, on, label, tip) => `<button type="button" data-ui="${ui}" class="${on ? "on" : ""}" title="${esc(tip)}">${on ? "✓ " : ""}${label}</button>`;
+    h += '<div class="row" style="gap:12px;margin-bottom:6px;flex-wrap:wrap">';
+    if (anyOp) h += `<div class="tabs">${[["wlc", "Whole life (A-C + B6-B7)"], ["emb", "Embodied A-C"]].map(([k, l]) =>
       `<button type="button" data-ui="trajscope" data-k="${k}" class="${scope === k ? "on" : ""}">${l}</button>`).join("")}</div>`;
+    if (anyBio || anyD) h += `<div class="tabs">${anyBio ? tog("trajbio", showBio, "Biogenic (-1/+1)", "Add the carbon stored in bio-based products at year 0 and its release at the end of the RSP (nets to zero)") : ""}${anyD ? tog("trajd", showD, "Module D", "Show module D beyond the RSP (memo, not netted)") : ""}</div>`;
+    h += "</div>";
     h += lineChart(series, events, { unit: "kgCO2e/m² GIA, cumulative", title: "carbon over the reference study period", x2: (x) => "yr " + (x - first) });
     h += lineLegend(items);
     if (opts.length > 1) {
@@ -440,7 +458,11 @@
           <div class="u">kgCO2e/m² GIA</div></div>`;
       }).join("") + "</div>";
     }
-    return h + note(`Year 0 = practical completion (${first}); year 1 = the first year of operation. A1-A5 at year 0; each replacement in its year (modelled items at their own life, benchmarked groups at the trajectory lives on the workbook's Project sheet) with the end of life of what it replaces; B2 / B3 spread evenly; B6 / B7 each year (decarbonised: that year's FES factor); C1-C4 of what is left at the end. Contingency on embodied carbon. The end points equal the headline figures.`) + "</div>";
+    return h + note(`Year 0 = practical completion (${first}); year 1 = the first year of operation. A1-A5 at year 0; each replacement in its year (modelled items at their own life, benchmarked groups at the trajectory lives on the workbook's Project sheet) with the end of life of what it replaces; B2 / B3 spread evenly; B6 / B7 each year (decarbonised: that year's FES factor); C1-C4 of what is left at the end. Contingency on embodied carbon. The end points equal the headline figures. ` +
+      (showBio ? "Biogenic shown (-1/+1): the carbon stored in bio-based products is taken off at year 0 and released at the end of the RSP, as the PS reports it (A1-A3 / C3-C4) - an accounting convention, not a forecast of when the carbon returns to the air; it nets to zero by year " + (tr0.year[tr0.year.length - 1] - first) + ". "
+        : (anyBio ? "Biogenic carbon is left out, as in the headline A1-A5 (it nets to zero over A-C under -1/+1); switch it on to see it. " : "")) +
+      (!bioOk ? "This workbook was made before biogenic carbon had its own column: its lines include it - create the workbook again. " : "") +
+      (showD ? "Module D (dotted, beyond the RSP) is a memo: benefits beyond the system boundary, before contingency, never netted off A-C." : "")) + "</div>";
   }
 
   // ------------------------------------------------------------------ whole life by stage
@@ -460,15 +482,21 @@
       : [col("Embodied A-C", "operational not assessed", v.AC_ALL, 0, 0, v.AC_ALL)];
     cols.forEach((c) => c.segs.forEach((g) => { g.text = sf(g.value, sfN); }));    // stage figures to the reporting precision
     const items = cols[0].segs.filter((g) => g.value).map((g) => ({ label: g.label, color: g.color }));
+    if (v.M_D) {                                                    // module D: its own column, never stacked on A-C
+      cols.push({ label: "Module D", sub: "memo · not netted off A-C", weight: 0.55, total: null,
+        segs: [{ label: "Module D (beyond the system boundary)", short: "D", value: v.M_D, text: sf(v.M_D, sfN), color: P.module_d }] });
+      items.push({ label: "Module D (memo)", color: P.module_d });
+    }
     const table = !op ? "" : `<table class="data"><tr><th>kgCO2e/m² GIA over the RSP</th><th class="n">Non-decarbonised</th><th class="n">Decarbonised</th></tr>
         <tr><td>Upfront A1-A5</td><td class="n">${fmt(sf(up, sfN))}</td><td class="n">${fmt(sf(up, sfN))}</td></tr>
         <tr><td>Embodied A-C (incl. B2-B4, C1-C4, biogenic)</td><td class="n">${fmt(sf(v.AC_ALL, sfN))}</td><td class="n">${fmt(sf(v.AC_DEC, sfN))}</td></tr>
         <tr><td>B6 operational energy</td><td class="n">${fmt(sf(v.B6_ND, sfN))}</td><td class="n">${fmt(sf(v.B6_D, sfN))}</td></tr>
         <tr><td>B7 operational water</td><td class="n">${fmt(v.B7_ND, 1)}</td><td class="n">${fmt(v.B7_D, 1)}</td></tr>
-        <tr><td><b>Whole life A-C + B6 + B7</b></td><td class="n"><b>${fmt(sf(v.WLC_ND, sfN))}</b></td><td class="n"><b>${fmt(sf(v.WLC_D, sfN))}</b></td></tr></table>
+        <tr><td><b>Whole life A-C + B6 + B7</b></td><td class="n"><b>${fmt(sf(v.WLC_ND, sfN))}</b></td><td class="n"><b>${fmt(sf(v.WLC_D, sfN))}</b></td></tr>
+        ${v.M_D ? `<tr><td class="muted">Module D (memo, not netted)</td><td class="n muted">${fmt(sf(v.M_D, sfN))}</td><td class="n muted">${fmt(sf(v.D_DEC != null ? v.D_DEC : v.M_D, sfN))}</td></tr>` : ""}</table>
         <p class="note">${esc(v.OP_STATUS || "")}${v.EUI != null ? ` · EUI ${fmt(v.EUI)} kWh/m²/yr${v.EUI_LIM ? " (UKNZCBS limit " + fmt(v.EUI_LIM) + ")" : ""}` : ""}</p>`;
     return `<div class="card wide"><h2>Whole life by stage</h2><div class="tchart"><div>${stackColumns(cols, { unit: "kgCO2e/m² GIA", title: "whole life carbon by stage" })}${legend(items)}</div><div>${table}
-      <p class="note">kgCO2e/m² GIA over the RSP, incl. contingency on embodied carbon. B-C includes B2-B4, C1-C4 and the biogenic carbon released at end of life; the carbon stored in bio-based products (A1-A3) is shown below the line. ${op ? "Both grid scenarios as the PS requires (4.11.4)." : "B6 / B7 not assessed - set the operational basis on step 6."}</p></div></div></div>`;
+      <p class="note">kgCO2e/m² GIA over the RSP, incl. contingency on embodied carbon. B-C includes B2-B4, C1-C4 and the biogenic carbon released at end of life; the carbon stored in bio-based products (A1-A3) is shown below the line (-1/+1, so it nets to zero over A-C). Module D, where there is any, is its own column: benefits beyond the system boundary, before contingency, reported separately as the PS requires. ${op ? "Both grid scenarios as the PS requires (4.11.4)." : "B6 / B7 not assessed - set the operational basis on step 6."}</p></div></div></div>`;
   }
 
   // ------------------------------------------------------------------ against targets
@@ -622,6 +650,8 @@
     if (t.id === "next") return go(step + 1);
     if (t.dataset.ui === "restab") { resTab = Number(t.dataset.i); return render(); }
     if (t.dataset.ui === "trajscope") { trajScope = t.dataset.k; return render(); }
+    if (t.dataset.ui === "trajbio") { trajBio = !trajBio; return render(); }
+    if (t.dataset.ui === "trajd") { trajD = !trajD; return render(); }
     if (t.dataset.ui === "tpick") {
       const R = M.results, cur = chartTargets(R), l = t.dataset.label;
       const next = cur.includes(l) ? cur.filter((x) => x !== l) : cur.length >= MAX_CHART_TARGETS ? cur : cur.concat([l]);
