@@ -533,6 +533,10 @@ def test_results_reader_for_the_window(built2, tmp_path):
     res = wr.read_results(str(tmp_path / "calc" / os.path.basename(built2["out"])))
     assert res["calculated"] and [o["values"]["NAME"] for o in res["options"]] == ["Opt A", "Opt B"]
     assert res["cont"] == pytest.approx(0.15) and res["targets"]
+    assert res["sc"] == {"fin": 1.0, "ffe": 1.0, "mep": 1.0} and res["catb"] is None        # for the targets chart columns
+    for o in res["options"]:          # the A1-A5 column of the targets chart: element groups + contingency = the headline
+        v = o["values"]
+        assert sum(v["E_%d" % i] for i in range(8)) + v["E_CONT"] == pytest.approx(v["UP_ALL"], rel=1e-6)
     for o in res["options"]:
         v = o["values"]
         parts = sum(v[k] or 0 for k in ("B_MOD", "B_ASM", "B_BM", "B_SITE", "B_CONT"))

@@ -44,6 +44,7 @@ STEPS = ["Project & options", "Drawings & schedule", "Substructure", "Superstruc
 PLAN_ROUTES = [("rhino", "Plan in Rhino (layers)"), ("pdf", "PDF plan extract (.json)"), ("none", "None - use office defaults")]
 
 
+CHART_TARGETS_MAX = 4                  # targets drawn at once on the Results page
 PANEL_VIEW_KEY = "WLCA.WebView"      # AppDomain data set by WlcaPanel (WLCA.rhp): the panel's WebView
 PANEL_ATTACHED_KEY = "WLCA.Attached"  # set here once the page is attached to it
 
@@ -239,6 +240,8 @@ class WLCAWindow(object):
             src = opts[int(a["i"])]["substructure"]
             for o in opts:
                 o["substructure"] = copy.deepcopy(src)
+        elif name == "chart_targets":
+            st["targets"]["chart"] = [str(x) for x in (a.get("labels") or [])][:CHART_TARGETS_MAX]
         elif name == "add_basement_level":
             b = ws.fill_substructure(opts[int(a["i"])])["substructure"]["basement"]
             b["levels"].append(ws.new_basement_level(len(b["levels"]) + 1))

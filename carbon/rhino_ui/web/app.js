@@ -5,7 +5,7 @@
 // All checks and calculations happen in Python / Excel; this file only draws and forwards.
 (function () {
   "use strict";
-  const { hbars, donut, bullet, fmt, sf, esc } = window.WlcaCharts;
+  const { hbars, donut, bullet, targetColumns, legend, fmt, sf, esc } = window.WlcaCharts;
   const host = window.chrome && window.chrome.webview ? window.chrome.webview : window.eto || null;
   let M = null;              // the latest model from Rhino
   let step = 0;              // page shown
@@ -364,17 +364,7 @@
     }
     h += "</div>";
     if (v.QA_FLAGS) h += `<div class="msg warn">${fmt(v.QA_FLAGS)} QA flag(s) open - check sheet O${o.k}_QA in the workbook before using these figures.</div>`;
-    // targets
-    if (R.targets.length) {
-      h += '<div class="card"><h2>Against targets</h2><table class="data"><tr><th>Target</th><th>Boundary</th><th class="n">Project incl. contingency</th><th class="n">Target</th><th class="n">Margin</th><th>Result</th><th></th></tr>';
-      R.targets.forEach((t, i) => {
-        const val = v[t.key], before = val == null ? null : val / (1 + R.cont), verdict = o.verdicts[i];
-        h += `<tr><td>${esc(t.label)}</td><td class="muted">${esc(BOUNDARY[t.key] || t.key)}</td><td class="n">${val == null ? "–" : fmt(sf(val, sfN))}</td>
-          <td class="n">${fmt(t.target)}</td><td class="n">${val == null ? "" : fmt(t.target - sf(val, sfN))}</td><td>${chip(verdict)}</td>
-          <td>${bullet(before, val, t.target, { project: P.project, cont: P.cont, target: P.target })}</td></tr>`;
-      });
-      h += "</table>" + note("Targets are bare thresholds; the project figure includes the contingency, as the PS requires for reporting (4.10). Bar: project before contingency, contingency, and the target line.") + "</div>";
-    }
+    if (R.targets.length) h += targetsCard(R, o, sfN, P);
     // charts
     h += '<div class="charts">';
     const basis = [["Modelled - project information", v.B_MOD], ["Modelled - assumed quantities", v.B_ASM], ["Benchmarked", v.B_BM], ["Site lumps (A5.1 / A5.2)", v.B_SITE], ["Contingency (PS Table 10)", v.B_CONT]]
@@ -400,6 +390,87 @@
     h += "</div>";
     if (v.BIO_STORED) h += note(`Biogenic carbon stored in products: ${fmt(v.BIO_STORED)} kgCO2e/m² GIA (reported separately, not in A1-A5; released at end of life within A-C).`);
     return h;
+  }
+
+
+  // ------------------------------------------------------------------ against targets
+  const MAX_CHART_TARGETS = 4;
+  // one column per reporting boundary; targets on that boundary are drawn as lines across it
+  const TCOL = {
+    UP_SC: ["A1-A5 shell & core", "excl. ext. works · UKNZCBS offices"], UP_WB: ["A1-A5 + Cat B", "whole building · UKNZCBS offices"],
+    UP_X8: ["A1-A5", "excl. ext. works · UKNZCBS, LETI"], UP_ALL: ["A1-A5", "all elements · GLA"],
+    AC_X8: ["A-C", "excl. ext. works · LETI, RIBA"], AC_ALL: ["A-C", "all elements · GLA"],
+  };
+  const UPFRONT = ["UP_SC", "UP_WB", "UP_X8", "UP_ALL"], LIFECYCLE = ["AC_X8", "AC_ALL"];
+  const short = (l) => l.replace("shell & core limit", "S&C").replace("whole-building limit", "whole bldg").replace(" design target", "")
+    .replace("RIBA 2030 Challenge - ", "RIBA ").replace(" A1-A5", "").replace(" A-C", "");
+  function chartTargets(R) {
+    const saved = (S().targets || {}).chart, labels = R.targets.map((t) => t.label);
+    if (Array.isArray(saved)) return saved.filter((l) => labels.includes(l));
+    const pick = [];                                  // default: the main limit, GLA aspirational, RIBA 2030 and GLA aspirational A-C
+    const first = (re) => { const t = R.targets.find((x) => re.test(x.label) && !pick.includes(x.label)); if (t) pick.push(t.label); };
+    first(/UKNZCBS.*shell/); if (!pick.length) first(/UKNZCBS/);
+    first(/GLA aspirational A1-A5/); first(/RIBA 2030.*2030/); first(/GLA aspirational A-C/);
+    return pick.slice(0, MAX_CHART_TARGETS);
+  }
+  function boundarySegs(key, v, R, P) {
+    const cont = R.cont || 0, total = v[key], gl = M.group_labels, sc = R.sc || { fin: 1, ffe: 1, mep: 1 };
+    if (total == null || typeof total !== "number") return { segs: [], total: null };
+    let segs = [];
+    if (key.startsWith("UP_")) {
+      const share = { 3: key === "UP_SC" ? sc.fin : 1, 4: key === "UP_SC" ? sc.ffe : 1, 5: key === "UP_SC" ? sc.mep : 1 };
+      for (let i = 0; i < gl.length; i++) {
+        if (i === 6 && key !== "UP_ALL") continue;           // external works only on the GLA boundary
+        segs.push({ label: gl[i], value: (v["E_" + i] || 0) * (share[i] != null ? share[i] : 1), color: P.groups[i % P.groups.length] });
+      }
+      if (key === "UP_WB" && R.catb) segs.push({ label: "Cat B + loose FF&E", value: R.catb, color: "#c9c2b4" });
+      const sum = segs.reduce((a, g) => a + g.value, 0);
+      segs.push({ label: "Contingency (PS Table 10)", value: Math.max(0, total - sum), color: P.cont });
+    } else {
+      const up = key === "AC_X8" ? v.UP_X8 : v.UP_ALL;
+      segs = [{ label: "Upfront A1-A5", value: up, color: P.project },
+              { label: "In use and end of life B-C", value: Math.max(0, total - up), color: P.modules[1] }];
+    }
+    return { segs, total };
+  }
+  function targetsCard(R, o, sfN, P) {
+    const v = o.values, pick = chartTargets(R), sel = R.targets.map((t, i) => [t, i]).filter(([t]) => pick.includes(t.label));
+    const dot = (verdict) => `<span class="vdot ${{ Meets: "meets", "Meets before contingency only": "before", Above: "above" }[verdict] || "na"}"></span>`;
+    let h = '<div class="card"><h2>Against targets</h2>';
+    h += `<div class="picker"><span class="grp">Show up to ${MAX_CHART_TARGETS}:</span>`;
+    [["Upfront", UPFRONT], ["Life cycle", LIFECYCLE]].forEach(([g, keys], gi) => {
+      if (gi) h += '<span class="sep"></span>';
+      h += `<span class="grp">${g}</span>`;
+      R.targets.forEach((t, i) => {
+        if (!keys.includes(t.key)) return;
+        const on = pick.includes(t.label);
+        h += `<button type="button" data-ui="tpick" data-label="${esc(t.label)}" class="${on ? "on" : ""}" title="${esc(BOUNDARY[t.key] || t.key)} · ${esc(o.verdicts[i])}">${dot(o.verdicts[i])}${esc(t.label)}</button>`;
+      });
+    });
+    h += "</div>";
+    const chart = (keys, title, unit) => {
+      const cols = keys.filter((k) => sel.some(([t]) => t.key === k)).map((k) => {
+        const { segs, total } = boundarySegs(k, v, R, P);
+        return { label: TCOL[k][0], sub: TCOL[k][1], segs, total: total == null ? null : sf(total, sfN),
+          lines: sel.filter(([t]) => t.key === k).map(([t]) => ({ label: t.label, short: short(t.label), value: t.target, color: P.target })) };
+      });
+      if (!cols.length) return "";
+      const order = (g) => { const i = M.group_labels.indexOf(g.label); return i >= 0 ? i : g.label.startsWith("Contingency") ? 99 : 50; };
+      const items = cols.flatMap((c) => c.segs.filter((g) => g.value > 0)).sort((a, b) => order(a) - order(b));
+      return `<div class="tc" data-n="${cols.length}"><h3>${title}</h3>${targetColumns(cols, { unit, title })}${legend(items)}</div>`;
+    };
+    const charts = chart(UPFRONT, "Upfront A1-A5 by element", "kgCO2e/m² GIA") + chart(LIFECYCLE, "Embodied A-C by stage", "kgCO2e/m² GIA");
+    const both = /class="tc"[\s\S]*class="tc"/.test(charts);
+    h += charts ? `<div class="tchart${both ? "" : " one"}">${charts}</div>` : '<p class="muted">Pick a target above to draw it.</p>';
+    const row = ([t, i]) => {
+      const val = v[t.key], ok = typeof val === "number";
+      return `<tr><td>${esc(t.label)}</td><td class="muted">${esc(BOUNDARY[t.key] || t.key)}</td><td class="n">${ok ? fmt(sf(val, sfN)) : "–"}</td>
+        <td class="n">${fmt(t.target)}</td><td class="n">${ok ? fmt(t.target - sf(val, sfN)) : ""}</td><td>${chip(o.verdicts[i])}</td></tr>`;
+    };
+    const head = '<tr><th>Target</th><th>Boundary</th><th class="n">Project</th><th class="n">Target</th><th class="n">Margin</th><th>Result</th></tr>';
+    if (sel.length) h += `<table class="data" style="margin-top:8px">${head}${sel.map(row).join("")}</table>`;
+    h += `<details class="all"><summary>All ${R.targets.length} targets</summary><table class="data">${head}${R.targets.map((t, i) => row([t, i])).join("")}</table></details>`;
+    return h + note("Each column is one reporting boundary, with that boundary's targets as dashed lines. Project figures include the PS Table 10 contingency (top segment); targets are bare thresholds (PS 4.10). Element segments are before contingency.") + "</div>";
   }
 
   function compareView(R, sfN) {
@@ -469,6 +540,13 @@
     if (t.id === "back") return go(step - 1);
     if (t.id === "next") return go(step + 1);
     if (t.dataset.ui === "restab") { resTab = Number(t.dataset.i); return render(); }
+    if (t.dataset.ui === "tpick") {
+      const R = M.results, cur = chartTargets(R), l = t.dataset.label;
+      const next = cur.includes(l) ? cur.filter((x) => x !== l) : cur.length >= MAX_CHART_TARGETS ? cur : cur.concat([l]);
+      M.state.targets.chart = next;                    // draw now; Rhino saves it with the model
+      render();
+      return send({ type: "action", name: "chart_targets", args: { labels: next } });
+    }
     if (t.dataset.action) {
       const labels = { run_takeoff: "Running the take-off in Rhino…", create_workbook: "Building the workbook…", read_plan: "Reading the plan…" };
       act(t.dataset.action, JSON.parse(t.dataset.args || "{}"), labels[t.dataset.action] || "Working…");
