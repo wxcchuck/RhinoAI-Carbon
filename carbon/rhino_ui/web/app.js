@@ -5,13 +5,14 @@
 // All checks and calculations happen in Python / Excel; this file only draws and forwards.
 (function () {
   "use strict";
-  const { hbars, donut, bullet, targetColumns, stackColumns, legend, fmt, sf, esc } = window.WlcaCharts;
+  const { hbars, donut, bullet, targetColumns, stackColumns, lineChart, lineLegend, legend, fmt, sf, esc } = window.WlcaCharts;
   const host = window.chrome && window.chrome.webview ? window.chrome.webview : window.eto || null;
   let M = null;              // the latest model from Rhino
   let step = 0;              // page shown
   let sel = 0;               // option shown on the facade / structure pages
   let resTab = 0;            // option shown on the results page (-1 = compare)
   let busy = "";             // text shown while Rhino works on an action
+  let trajScope = "wlc";     // trajectory: "wlc" whole life (A-C + B6/B7) | "emb" embodied A-C
 
   // ------------------------------------------------------------------ bridge
   function send(msg) {
@@ -382,11 +383,65 @@
     groups.push({ label: "Contingency", value: v.E_CONT, color: P.cont });
     h += `<div class="card"><h2>A1-A5 by element group</h2>${hbars(groups, { unit: "kgCO2e/m²", title: "A1-A5 by element group" })}<p class="note">kgCO2e/m² GIA, before contingency; contingency shown as its own bar.</p></div>`;
     h += wholeLifeCard(v, sfN, P);
+    h += trajectoryCard([o], R, sfN, P);
     h += "</div>";
     if (v.BIO_STORED) h += note(`Biogenic carbon stored in products: ${fmt(v.BIO_STORED)} kgCO2e/m² GIA (reported separately, not in A1-A5; released at end of life within A-C).`);
     return h;
   }
 
+
+  // ------------------------------------------------------------------ trajectory over the RSP
+  const EVENT_NAME = { Substructure: "Substructure", Superstructure: "Partitions", Facade: "Façade", "Internal finishes": "Internal fit-out",
+    FFE: "FF&E", "Services/MEP": "MEP", "External works": "External works", Site: "Site" };
+  const OPTION_COLOURS = ["1F4E79", "E07B1A", "4F9A8C", "7A3B5A", "B5A82A", "5B8DB8"].map((c) => "#" + c);
+  function trajEvents(tr, R, gia) {
+    // replacement years worth marking: at least 1.5% of the final embodied figure; named by the largest groups
+    const groups = ["Substructure", "Superstructure", "Facade", "Internal finishes", "FFE", "Services/MEP", "External works", "Site"];
+    const k = (1 + (R.cont || 0)) * 1000 / gia, fin = tr.emb_nd[tr.emb_nd.length - 1] || 1, ev = [];
+    tr.b4.forEach((row, i) => {
+      const tot = row.reduce((a, x) => a + x, 0) * k;
+      if (!i || tot < 0.015 * fin) return;
+      const ranked = row.map((x, j) => [x, groups[j]]).filter(([x]) => x > 0).sort((a, b) => b[0] - a[0]);
+      const names = ranked.filter(([x], j) => j === 0 || x >= 0.3 * ranked[0][0]).slice(0, 2).map(([, g]) => EVENT_NAME[g] || g);
+      ev.push({ x: tr.year[i], label: names.join(" + "), title: `${tr.year[i]}: replacements ${fmt(tot)} kgCO2e/m²` });
+    });
+    return ev;
+  }
+  function trajectoryCard(opts, R, sfN, P) {
+    const have = opts.filter((o) => o.traj && o.traj.t && o.traj.t.length);
+    if (!have.length) return "";
+    const anyOp = have.some((o) => typeof o.values.WLC_ND === "number" && (o.values.B6_ND || o.values.B7_ND));
+    const scope = anyOp ? trajScope : "emb", series = [], items = [];
+    have.forEach((o, i) => {
+      const tr = o.traj, v = o.values, nm = v.NAME || "Option " + o.k;
+      const col = opts.length > 1 ? OPTION_COLOURS[i % OPTION_COLOURS.length] : P.project;
+      const nd = scope === "wlc" ? tr.wlc_nd : tr.emb_nd, d = scope === "wlc" ? tr.wlc_d : tr.emb_d;
+      const pre = opts.length > 1 ? nm + " - " : "";
+      series.push({ label: pre + "non-decarbonised", color: col, x: tr.year, y: nd, endValue: sf(nd[nd.length - 1], sfN) });
+      series.push({ label: pre + "decarbonised", color: col, dash: true, x: tr.year, y: d, endValue: sf(d[d.length - 1], sfN) });
+      if (opts.length > 1) items.push({ label: nm, color: col });
+      else items.push({ label: "non-decarbonised", color: col }, { label: "decarbonised (PS Table 15, FES grid)", color: col, dash: true });
+    });
+    if (opts.length > 1) items.push({ label: "solid: non-decarbonised", color: "#777" }, { label: "dashed: decarbonised (PS Table 15, FES grid)", color: "#777", dash: true });
+    const tr0 = have[0].traj, first = tr0.year[0];
+    const events = opts.length === 1 ? trajEvents(tr0, R, have[0].values.GIA) : [];
+    let h = `<div class="card wide"><h2>${opts.length > 1 ? "Options over the reference study period" : "Over the reference study period"}</h2>`;
+    if (anyOp) h += `<div class="tabs" style="margin-bottom:6px">${[["wlc", "Whole life (A-C + B6-B7)"], ["emb", "Embodied A-C"]].map(([k, l]) =>
+      `<button type="button" data-ui="trajscope" data-k="${k}" class="${scope === k ? "on" : ""}">${l}</button>`).join("")}</div>`;
+    h += lineChart(series, events, { unit: "kgCO2e/m² GIA, cumulative", title: "carbon over the reference study period", x2: (x) => "yr " + (x - first) });
+    h += lineLegend(items);
+    if (opts.length > 1) {
+      h += '<div class="optcards">' + have.map((o, i) => {
+        const v = o.values, col = OPTION_COLOURS[i % OPTION_COLOURS.length];
+        return `<div class="optcard" style="border-color:${col}"><div class="nm" style="color:${col}">${esc(v.NAME || "Option " + o.k)}</div>
+          <div class="k">Upfront A1-A5</div><div class="v">${fmt(sf(v.UP_ALL, sfN))}</div>
+          <div class="k">Embodied A-C</div><div class="v">${fmt(sf(v.AC_ALL, sfN))}</div>
+          ${typeof v.WLC_ND === "number" ? `<div class="k">Whole life A-C + B6-B7</div><div class="v">${fmt(sf(v.WLC_ND, sfN))} <span class="muted small">/ ${fmt(sf(v.WLC_D, sfN))} decarb.</span></div>` : ""}
+          <div class="u">kgCO2e/m² GIA</div></div>`;
+      }).join("") + "</div>";
+    }
+    return h + note(`Year 0 = practical completion (${first}); year 1 = the first year of operation. A1-A5 at year 0; each replacement in its year (modelled items at their own life, benchmarked groups at the trajectory lives on the workbook's Project sheet) with the end of life of what it replaces; B2 / B3 spread evenly; B6 / B7 each year (decarbonised: that year's FES factor); C1-C4 of what is left at the end. Contingency on embodied carbon. The end points equal the headline figures.`) + "</div>";
+  }
 
   // ------------------------------------------------------------------ whole life by stage
   function wholeLifeCard(v, sfN, P) {
@@ -509,7 +564,9 @@
     R.targets.forEach((t, i) => {
       h += `<tr><td class="muted">${esc(t.label)} (${fmt(t.target)})</td>${opts.map((o) => `<td class="n">${chip(o.verdicts[i])}</td>`).join("")}</tr>`;
     });
-    h += "</table></div><div class='charts'>";
+    h += "</table></div>";
+    h += trajectoryCard(opts, R, sfN, P);
+    h += "<div class='charts'>";
     for (const [lbl, k] of [["Upfront A1-A5", "UP_ALL"], ["Embodied A-C", "AC_ALL"]]) {
       const bars = opts.map((o, i) => ({ label: names[i], value: o.values[k], color: P.project }));
       h += `<div class="card"><h2>${esc(lbl)}</h2>${hbars(bars, { unit: "kgCO2e/m²", title: lbl, labelWidth: 170 })}<p class="note">kgCO2e/m² GIA incl. contingency.</p></div>`;
@@ -564,6 +621,7 @@
     if (t.id === "back") return go(step - 1);
     if (t.id === "next") return go(step + 1);
     if (t.dataset.ui === "restab") { resTab = Number(t.dataset.i); return render(); }
+    if (t.dataset.ui === "trajscope") { trajScope = t.dataset.k; return render(); }
     if (t.dataset.ui === "tpick") {
       const R = M.results, cur = chartTargets(R), l = t.dataset.label;
       const next = cur.includes(l) ? cur.filter((x) => x !== l) : cur.length >= MAX_CHART_TARGETS ? cur : cur.concat([l]);
