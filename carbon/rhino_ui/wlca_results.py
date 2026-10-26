@@ -9,7 +9,7 @@ import subprocess
 
 # the keys the window shows, from each option's O<k>_Results summary (column X key, column Y value)
 KEYS = ["NAME", "GIA", "UP_T", "AC_T", "UP_ALL", "UP_X8", "UP_SC", "UP_WB", "AC_ALL", "AC_X8", "AC_DEC",
-        "M_A13", "M_A4", "M_A5", "M_B2", "M_B3", "M_B4", "M_C", "M_D", "B2_BASIS",
+        "M_A13", "M_A4", "M_A5", "M_B2", "M_B3", "M_B4", "M_C", "M_D", "D_DEC", "B2_BASIS",
         "E_0", "E_1", "E_2", "E_3", "E_4", "E_5", "E_6", "E_7", "E_CONT",
         "B_MOD", "B_ASM", "B_BM", "B_SITE", "B_CONT", "SH_ASM",
         "BIO_STORED", "BIO_RELEASED", "BC_ALL", "QA_FLAGS", "EUI", "EUI_LIM", "B6_ND", "B6_D", "B7_ND", "B7_D", "WLC_ND", "WLC_D", "OP_STATUS"]
@@ -95,25 +95,30 @@ def read_results(path):
 
 
 # O<k>_Traj (wlca_calc_template.build_trajectory): first data row and columns
-TRAJ_FIRST, TRAJ_COLS = 6, dict(t=1, year=2, b4_first=5, emb_nd=20, emb_d=21, wlc_nd=22, wlc_d=23)
+TRAJ_FIRST, TRAJ_COLS = 6, dict(t=1, year=2, b4_first=5, emb_nd=20, emb_d=21, wlc_nd=22, wlc_d=23, bio=25)
 TRAJ_GROUPS = 8
 
 
 def read_trajectory(wb, k):
     """Per-year series for the trajectory chart, or None for workbooks made before it existed.
-    {"t", "year", "emb_nd", "emb_d", "wlc_nd", "wlc_d": [...], "b4": [[tCO2e per GLA group] per year]}"""
+    {"t", "year", "emb_nd", "emb_d", "wlc_nd", "wlc_d", "bio": [...], "b4": [[tCO2e per GLA group] per year]}
+    "bio" = cumulative biogenic carbon (-1/+1, kgCO2e/m2), kept out of the other lines; None in older workbooks."""
     name = "O%d_Traj" % k
     if name not in wb.sheetnames:
         return None
     T, c = wb[name], TRAJ_COLS
-    out = dict((key, []) for key in ("t", "year", "emb_nd", "emb_d", "wlc_nd", "wlc_d", "b4"))
-    for row in T.iter_rows(min_row=TRAJ_FIRST, max_col=24, values_only=True):
+    out = dict((key, []) for key in ("t", "year", "emb_nd", "emb_d", "wlc_nd", "wlc_d", "bio", "b4"))
+    for row in T.iter_rows(min_row=TRAJ_FIRST, max_col=c["bio"], values_only=True):
         if row[c["t"] - 1] is None:
             break
-        for key in ("t", "year", "emb_nd", "emb_d", "wlc_nd", "wlc_d"):
-            out[key].append(_num(row[c[key] - 1]))
+        for key in ("t", "year", "emb_nd", "emb_d", "wlc_nd", "wlc_d", "bio"):
+            out[key].append(_num(row[c[key] - 1]) if len(row) >= c[key] else None)
         out["b4"].append([_num(row[c["b4_first"] - 1 + j]) or 0.0 for j in range(TRAJ_GROUPS)])
-    return out if out["t"] and out["emb_nd"][-1] is not None else None
+    if not out["t"] or out["emb_nd"][-1] is None:
+        return None
+    if any(x is None for x in out["bio"]):
+        out["bio"] = None                      # made before the biogenic column (0.5.0): its lines included biogenic
+    return out
 
 
 def judge(value, target, cont):

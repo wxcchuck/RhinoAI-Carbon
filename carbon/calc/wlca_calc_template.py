@@ -20,8 +20,10 @@ Calculation (RICS WLCA PS 2nd ed., module logic ported from the office dwelling 
             A1-A3 = qty x factor; A3 offsite (CWCT) = mass x (assembly + A2 to fabricator)
             + fabrication waste WR/(1-WR) x (A1-A3 + A2); A4 = mass x A4/kg (Materials, lorry loads);
             A5.3 = site WR x (A1-A3 + A3 offsite + A4 + C2-C4 of the waste)  [PS 5.1.4: WR x factor];
-            B4 = replacements x (A1-A3 + A3 offsite + A4 + A5.3), replacements = ROUNDUP(RSP/life) - 1;
-            C2-C4 and D = mass x per-kg factor x (1 + replacements)
+            B4 = replacements x (A1-A3 + A3 offsite + A4 + A5.3 + C2-C4 of the item removed) [PS 5.2.4],
+            replacements = ROUNDUP(RSP/life) - 1;
+            C2-C4 = mass x per-kg factor (the items in place at the RSP);
+            D and biogenic = mass x per-kg factor x (1 + replacements)
   Materials per material: lorry loads for A4 (T17 distances, REF_Vehicles) and C2 (Table 26
             distances, 50% laden); end of life per Table 23 route (PS 5.6.4 / 5.6.5):
               reuse + recycling -> C3 = share x Table 28 stand-in (no EPD processing data)
@@ -854,7 +856,9 @@ def build(cfg):
                     "+ 10% of services (group 5) A1-A3 (CIBSE TM65). Contingency added at the end, like the other modules. Not allocated to elements: "
                     "see the B2 / B3 block under the element table on O<k>_Results."),
         ("B4", "Replacements = ROUNDUP(RSP / life) - 1 (PS 5.2.4: whole replacements, rounded up). Life = layer override, else Table 20 by material. "
-               "B4 = replacements x (A1-A3 + A3 offsite + A4 + A5.3). End of life of replaced items is counted in C2-C4 (x (1 + replacements))."),
+               "B4 = replacements x (A1-A3 + A3 offsite + A4 + A5.3 + C2-C4 of the item removed): PS 5.2.4 counts the end of life of the replaced "
+               "item in B4, so C1-C4 covers only what is in place at the end of the RSP. Module D and biogenic carbon cover every item installed "
+               "(x (1 + replacements)); the biogenic stored in a replacement and released by the item it replaces net to zero."),
         ("C1-C4", "C1 = GIA x lump rate. C2 = lorry loads to processing / EfW / landfill (Table 26 distances, 50% laden). "
                   "C3 / C4 follow each material's Table 23 route (a material with no route counts as 100% landfill): "
                   "reuse + recycling -> C3 = share x Table 28 (PS 5.6.4: landfill default when no EPD processing data); "
@@ -872,11 +876,12 @@ def build(cfg):
                     "Water without an engineer's figure: occupancy x RIBA 2025 potable water target x occupied days (a budget). PV exported is reported in D2 (memo). "
                     "Material decarbonisation (PS 4.11.5 Table 15): B2-B4 and C1-C2 x 0.5, A1-A5, C3-C4 and biogenic unchanged, D x 0.5; "
                     "the decarbonised whole life figure = decarbonised A-C + decarbonised B6 + B7."),
-        ("Trajectory", "O<k>_Traj: the carbon year by year over the RSP (the window's trajectory chart). A1-A5 and biogenic stored at year 0 "
+        ("Trajectory", "O<k>_Traj: the carbon year by year over the RSP (the window's trajectory chart). A1-A5 at year 0 "
                        "(practical completion); each replacement in its year - modelled layers at their own life, benchmarked groups at the trajectory "
-                       "lives on Project (PS Table 20) - with the end of life of the removed items; biogenic of a new item stored as the old one is "
-                       "released (net zero); B2 + B3 spread evenly; B6 + B7 each year (decarbonised: that year's FES factor); C1-C4 of what is left "
-                       "and the biogenic release at the RSP. Cumulative columns end at A-C and A-C + B6 + B7, both scenarios."),
+                       "lives on Project (PS Table 20) - with the end of life of the removed items (B4); B2 + B3 spread evenly; B6 + B7 each year "
+                       "(decarbonised: that year's FES factor); C1-C4 of what is left at the RSP. Cumulative columns end at A-C and A-C + B6 + B7, both "
+                       "scenarios. Biogenic carbon (-1/+1: stored at year 0, released at the RSP, net zero) is kept out of the cumulative lines, like the "
+                       "headline A1-A5, and given in its own column for the optional view; module D is a memo beyond the RSP and is not in them."),
         ("Benchmarks", "Elements not taken off use kgCO2e/m2 GIA by use class (PS 4.5.2 method 2). Benchmark A5 is reported in A5.3. Modelled layers in a benchmarked group are dropped (no double counting)."),
         ("Contingency", "PS Table 10 percentage applied to A-C (not D, not biogenic) as a separate row."),
         ("Assumptions", "Take-off rows whose notes start with [ASSUMED] rest on office defaults (no SI, no detail yet). Takeoff column Z marks them; QA, Results and the Dashboard show how many and "
@@ -1012,10 +1017,10 @@ def build_option(wb, ctx, o):
                 23: '=IF(P{r}=0,0,V{r}*(Q{r}+T{r}+U{r}+O{r}*%s))' % mo("AP"),
                 24: '=IF(E{r}<>1,RSP,IF(%s&""<>"",N(%s),IF(P{r}=0,RSP,%s)))' % (li("O"), li("O"), mi("X")),
                 25: '=IF(OR(J{r}=0,X{r}<=0),0,MAX(0,ROUNDUP(RSP/X{r},0)-1))',
-                26: '=Y{r}*(Q{r}+T{r}+U{r}+W{r})',
-                27: '=IF(P{r}=0,0,O{r}*%s*(1+Y{r}))' % mo("AL"),
-                28: '=IF(P{r}=0,0,O{r}*%s*(1+Y{r}))' % mi("AM"),
-                29: '=IF(P{r}=0,0,O{r}*%s*(1+Y{r}))' % mi("AN"),
+                26: '=Y{r}*(Q{r}+T{r}+U{r}+W{r}+AA{r}+AB{r}+AC{r})',      # B4 incl. the end of life of the removed item (PS 5.2.4)
+                27: '=IF(P{r}=0,0,O{r}*%s)' % mo("AL"),
+                28: '=IF(P{r}=0,0,O{r}*%s)' % mi("AM"),
+                29: '=IF(P{r}=0,0,O{r}*%s)' % mi("AN"),
                 30: '=IF(P{r}=0,0,O{r}*%s*(1+Y{r}))' % mi("AO"),
                 31: '=IF(P{r}=0,0,N{r}*N(%s)*(1+Y{r}))' % mi("G"),
                 32: '=-AE{r}',
@@ -1451,30 +1456,32 @@ TRAJ_COLS = (["Year from completion", "Calendar year", "Upfront A1-A5 (t)", "Bio
                 "Operational B6 + B7, non-decarbonised (kgCO2e/m2)", "Operational B6 + B7, decarbonised (kgCO2e/m2)",
                 "Embodied cumulative, non-decarbonised (kgCO2e/m2)", "Embodied cumulative, decarbonised (kgCO2e/m2)",
                 "Whole life cumulative, non-decarbonised (kgCO2e/m2)", "Whole life cumulative, decarbonised (kgCO2e/m2)",
-                "FES grid factor of the year (kgCO2/kWh)"])
-TRAJ_KEY = dict(t=1, year=2, b4_first=5, emb_nd=20, emb_d=21, wlc_nd=22, wlc_d=23)
+                "FES grid factor of the year (kgCO2/kWh)",
+                "Biogenic cumulative, -1/+1 (kgCO2e/m2; not in the cumulative columns)"])
+TRAJ_KEY = dict(t=1, year=2, b4_first=5, emb_nd=20, emb_d=21, wlc_nd=22, wlc_d=23, bio=25)
 
 
 def build_trajectory(wb, o, c):
     """O<k>_Traj: when the carbon happens over the RSP (XW 26/10/2026), one row per year, tCO2e before contingency
-    and kgCO2e/m2 cumulative. Year 0: A1-A5 and biogenic stored. Each replacement year: B4 of the items replaced
-    (modelled layers at their own life; benchmarked groups at the Project trajectory lives) incl. the end of life of the
-    removed items; biogenic of the new item stored as the old one is released (net zero). Every year: B2 + B3 / RSP
-    and B6 + B7 (decarbonised: the FES factor of that year). Year RSP: C1-C4 of what is left and the biogenic release.
-    The cumulative columns end at A-C (AC_ALL / AC_DEC) and A-C + B6 + B7 (WLC_ND / WLC_D)."""
+    and kgCO2e/m2 cumulative. Year 0: A1-A5. Each replacement year: B4 of the items replaced (modelled layers at
+    their own life; benchmarked groups at the Project trajectory lives) incl. the end of life of the removed items
+    (PS 5.2.4). Every year: B2 + B3 / RSP and B6 + B7 (decarbonised: the FES factor of that year). Year RSP: C1-C4 of
+    what is left. The cumulative columns end at A-C (AC_ALL / AC_DEC) and A-C + B6 + B7 (WLC_ND / WLC_D).
+    Biogenic carbon (XW 26/10/2026) stays out of them, like the headline A1-A5: column D carries the -1/+1 flows
+    (stored at year 0, released at the RSP; a replacement's storage cancels the release of what it replaces) and
+    column Y their cumulative for the optional view. It nets to zero, so the end points are unchanged."""
     T = wb["O%d_Traj" % o["k"]]
     NR, GIA, sub, b, rsp, RS = c["NR"], c["GIA"], c["sub"], c["b"], c["rsp"], c["RS"]
     title(T, "%s - carbon over the reference study period (read by the window's trajectory chart)" % o["name"],
           "Rows = years from practical completion (0) to the RSP on Project at build time (%d). tCO2e before contingency unless stated; "
           "cumulative columns incl. contingency on embodied carbon, kgCO2e/m2 GIA." % rsp)
-    head(T, 5, TRAJ_COLS, [8, 8, 11, 11] + [10] * 8 + [10, 10, 9, 10, 10, 12, 12, 12, 12, 12, 12, 10], height=60)
+    head(T, 5, TRAJ_COLS, [8, 8, 11, 11] + [10] * 8 + [10, 10, 9, 10, 10, 12, 12, 12, 12, 12, 12, 10, 12], height=60)
     Xs = "(%s+(%s<=0)*RSP)" % (NR("X"), NR("X"))                       # life; RSP where none
     Y = NR("Y")
     cap = lambda k: "(%s-(%s>%s)*(%s-%s))" % (k, k, Y, k, Y)            # noqa: E731  element-wise MIN(k, replacements)
     n_mod = lambda t: "(%s-%s)" % (cap("INT(%s/%s)" % (t, Xs)), cap("INT((%s-1)/%s)" % (t, Xs)))   # noqa: E731
     inst = "(%s+%s+%s+%s)" % (NR("Q"), NR("T"), NR("U"), NR("W"))
-    eol = "(%s+%s+%s)/(1+%s)" % (NR("AA"), NR("AB"), NR("AC"), Y)
-    eol_d = "(0.5*%s+%s+%s)/(1+%s)" % (NR("AA"), NR("AB"), NR("AC"), Y)
+    eol = "(%s+%s+%s)" % (NR("AA"), NR("AB"), NR("AC"))                # end of life of the item removed (in B4)
     bio0 = "SUMPRODUCT(%s/(1+%s))/1000" % (NR("AE"), Y)
     rs = lambda cell: "%s!%s" % (RS, cell)                               # noqa: E731
     life = {"2.7/2.8": "BL_2728", "3": "BL_3", "4": "BL_4", "5": "BL_5", "8": "BL_8"}
@@ -1511,12 +1518,11 @@ def build_trajectory(wb, o, c):
             T.cell(r, 14, 0)
         else:
             bm_d = "+".join(x for x in (bench(t, g, True) for g in GROUPS) if x)
-            T.cell(r, 14, "=SUMPRODUCT(%s*(0.5*%s+%s))/1000%s" % (n_mod(t), inst, eol_d, ("+" + bm_d) if bm_d else ""))
+            T.cell(r, 14, "=0.5*SUMPRODUCT(%s*(%s+%s))/1000%s" % (n_mod(t), inst, eol, ("+" + bm_d) if bm_d else ""))
         T.cell(r, 15, "=(%s+%s)/RSP" % (rs("$C$%d" % b["b2"]), rs("$C$%d" % b["b3"])) if i else 0)
         if i == rsp:
-            T.cell(r, 16, "=SUM(%s)-SUMPRODUCT((%s+%s+%s)*%s/(1+%s))/1000" % (rs("$K$%d:$N$%d" % (sub, sub)), NR("AA"), NR("AB"), NR("AC"), Y, Y))
-            T.cell(r, 17, "=0.5*(%s+%s)+%s+%s-SUMPRODUCT((0.5*%s+%s+%s)*%s/(1+%s))/1000"
-                   % (rs("$K$%d" % sub), rs("$L$%d" % sub), rs("$M$%d" % sub), rs("$N$%d" % sub), NR("AA"), NR("AB"), NR("AC"), Y, Y))
+            T.cell(r, 16, "=SUM(%s)" % rs("$K$%d:$N$%d" % (sub, sub)))
+            T.cell(r, 17, "=0.5*(%s+%s)+%s+%s" % (rs("$K$%d" % sub), rs("$L$%d" % sub), rs("$M$%d" % sub), rs("$N$%d" % sub)))
         else:
             T.cell(r, 16, 0)
             T.cell(r, 17, 0)
@@ -1531,11 +1537,12 @@ def build_trajectory(wb, o, c):
                            "+{W}*F_W_ND*X{r}/E_GEN)/{g},0))").format(na=na, g=GIA, r=r, E=c["E_"], G=c["G_"], DH=c["DH_"],
                                                                          W=rs(c["W_"].replace("Y", "$Y$"))))
         prev = lambda col: ("+%s%d" % (col, r - 1)) if i else ""            # noqa: E731
-        T.cell(r, 20, "=IF(%s>0,((C{r}+M{r}+O{r}+P{r})*(1+CONT)+D{r})*1000/%s,0)%s".format(r=r) % (GIA, GIA, prev("T")))
-        T.cell(r, 21, "=IF(%s>0,((C{r}+N{r}+0.5*O{r}+Q{r})*(1+CONT)+D{r})*1000/%s,0)%s".format(r=r) % (GIA, GIA, prev("U")))
+        T.cell(r, 20, "=IF(%s>0,(C{r}+M{r}+O{r}+P{r})*(1+CONT)*1000/%s,0)%s".format(r=r) % (GIA, GIA, prev("T")))
+        T.cell(r, 21, "=IF(%s>0,(C{r}+N{r}+0.5*O{r}+Q{r})*(1+CONT)*1000/%s,0)%s".format(r=r) % (GIA, GIA, prev("U")))
+        T.cell(r, 25, "=IF(%s>0,D{r}*1000/%s,0)%s".format(r=r) % (GIA, GIA, prev("Y")))     # biogenic, cumulative, no contingency
         T.cell(r, 22, "=T%d+SUM(R$%d:R%d)" % (r, first, r))
         T.cell(r, 23, "=U%d+SUM(S$%d:S%d)" % (r, first, r))
-        for col in range(3, 25):
+        for col in range(3, 26):
             T.cell(r, col).number_format = "#,##0.0"
     T.freeze_panes = "C%d" % first
     return first, last

@@ -14,18 +14,28 @@
   /** Horizontal bars: rows [{label, value, color, note}], one value label per bar. */
   function hbars(rows, o = {}) {
     const W = 420, labW = o.labelWidth || 140, valW = 48, rowH = 26, barH = 14, top = 4;   // drawn near 1:1 in a card
+    // negative values (module D) draw left of a zero line; rows with sep: true start a separated group
     const max = Math.max(1e-9, ...rows.map((r) => Math.max(0, r.value || 0)), o.max || 0);
-    const plotW = W - labW - valW;
-    const H = top + rows.length * rowH + 4;
+    const min = Math.min(0, ...rows.map((r) => Math.min(0, r.value || 0)));
+    const plotW = W - labW - valW, k = plotW / (max - min), x0 = labW - min * k;
+    const gaps = rows.filter((r) => r.sep).length * 8;
+    const H = top + rows.length * rowH + gaps + 4;
     let s = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px" role="img" aria-label="${esc(o.title || "bar chart")}">`;
-    rows.forEach((r, i) => {
-      const y = top + i * rowH, v = Math.max(0, r.value || 0), w = Math.max(v > 0 ? 2 : 0, (v / max) * plotW);
-      s += `<text class="lab" x="${labW - 8}" y="${y + rowH / 2 + 4}" text-anchor="end">${esc(r.label)}</text>`;
-      s += `<rect x="${labW}" y="${y + (rowH - barH) / 2}" width="${w}" height="${barH}" rx="2" fill="${r.color}"><title>${esc(r.label)}: ${fmt(r.value)} ${esc(o.unit || "")}</title></rect>`;
-      s += `<text class="val" x="${labW + w + 6}" y="${y + rowH / 2 + 4}">${r.value == null ? "–" : fmt(r.value)}</text>`;
+    let y = top;
+    rows.forEach((r) => {
+      if (r.sep) {
+        s += `<line x1="0" x2="${W}" y1="${y + 4}" y2="${y + 4}" stroke="#d6d6d6" stroke-dasharray="3 3"/>`;
+        y += 8;
+      }
+      const v = r.value || 0, w = Math.max(v ? 2 : 0, Math.abs(v) * k), bx = v < 0 ? x0 - w : x0;
+      s += `<text class="lab" x="${labW - 8}" y="${y + rowH / 2 + 4}" text-anchor="end"${r.muted ? ' style="font-style:italic"' : ""}>${esc(r.label)}</text>`;
+      s += `<rect x="${bx}" y="${y + (rowH - barH) / 2}" width="${w}" height="${barH}" rx="2" fill="${r.color}"><title>${esc(r.label)}: ${fmt(r.value)} ${esc(o.unit || "")}</title></rect>`;
+      s += `<text class="val" x="${(v < 0 ? x0 : x0 + w) + 6}" y="${y + rowH / 2 + 4}">${r.value == null ? "–" : fmt(r.value)}</text>`;
+      y += rowH;
     });
+    if (min < 0) s += `<line x1="${x0}" x2="${x0}" y1="${top}" y2="${H - 4}" stroke="#888"/>`;
     if (o.marker) {   // a target line across the bars
-      const x = labW + (o.marker.value / max) * plotW;
+      const x = x0 + o.marker.value * k;
       s += `<line x1="${x}" x2="${x}" y1="0" y2="${H}" stroke="${o.marker.color}" stroke-width="2" stroke-dasharray="4 3"><title>${esc(o.marker.label)}</title></line>`;
     }
     return s + "</svg>";
@@ -145,7 +155,8 @@
    */
   function stackColumns(cols, o = {}) {
     const H = o.height || 380, left = 46, right = 70, top = 18, bottom = 46;
-    const W = Math.max(300, 230 * cols.length + left + right), plotW = W - left - right;
+    const wt = (c) => c.weight || 1, slots = cols.reduce((a, c) => a + wt(c), 0);   // weight < 1: a narrow memo column
+    const W = Math.max(300, 230 * slots + left + right), plotW = W - left - right;
     const pos = (c) => c.segs.reduce((a, g) => a + Math.max(0, g.value || 0), 0);
     const neg = (c) => c.segs.reduce((a, g) => a + Math.min(0, g.value || 0), 0);
     const hi = Math.max(1, ...cols.map(pos)), lo = Math.min(0, ...cols.map(neg));
@@ -158,9 +169,11 @@
       s += `<text class="lab" x="${left - 6}" y="${y(t) + 4}" text-anchor="end" style="font-size:11px">${fmt(t + 0)}</text>`;
     }
     s += `<line x1="${left}" x2="${W - right}" y1="${y(0)}" y2="${y(0)}" stroke="#555" stroke-width="1.2"/>`;
-    const slot = plotW / cols.length, bw = Math.min(124, slot * 0.52);
-    cols.forEach((c, i) => {
-      const cx = left + slot * (i + 0.5), x0 = cx - bw / 2;
+    const slot = plotW / slots;
+    let at = 0;
+    cols.forEach((c) => {
+      const bw = Math.min(124, slot * 0.52) * Math.min(1, wt(c) * 1.4), cx = left + slot * (at + wt(c) / 2), x0 = cx - bw / 2;
+      at += wt(c);
       let up = 0, down = 0;
       c.segs.forEach((g) => {
         const v = g.value || 0;
@@ -225,7 +238,7 @@
     const ends = [];
     series.forEach((sr) => {
       const pts = sr.x.map((x, i) => (sr.y[i] == null ? null : `${px(x).toFixed(1)},${py(sr.y[i]).toFixed(1)}`)).filter(Boolean).join(" ");
-      s += `<polyline points="${pts}" fill="none" stroke="${sr.color}" stroke-width="${sr.width || 2}" ${sr.dash ? 'stroke-dasharray="7 4"' : ""}><title>${esc(sr.label)}</title></polyline>`;
+      s += `<polyline points="${pts}" fill="none" stroke="${sr.color}" stroke-width="${sr.width || 2}" ${sr.dot ? 'stroke-dasharray="1.5 3.5" stroke-linecap="round"' : sr.dash ? 'stroke-dasharray="7 4"' : ""}><title>${esc(sr.label)}</title></polyline>`;
       const n = sr.y.length - 1;
       if (sr.end !== false && sr.y[n] != null) ends.push({ y: py(sr.y[n]) - 6, x: px(sr.x[n]) - 2, c: sr.color, t: fmt(sr.endValue != null ? sr.endValue : sr.y[n]) });
     });
@@ -241,7 +254,7 @@
   /** Legend for lines: [{label, color, dash}]. */
   function lineLegend(items) {
     return '<div class="legend inline">' + items.map((it) =>
-      `<span><svg width="26" height="10" style="vertical-align:0"><line x1="1" x2="25" y1="5" y2="5" stroke="${it.color}" stroke-width="2.4" ${it.dash ? 'stroke-dasharray="6 3"' : ""}/></svg> ${esc(it.label)}</span>`).join("") + "</div>";
+      `<span><svg width="26" height="10" style="vertical-align:0"><line x1="1" x2="25" y1="5" y2="5" stroke="${it.color}" stroke-width="2.4" ${it.dot ? 'stroke-dasharray="1.5 3.5" stroke-linecap="round"' : it.dash ? 'stroke-dasharray="6 3"' : ""}/></svg> ${esc(it.label)}</span>`).join("") + "</div>";
   }
 
   window.WlcaCharts = { hbars, donut, bullet, targetColumns, stackColumns, lineChart, lineLegend, legend, fmt, sf, esc };

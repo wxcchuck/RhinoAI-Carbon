@@ -68,16 +68,19 @@ Drafted by an AI agent (Claude) from the working sessions; review before relying
 | M2 | B3 (PS 5.2.3) = 25% of the non-MEP part of B2 (B2 x non-services share of A1-A5) + 10% of the A1-A3 of element group 5 services (CIBSE TM65), initial installation only (replacements are in B4) | Confirmed (XW 26/10/2026) |
 | M3 | B2 / B3 are whole-building allowances: a block under the element table on O<k>_Results, not allocated to element groups; own bars in the module charts (workbook Dashboard and panel). The PS Table 10 contingency is applied at the end, as for every embodied module | Confirmed (XW 26/10/2026) |
 | M4 | A-C, B-C and their target boundaries (LETI life cycle, RIBA 2030, GLA A-C) now include B2 / B3; UKNZCBS upfront (A1-A5) unchanged. Material decarbonisation halves B2 / B3 with B4 (PS 4.11.5 Table 15). B2 / B3 sit with "modelled + site" in the budget and scenario figures (PS defaults, not benchmarks) | Confirmed (XW 26/10/2026) |
+| M5 | B4 includes the end of life (C2-C4) of each item it replaces (PS 5.2.4); C1-C4 covers only what is in place at the end of the RSP. A-C is unchanged; the decarbonised figure now halves the replaced items' C3-C4 with the rest of B4 (Table 15). Module D and biogenic carbon still count every item installed (x (1 + replacements)) | Confirmed (XW 26/10/2026) |
 
 ## Trajectory over the RSP (window chart, O<k>_Traj)
 
 | # | Decision | Status |
 |---|---|---|
-| T1 | A1-A5 at year 0 (practical completion); B4 in the year of each replacement; B2 / B3 spread evenly over the RSP; B6 / B7 every year; C1-C4 of what is left at the RSP; D not shown (memo). Biogenic carbon is stored at year 0 and released when the product leaves (−1/+1 rule): at each replacement the new item stores what the old releases (net zero), the last release at the RSP - the end-of-life route changes C3 / C4, not this timing | Confirmed (XW 26/10/2026) |
+| T1 | A1-A5 at year 0 (practical completion); B4 in the year of each replacement; B2 / B3 spread evenly over the RSP; B6 / B7 every year; C1-C4 of what is left at the RSP. Biogenic and module D: see T6 / T7 | Confirmed (XW 26/10/2026) |
 | T2 | The end of life (C2-C4) of replaced items is placed in the replacement year; the building's own C1-C4 at the RSP | Confirmed (XW 26/10/2026) |
 | T3 | Benchmarked groups have no life of their own: their B4 is spread over replacement years at PS Table 20 representative lives (Project inputs: 2.7/2.8 30, finishes 15, FF&E 10, services 20, external works 35 years) | Confirmed (XW 26/10/2026) |
 | T4 | Calendar years from the first year of operation, years from completion as a second scale; two lines per option, solid non-decarbonised and dashed decarbonised (that year's FES factor; Table 15 on B2-B4, C1-C2); contingency on every embodied step, so the end points equal the headline figures | Confirmed (XW 26/10/2026) |
 | T5 | Replacement years carrying at least 1.5% of the final embodied figure are marked and named by their largest element groups; the Compare tab overlays one line pair per option with summary cards | Confirmed (XW 26/10/2026) |
+| T6 | The lines leave biogenic carbon out, so year 0 equals the headline A1-A5 and there is no step at the RSP from the release. An optional "Biogenic (-1/+1)" view adds it back: stored at year 0, released at the RSP, a replacement's storage cancelling the release of what it replaces. It is the PS reporting convention (A1-A3 / C3-C4), not a forecast of when the carbon returns to the air, and nets to zero over A-C; the workbook keeps it in its own column of O<k>_Traj | For review (26/10/2026, after XW's query) |
+| T7 | Module D is reported, never netted: its own column in the whole-life chart, a separated bar in the module chart, a row in the whole-life table (both scenarios, Table 15 halves D) and an optional dotted step beyond the RSP on the trajectory. Before contingency (adding contingency to a benefit would not be conservative) | For review (26/10/2026, after XW's query) |
 
 ## Rhino window (dialog v0.1, web window from v0.2)
 
