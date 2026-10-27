@@ -1,5 +1,6 @@
 // Small SVG charts for the WLCA panel - no libraries, works offline. Drafted by an AI agent (Claude) - review before trusting.
 // Ported from rhino_ui/web/charts.js (same geometry and rules); each returns an SVG string the page sets as markup.
+// The bars and the doughnut moved to shadcn/ui charts (Recharts, components/charts.tsx); these three remain.
 // Text, grid and halo colours come from the theme (CSS variables, light and dark); data colours from the office branding.
 
 export const esc = (s: unknown) =>
@@ -32,56 +33,7 @@ function niceStep(max: number, n = 5) {
 const open = (W: number, H: number, title: string, fixed = false) =>
   `<svg class="wlca-chart" viewBox="0 0 ${W} ${H}" ${fixed ? `width="${W}" height="${H}"` : `width="100%" style="max-width:${W}px"`} role="img" aria-label="${esc(title)}">`
 
-export type Bar = { label: string; value: number | null | undefined; color: string; sep?: boolean; muted?: boolean }
-
-/** Horizontal bars, one value label per bar; negative values (module D) left of a zero line; sep starts a separated group. */
-export function hbars(rows: Bar[], o: { unit?: string; title?: string; labelWidth?: number; max?: number } = {}) {
-  const W = 420, labW = o.labelWidth || 140, valW = 48, rowH = 26, barH = 14, top = 4
-  const max = Math.max(1e-9, ...rows.map((r) => Math.max(0, r.value || 0)), o.max || 0)
-  const min = Math.min(0, ...rows.map((r) => Math.min(0, r.value || 0)))
-  const plotW = W - labW - valW, k = plotW / (max - min), x0 = labW - min * k
-  const H = top + rows.length * rowH + rows.filter((r) => r.sep).length * 8 + 4
-  let s = open(W, H, o.title || "bar chart")
-  let y = top
-  rows.forEach((r) => {
-    if (r.sep) {
-      s += `<line x1="0" x2="${W}" y1="${y + 4}" y2="${y + 4}" ${GRID} stroke-dasharray="3 3"/>`
-      y += 8
-    }
-    const v = r.value || 0, w = Math.max(v ? 2 : 0, Math.abs(v) * k), bx = v < 0 ? x0 - w : x0
-    s += `<text class="lab" x="${labW - 8}" y="${y + rowH / 2 + 4}" text-anchor="end"${r.muted ? ' style="font-style:italic"' : ""}>${esc(r.label)}</text>`
-    s += `<rect x="${bx}" y="${y + (rowH - barH) / 2}" width="${w}" height="${barH}" rx="2" fill="${r.color}"><title>${esc(r.label)}: ${fmt(r.value)} ${esc(o.unit || "")}</title></rect>`
-    s += `<text class="val num" x="${(v < 0 ? x0 : x0 + w) + 6}" y="${y + rowH / 2 + 4}">${r.value == null ? "–" : fmt(r.value)}</text>`
-    y += rowH
-  })
-  if (min < 0) s += `<line x1="${x0}" x2="${x0}" y1="${top}" y2="${H - 4}" style="stroke:var(--chart-axis)"/>`
-  return s + "</svg>"
-}
-
 export type Part = { label: string; value: number | null | undefined; color: string }
-
-/** Doughnut: parts [{label, value, color}]; centre text = total (the legend is drawn by the page). */
-export function donut(parts: Part[], o: { center?: string; unit?: string; title?: string } = {}) {
-  const R = 70, r = 46, C = 80, total = parts.reduce((a, p) => a + Math.max(0, p.value || 0), 0)
-  let s = open(160, 160, o.title || "doughnut", true)
-  let a0 = -Math.PI / 2
-  const gap = parts.filter((p) => (p.value || 0) > 0).length > 1 ? 0.012 : 0
-  parts.forEach((p) => {
-    const v = Math.max(0, p.value || 0)
-    if (!total || !v) return
-    const a1 = a0 + (v / total) * 2 * Math.PI
-    const s0 = a0 + gap, s1 = a1 - gap, large = s1 - s0 > Math.PI ? 1 : 0
-    const pt = (rad: number, a: number) => `${C + rad * Math.cos(a)},${C + rad * Math.sin(a)}`
-    const d = v === total
-      ? `M${C},${C - R} A${R},${R} 0 1,1 ${C - 0.01},${C - R} L${C - 0.01},${C - r} A${r},${r} 0 1,0 ${C},${C - r} Z`
-      : `M${pt(R, s0)} A${R},${R} 0 ${large},1 ${pt(R, s1)} L${pt(r, s1)} A${r},${r} 0 ${large},0 ${pt(r, s0)} Z`
-    s += `<path d="${d}" fill="${p.color}"><title>${esc(p.label)}: ${fmt(v)} (${fmt((100 * v) / total)}%)</title></path>`
-    a0 = a1
-  })
-  s += `<text class="num" x="${C}" y="${C - 2}" text-anchor="middle" style="font-size:20px;font-weight:600">${esc(o.center != null ? o.center : fmt(total))}</text>`
-  s += `<text x="${C}" y="${C + 16}" text-anchor="middle" class="lab" style="font-size:11px">${esc(o.unit || "")}</text></svg>`
-  return s
-}
 
 export type Line = { label: string; short?: string; value: number; color: string }
 export type Col = { label: string; sub?: string; segs: Part[]; total: number | null; lines?: Line[] }
@@ -229,18 +181,6 @@ export function lineChart(series: Series[], events: Event[], o: { unit?: string;
     s += `<text class="num" x="${e.x}" y="${e.y}" text-anchor="end" style="font-size:11px;font-weight:600;fill:${e.c};${HALO}">${e.t}</text>`
   })
   s += `<text class="lab" transform="translate(12 ${top + (H - top - bottom) / 2}) rotate(-90)" text-anchor="middle" style="font-size:10.5px">${esc(o.unit || "")}</text>`
-  return s + "</svg>"
-}
-
-/** One project-vs-target strip: project bar (before + contingency) and a target tick. */
-export function bullet(before: number, incl: number | null, target: number, o: { project: string; cont: string; target: string }) {
-  const W = 180, H = 18, max = Math.max(incl || 0, target || 0) * 1.1 || 1, x = (v: number) => (v / max) * W
-  let s = open(W, H, "project against target", true)
-  if (incl != null) {
-    s += `<rect x="0" y="4" width="${x(before)}" height="10" fill="${o.project}"><title>Before contingency ${fmt(before)}</title></rect>`
-    s += `<rect x="${x(before)}" y="4" width="${Math.max(0, x(incl) - x(before))}" height="10" fill="${o.cont}"><title>Contingency ${fmt(incl - before)}</title></rect>`
-  }
-  s += `<rect x="${x(target) - 1}" y="0" width="2.5" height="${H}" fill="${o.target}"><title>Target ${fmt(target)}</title></rect>`
   return s + "</svg>"
 }
 

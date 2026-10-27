@@ -4,8 +4,9 @@ import { ExternalLink, RefreshCw, Sheet } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Note, Notice, Section } from "@/components/blocks"
-import { ChartCard, Svg, Tile, Verdict } from "@/components/chart-ui"
-import { donut, fmt, forDark, hbars, sf, type Bar } from "@/lib/charts"
+import { ChartCard, Tile, Verdict } from "@/components/chart-ui"
+import { fmt, forDark, sf } from "@/lib/charts"
+import { DonutChart, HBarChart, type BarRow } from "@/components/charts"
 import { act } from "@/lib/bridge"
 import type { Model, PageProps } from "@/lib/model"
 import { n, palette, useDark, useSticky, type Palette, type ResOption, type Results } from "@/lib/results"
@@ -75,11 +76,11 @@ function OptionView({ m, R, o, sfN, P, lineColor }: ViewProps & { o: ResOption }
     .map(([label, k], i) => ({ label, value: n(v, k), color: P.basis[i % P.basis.length] }))
   const basisTotal = basis.reduce((a, b) => a + Math.max(0, b.value || 0), 0)
   const mc = [P.modules[0], P.modules[1], P.modules[2], P.b23[0], P.b23[1], P.modules[3], P.modules[4]]
-  const mods: Bar[] = ([["A1-A3 (product)", "M_A13"], ["A4 (transport)", "M_A4"], ["A5 (construction)", "M_A5"], ["B2 (maintenance)", "M_B2"],
+  const mods: BarRow[] = ([["A1-A3 (product)", "M_A13"], ["A4 (transport)", "M_A4"], ["A5 (construction)", "M_A5"], ["B2 (maintenance)", "M_B2"],
     ["B3 (repair)", "M_B3"], ["B4 (replacement)", "M_B4"], ["C1-C4 (end of life)", "M_C"]] as const)
     .map(([label, k], i) => ({ label, value: n(v, k), color: mc[i] }))
   if (n(v, "M_D")) mods.push({ label: "D (memo, not in A-C)", value: n(v, "M_D"), color: P.module_d, sep: true, muted: true })
-  const groups: Bar[] = (m.group_labels as string[]).map((label, i) => ({ label, value: n(v, "E_" + i), color: P.groups[i % P.groups.length] }))
+  const groups: BarRow[] = (m.group_labels as string[]).map((label, i) => ({ label, value: n(v, "E_" + i), color: P.groups[i % P.groups.length] }))
   groups.push({ label: "Contingency", value: n(v, "E_CONT"), color: P.cont })
   const upT = n(v, "UP_T")
   return (
@@ -98,7 +99,7 @@ function OptionView({ m, R, o, sfN, P, lineColor }: ViewProps & { o: ResOption }
         <ChartCard title="Basis of A1-A5"
           note="How much of the upfront figure rests on project information, on assumed quantities, on benchmarks for elements not yet designed, on site lumps and on the contingency.">
           <div className="flex flex-wrap items-center gap-5">
-            <Svg html={donut(basis, { center: fmt(sf(n(v, "UP_ALL"), sfN)), unit: "kgCO2e/m²", title: "basis of the A1-A5 figure" })} />
+            <DonutChart parts={basis} center={fmt(sf(n(v, "UP_ALL"), sfN))} unit="kgCO2e/m²" title="basis of the A1-A5 figure" />
             <ul className="min-w-[14rem] flex-1 space-y-1.5 text-sm">
               {basis.map((b) => (
                 <li key={b.label} className="flex items-baseline gap-2">
@@ -111,12 +112,12 @@ function OptionView({ m, R, o, sfN, P, lineColor }: ViewProps & { o: ResOption }
           </div>
         </ChartCard>
         <ChartCard title="A1-A5 by element group" note="kgCO2e/m² GIA, before contingency; contingency shown as its own bar.">
-          <Svg html={hbars(groups, { unit: "kgCO2e/m²", title: "A1-A5 by element group" })} />
+          <HBarChart rows={groups} unit="kgCO2e/m²" title="A1-A5 by element group" />
         </ChartCard>
         {/* full width: the chart with its explanation beside it */}
         <ChartCard title="By life-cycle module" wide>
           <div className="grid items-start gap-5 @3xl/main:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
-            <Svg html={hbars(mods, { unit: "kgCO2e/m²", title: "by life-cycle module" })} />
+            <HBarChart rows={mods} unit="kgCO2e/m²" title="by life-cycle module" />
             <p className="max-w-[72ch] text-xs leading-relaxed text-muted-foreground">
               kgCO2e/m² GIA incl. contingency. B2 / B3: PS default allowances for the whole building (B2 = the greater of 10 kgCO2e/m² GIA and 1% of
               A1-A5{v.B2_BASIS ? `, here ${v.B2_BASIS}` : ""}; B3 = 25% of the non-MEP part of B2 + 10% of services A1-A3). B4 includes the end of life of
@@ -175,7 +176,7 @@ function CompareView({ R, sfN, P, lineColor }: ViewProps) {
         <TrajectoryCard opts={opts} R={R} sfN={sfN} P={P} lineColor={lineColor} />
         {([["Upfront A1-A5", "UP_ALL"], ["Embodied A-C", "AC_ALL"]] as const).map(([label, k]) => (
           <ChartCard key={k} title={label} note="kgCO2e/m² GIA incl. contingency.">
-            <Svg html={hbars(opts.map((o, i) => ({ label: names[i], value: n(o.values, k), color: P.project })), { unit: "kgCO2e/m²", title: label, labelWidth: 170 })} />
+            <HBarChart rows={opts.map((o, i) => ({ label: names[i], value: n(o.values, k), color: P.project }))} unit="kgCO2e/m²" title={label} labelWidth={120} />
           </ChartCard>
         ))}
       </div>
