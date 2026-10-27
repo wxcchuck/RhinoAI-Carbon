@@ -68,3 +68,13 @@ export function stepFlags(m: Model): Set<number> {
 
 export const numText = (v: unknown) =>
   v == null || v === "" ? "" : (Number(v) + 0).toLocaleString("en-GB", { maximumFractionDigits: 2 })
+
+/** Figures as the current panel shows them: en-GB grouping, up to `d` decimals. */
+export const fmt = (v: unknown, d = 0) =>
+  typeof v === "number" && isFinite(v) ? (v + 0).toLocaleString("en-GB", { maximumFractionDigits: d }) : "–"   // + 0: no "-0"
+
+/** A share as typed into a % field (Rhino parses "60%" or "60" back to 0.6). */
+export const pct = (v: unknown) => (v == null || v === "" ? "" : Math.round(Number(v) * 100) + "%")
+
+/** Props every step page gets: the model and the option shown on the per-option steps (3 to 5). */
+export type PageProps = { m: Model; sel: number; setSel: (i: number) => void; goTo: (step: number) => void }

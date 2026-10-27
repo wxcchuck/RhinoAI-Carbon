@@ -26,7 +26,7 @@ See `src/lib/bridge.ts` and `src/lib/model.ts`.
 ## Layout
 
 - `src/App.tsx`: sidebar of steps (collapses to icons below 760 px), header with the theme switch, Back / Next.
-- `src/pages/`: one component per step. Steps not moved yet show `PendingPage`, which opens that step in
+- `src/pages/`: one component per step (steps 3-5 share the option picker). Steps not moved yet show `PendingPage`, which opens that step in
   the current interface.
 - `src/components/form.tsx`: fields wired to Rhino (text fields send on blur or Enter; Escape puts the
   saved value back).

@@ -13,15 +13,21 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { act, consumeJump, ready, useBridge } from "@/lib/bridge"
-import { stepFlags, type Model } from "@/lib/model"
+import { stepFlags, type Model, type PageProps } from "@/lib/model"
 import { useTheme, type ThemeChoice } from "@/lib/theme"
 import { cn } from "@/lib/utils"
 import { ProjectPage } from "@/pages/ProjectPage"
 import { DrawingsPage } from "@/pages/DrawingsPage"
+import { SubstructurePage } from "@/pages/SubstructurePage"
+import { StructurePage } from "@/pages/StructurePage"
+import { FacadePage } from "@/pages/FacadePage"
+import { TargetsPage } from "@/pages/TargetsPage"
+import { RunPage } from "@/pages/RunPage"
 import { PendingPage } from "@/pages/PendingPage"
 
 const ICONS: ComponentType<{ className?: string }>[] = [ClipboardList, Sheet, ArrowDownToLine, Columns3, Building, Target, Play, ChartColumnBig]
-const PAGES: (ComponentType<{ m: Model }> | null)[] = [ProjectPage, DrawingsPage, null, null, null, null, null, null]
+const PAGES: (ComponentType<PageProps> | null)[] = [ProjectPage, DrawingsPage, SubstructurePage, StructurePage, FacadePage, TargetsPage, RunPage, null]
+const REQUIRED = new Set([0, 2, 4, 5])      // steps with fields marked * (the line explaining the marker shows there)
 const WIDE = 760          // below this panel width the step list starts collapsed to icons
 
 function initialStep(): number {
@@ -32,6 +38,7 @@ function initialStep(): number {
 export default function App() {
   const { model: m, busy } = useBridge()
   const [step, setStep] = useState(initialStep)
+  const [sel, setSel] = useState(0)          // option shown on steps 3 to 5, kept while moving between them
   const [open, setOpen] = useState(() => window.innerWidth >= WIDE)
   const [theme, setTheme] = useTheme()
   const main = useRef<HTMLDivElement>(null)
@@ -150,10 +157,13 @@ export default function App() {
 
         <div ref={main} className="@container/main min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-5xl px-4 py-5 @2xl/main:px-6">
-            {Page && step !== 1 && step < last - 1 && (
+            {Page && REQUIRED.has(step) && (
               <p className="mb-5 text-xs text-muted-foreground"><span className="text-destructive">*</span> Needed to run the assessment; everything else has a default or is optional.</p>
             )}
-            {Page ? <Page m={m} /> : <PendingPage step={step} title={m.steps[step]} />}
+            {/* while Rhino works on an action, every control on the page waits (a disabled fieldset disables them all) */}
+            <fieldset disabled={!!busy} className="m-0 min-w-0 border-0 p-0">
+              {Page ? <Page m={m} sel={sel} setSel={setSel} goTo={go} /> : <PendingPage step={step} title={m.steps[step]} />}
+            </fieldset>
           </div>
         </div>
 
