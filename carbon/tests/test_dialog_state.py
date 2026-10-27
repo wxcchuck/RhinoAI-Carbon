@@ -455,3 +455,21 @@ def test_facade_header():
     assert ws.facade_header(o, OFFICE) == {"facade_curtain_wall_share": 0.25, "facade_punched_window_share": 0.75}
     o = _option([{"build_up": "SFS", "kind": ws.FACADE_PUNCHED, "share": 1.0, "wwr": 0.0}])
     assert ws.facade_header(o, OFFICE) == {"facade_curtain_wall_share": 0.0, "facade_punched_window_share": 0.0}
+
+
+def test_interface_choice_is_remembered_per_pc(tmp_path):
+    """XW 27/10/2026: the new panel (web_next) is opt-in; the current one stays the default and the fallback."""
+    cfg = str(tmp_path / "cfg" / "wlca_user.json")
+    assert ws.ui_choice(cfg) == "classic"
+    ws.remember_ui("next", cfg)
+    assert ws.ui_choice(cfg) == "next"
+    ws.remember_ui("bogus", cfg)
+    assert ws.ui_choice(cfg) == "classic"
+    pkg = tmp_path / "pkg"
+    (pkg / "web").mkdir(parents=True)
+    (pkg / "web" / "index.html").write_text("x")
+    assert ws.ui_page(str(pkg), "next").endswith(os.path.join("web", "index.html"))      # not shipped: current panel
+    (pkg / "web_next").mkdir()
+    (pkg / "web_next" / "index.html").write_text("x")
+    assert ws.ui_page(str(pkg), "next").endswith(os.path.join("web_next", "index.html"))
+    assert ws.ui_page(str(pkg), "classic").endswith(os.path.join("web", "index.html"))

@@ -37,6 +37,7 @@ SCRIPTS = [("rhino_ui", "wlca_web.py"), ("rhino_ui", "wlca_results.py"), ("rhino
            ("takeoff", "wlca_core.py"), ("takeoff", "wlca_massing_takeoff.py"), ("takeoff", "wlca_plan_rhino.py"),
            ("takeoff", "wlca_plan_extract.py"), ("calc", "wlca_calc_template.py"), ("calc", "wlca_dashboard.py")]
 WEB = ["index.html", "style.css", "app.js", "charts.js"]       # rhino_ui/web: the window's page, shipped as web/
+WEB_NEXT = ["index.html"]                                       # rhino_ui/web_next: the new panel (npm run build in rhino_ui/panel)
 SOURCES = ["WlcaPlugin.ai.cs", "WlcaCommand.ai.cs", "WlcaPanel.ai.cs"]
 
 
@@ -145,6 +146,9 @@ def build(cfg):
     os.makedirs(os.path.join(stage, "web"))
     for name in WEB:
         shutil.copy2(os.path.join(CARBON, "rhino_ui", "web", name), os.path.join(stage, "web"))
+    os.makedirs(os.path.join(stage, "web_next"))           # the new panel (one self-contained page, built from rhino_ui/panel)
+    for name in WEB_NEXT:
+        shutil.copy2(os.path.join(CARBON, "rhino_ui", "web_next", name), os.path.join(stage, "web_next"))
     with open(os.path.join(HERE, "WLCA.rui"), encoding="utf-8") as f:
         rui = rui_with_icon(f.read(), cfg.get("toolbar_icons"))
     with open(os.path.join(stage, "WLCA.rui"), "w", encoding="utf-8") as f:

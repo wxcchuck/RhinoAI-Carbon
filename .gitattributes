@@ -7,3 +7,6 @@
 
 # Acp.Codegen writes LF; keep the checkout LF so a regen on Windows never shows a line-ending diff.
 rhino/acp/src/Generated/*.cs text eol=lf
+
+# built page of the new WLCA panel (source: carbon/rhino_ui/panel)
+carbon/rhino_ui/web_next/index.html linguist-generated=true -diff
