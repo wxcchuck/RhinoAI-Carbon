@@ -26,8 +26,8 @@ See `src/lib/bridge.ts` and `src/lib/model.ts`.
 ## Layout
 
 - `src/App.tsx`: sidebar of steps (collapses to icons below 760 px), header with the theme switch, Back / Next.
-- `src/pages/`: one component per step (steps 3-5 share the option picker). Steps not moved yet show `PendingPage`, which opens that step in
-  the current interface.
+- `src/pages/`: one component per step (steps 3-5 share the option picker). `PendingPage` is a fallback for a step without a page (none at present); it opens
+  that step in the classic interface.
 - `src/pages/ResultsPage.tsx` and `src/pages/results/`: headline tiles, against targets, basis, element groups, modules,
   whole life by stage, the trajectory (option and compare). Charts are SVG strings from `src/lib/charts.ts`, ported from
   `../web/charts.js` with the same geometry; text, grid and halo colours follow the theme, data colours the office
@@ -37,7 +37,8 @@ See `src/lib/bridge.ts` and `src/lib/model.ts`.
 - `src/components/ui/`: shadcn/ui components copied from the shadcn repository (MIT); see the README there.
 - `src/index.css`: theme tokens (light and dark).
 
-## Trying it in Rhino
+## In Rhino
 
-"Try the new interface" at the bottom of the current panel's step list switches to this page; "Back to the
-current interface" switches back. The choice is remembered per PC (`wlca_user.json`, key `ui`).
+This page is the default interface. "Use the classic interface" at the bottom of the step list switches to
+`../web/` (the plain HTML / JavaScript panel), and "Try the new interface" there switches back. Only a choice of
+the classic interface is stored, per PC (`wlca_user.json`, key `ui`).

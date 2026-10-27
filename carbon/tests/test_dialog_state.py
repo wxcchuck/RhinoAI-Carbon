@@ -458,13 +458,16 @@ def test_facade_header():
 
 
 def test_interface_choice_is_remembered_per_pc(tmp_path):
-    """XW 27/10/2026: the new panel (web_next) is opt-in; the current one stays the default and the fallback."""
+    """XW 27/10/2026: the new panel (web_next) is the default; the classic one is kept for anyone who switches back,
+    and is the fallback when the new page is not in the package."""
     cfg = str(tmp_path / "cfg" / "wlca_user.json")
+    assert ws.ui_choice(cfg) == "next"
+    ws.remember_ui("classic", cfg)
     assert ws.ui_choice(cfg) == "classic"
     ws.remember_ui("next", cfg)
-    assert ws.ui_choice(cfg) == "next"
+    assert ws.ui_choice(cfg) == "next" and "ui" not in json.load(open(cfg))
     ws.remember_ui("bogus", cfg)
-    assert ws.ui_choice(cfg) == "classic"
+    assert ws.ui_choice(cfg) == "next"
     pkg = tmp_path / "pkg"
     (pkg / "web").mkdir(parents=True)
     (pkg / "web" / "index.html").write_text("x")
