@@ -29,7 +29,8 @@ See `src/lib/bridge.ts` and `src/lib/model.ts`.
 - `src/pages/`: one component per step (steps 3-5 share the option picker). `PendingPage` is a fallback for a step without a page (none at present); it opens
   that step in the classic interface.
 - `src/pages/ResultsPage.tsx` and `src/pages/results/`: headline tiles, against targets, basis, element groups, modules,
-  whole life by stage, the trajectory (option and compare). Charts are SVG strings from `src/lib/charts.ts`, ported from
+  whole life by stage, the trajectory (option and compare). The bar charts and the doughnut are shadcn/ui charts
+  (Recharts, `src/components/charts.tsx`, with tooltips); against targets, whole life by stage and the trajectory are still SVG strings from `src/lib/charts.ts`, ported from
   `../web/charts.js` with the same geometry; text, grid and halo colours follow the theme, data colours the office
   branding (lines and coloured labels are lightened on the dark theme).
 - `src/components/form.tsx`: fields wired to Rhino (text fields send on blur or Enter; Escape puts the
