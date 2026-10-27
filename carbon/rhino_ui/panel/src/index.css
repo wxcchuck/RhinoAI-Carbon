@@ -143,15 +143,6 @@
   .num {
     font-variant-numeric: tabular-nums;
   }
-  /* SVG charts (lib/charts.ts): text follows the theme unless a chart colours it itself */
-  .wlca-chart text {
-    fill: var(--foreground);
-    font-family: inherit;
-    font-size: 12px;
-  }
-  .wlca-chart text.lab {
-    fill: var(--muted-foreground);
-  }
   @media (prefers-reduced-motion: reduce) {
     *,
     *::before,

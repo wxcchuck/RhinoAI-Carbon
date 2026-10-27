@@ -1,9 +1,10 @@
 // Carbon over the reference study period: one option (with replacement events) or every option overlaid.
 // Drafted by an AI agent (Claude) - review before trusting.
-import { ChartCard, LineLegend, Svg } from "@/components/chart-ui"
+import { ChartCard, LineLegend } from "@/components/chart-ui"
+import { TrajectoryChart } from "@/components/charts-rich"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Toggle } from "@/components/ui/toggle"
-import { fmt, lineChart, sf, type Event, type Series } from "@/lib/charts"
+import { fmt, sf, type Event, type Series } from "@/lib/charts"
 import { n, OPTION_COLOURS, useSticky, type Palette, type ResOption, type Results, type Traj } from "@/lib/results"
 
 const EVENT_NAME: Record<string, string> = { Substructure: "Substructure", Superstructure: "Partitions", Facade: "Façade",
@@ -91,7 +92,7 @@ export function TrajectoryCard({ opts, R, sfN, P, lineColor }: {
         {!bioOk && "This workbook was made before biogenic carbon had its own column: its lines include it. Create the workbook again. "}
         {showD && "Module D (dotted, beyond the RSP) is a memo: benefits beyond the system boundary, before contingency, never netted off A-C."}
       </>}>
-      <Svg html={lineChart(series, events, { unit: "kgCO2e/m² GIA, cumulative", title: "carbon over the reference study period", x2: (x) => "yr " + (x - first) })} />
+      <TrajectoryChart series={series} events={events} unit="kgCO2e/m² GIA, cumulative" title="carbon over the reference study period" x2={(x) => "yr " + (x - first)} />
       <LineLegend items={items} />
       {multi && (
         <div className="mt-4 grid grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] gap-3">

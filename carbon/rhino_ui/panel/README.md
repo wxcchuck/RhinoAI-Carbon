@@ -29,10 +29,11 @@ See `src/lib/bridge.ts` and `src/lib/model.ts`.
 - `src/pages/`: one component per step (steps 3-5 share the option picker). `PendingPage` is a fallback for a step without a page (none at present); it opens
   that step in the classic interface.
 - `src/pages/ResultsPage.tsx` and `src/pages/results/`: headline tiles, against targets, basis, element groups, modules,
-  whole life by stage, the trajectory (option and compare). The bar charts and the doughnut are shadcn/ui charts
-  (Recharts, `src/components/charts.tsx`, with tooltips); against targets, whole life by stage and the trajectory are still SVG strings from `src/lib/charts.ts`, ported from
-  `../web/charts.js` with the same geometry; text, grid and halo colours follow the theme, data colours the office
-  branding (lines and coloured labels are lightened on the dark theme).
+  whole life by stage, the trajectory (option and compare). Every chart is a shadcn/ui chart (Recharts): `src/components/charts.tsx` (bars, doughnut) and
+  `src/components/charts-rich.tsx` (against targets, whole life by stage, trajectory). What Recharts has no stock part
+  for (target lines across one column, column totals, replacement-year markers, end values nudged apart) is drawn by
+  small overlays that use the chart's own scales. Data colours come from the office branding (lines and coloured
+  labels lightened on the dark theme); charts too wide for a narrow panel scroll sideways.
 - `src/components/form.tsx`: fields wired to Rhino (text fields send on blur or Enter; Escape puts the
   saved value back).
 - `src/components/ui/`: shadcn/ui components copied from the shadcn repository (MIT); see the README there.

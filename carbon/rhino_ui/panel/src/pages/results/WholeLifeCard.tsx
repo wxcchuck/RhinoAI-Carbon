@@ -1,7 +1,8 @@
 // "Whole life by stage": stacked columns per grid scenario, module D apart, and the table.
 // Drafted by an AI agent (Claude) - review before trusting.
-import { ChartCard, Legend, Svg } from "@/components/chart-ui"
-import { fmt, sf, stackColumns, type StackCol } from "@/lib/charts"
+import { ChartCard, Legend } from "@/components/chart-ui"
+import { StackColumnsChart } from "@/components/charts-rich"
+import { fmt, sf, type StackCol } from "@/lib/charts"
 import { n, type Palette, type Values } from "@/lib/results"
 
 export function WholeLifeCard({ v, sfN, P }: { v: Values; sfN: number; P: Palette }) {
@@ -38,7 +39,7 @@ export function WholeLifeCard({ v, sfN, P }: { v: Values; sfN: number; P: Palett
         {op ? "Both grid scenarios as the PS requires (4.11.4)." : "B6 / B7 not assessed: set the operational basis on step 6."}</>}>
       <div className="grid gap-6 @3xl/main:grid-cols-[3fr_2fr]">
         <div className="min-w-0">
-          <Svg html={stackColumns(cols, { unit: "kgCO2e/m² GIA", title: "whole life carbon by stage" })} />
+          <StackColumnsChart cols={cols} unit="kgCO2e/m² GIA" title="whole life carbon by stage" />
           <Legend items={items} />
         </div>
         {op && (

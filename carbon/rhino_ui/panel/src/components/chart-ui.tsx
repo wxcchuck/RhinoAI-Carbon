@@ -2,11 +2,6 @@
 import type { ReactNode } from "react"
 import { cn } from "@/lib/utils"
 
-/** An SVG chart string from lib/charts.ts (built from numbers and escaped labels only). */
-export function Svg({ html, className }: { html: string; className?: string }) {
-  return <div className={cn("min-w-0 [&>svg]:block [&>svg]:h-auto", className)} dangerouslySetInnerHTML={{ __html: html }} />
-}
-
 /** A results card: title, optional controls on the right, the chart, a note underneath. */
 export function ChartCard({ title, children, note, aside, wide, className }: {
   title: string

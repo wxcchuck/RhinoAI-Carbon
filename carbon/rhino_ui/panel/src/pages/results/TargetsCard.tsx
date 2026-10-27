@@ -1,8 +1,9 @@
 // "Against targets": up to four targets drawn on their reporting boundaries, and the table of all of them.
 // Drafted by an AI agent (Claude) - review before trusting.
 import { ChevronRight } from "lucide-react"
-import { ChartCard, Legend, Svg, Verdict, VerdictDot } from "@/components/chart-ui"
-import { fmt, sf, targetColumns, type Col, type Part } from "@/lib/charts"
+import { ChartCard, Legend, Verdict, VerdictDot } from "@/components/chart-ui"
+import { TargetColumnsChart } from "@/components/charts-rich"
+import { fmt, sf, type Col, type Part } from "@/lib/charts"
 import { patchModel, send } from "@/lib/bridge"
 import type { Model } from "@/lib/model"
 import { BOUNDARY, type Palette, type ResOption, type Results, type Target } from "@/lib/results"
@@ -72,7 +73,7 @@ export function TargetsCard({ m, R, o, sfN, P, lineColor }: {
     return (
       <div className="min-w-0">
         <h3 className="mb-1 text-sm font-medium">{title}</h3>
-        <Svg html={targetColumns(cols, { unit: "kgCO2e/m² GIA", title })} />
+        <TargetColumnsChart cols={cols} unit="kgCO2e/m² GIA" title={title} />
         <Legend items={items} />
       </div>
     )

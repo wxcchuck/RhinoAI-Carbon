@@ -1,5 +1,5 @@
 // shadcn/ui charts (Recharts) for the Results page: bars and the doughnut. Drafted by an AI agent (Claude) - review before trusting.
-// The rest of the charts (against targets, whole life by stage, trajectory) are still the SVG ones in lib/charts.ts.
+// Against targets, whole life by stage and the trajectory: components/charts-rich.tsx.
 import { Bar, BarChart, Cell, Label, LabelList, Pie, PieChart, ReferenceLine, XAxis, YAxis } from "recharts"
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart"
 import { fmt } from "@/lib/charts"
