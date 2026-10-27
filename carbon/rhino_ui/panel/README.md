@@ -28,6 +28,10 @@ See `src/lib/bridge.ts` and `src/lib/model.ts`.
 - `src/App.tsx`: sidebar of steps (collapses to icons below 760 px), header with the theme switch, Back / Next.
 - `src/pages/`: one component per step (steps 3-5 share the option picker). Steps not moved yet show `PendingPage`, which opens that step in
   the current interface.
+- `src/pages/ResultsPage.tsx` and `src/pages/results/`: headline tiles, against targets, basis, element groups, modules,
+  whole life by stage, the trajectory (option and compare). Charts are SVG strings from `src/lib/charts.ts`, ported from
+  `../web/charts.js` with the same geometry; text, grid and halo colours follow the theme, data colours the office
+  branding (lines and coloured labels are lightened on the dark theme).
 - `src/components/form.tsx`: fields wired to Rhino (text fields send on blur or Enter; Escape puts the
   saved value back).
 - `src/components/ui/`: shadcn/ui components copied from the shadcn repository (MIT); see the README there.
