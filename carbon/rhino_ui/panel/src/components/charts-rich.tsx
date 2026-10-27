@@ -155,7 +155,7 @@ export function StackColumnsChart({ cols, unit, title }: { cols: StackCol[]; uni
     return narrow ? <Rectangle {...(p as object)} x={x + w * 0.22} width={w * 0.56} /> : <Rectangle {...(p as object)} />
   }
   return (
-    <Scroll minWidth={190 * cols.length + 130}>
+    <Scroll minWidth={140 * cols.length + 100}>
     <ChartContainer config={config} className="aspect-auto w-full" style={{ height: 380 }} role="img" aria-label={title}>
       <BarChart data={rows} stackOffset="sign" margin={{ top: 18, right: 70, bottom: 6, left: 4 }} barCategoryGap="15%" accessibilityLayer>
         <CartesianGrid vertical={false} />
@@ -182,7 +182,10 @@ export function StackColumnsChart({ cols, unit, title }: { cols: StackCol[]; uni
                   <text x={x + w / 2} y={top + h / 2 + 12} textAnchor="middle" fontSize={11.5} fontWeight={600} fill={g.ink || "#fff"} className="num">{fmt(shown)}</text>
                 </g>
               )
-              return <text x={x + w + 6} y={top + h / 2 + 4} fontSize={10.5} className="fill-muted-foreground">{g.short || g.label} {fmt(shown)}</text>
+              const one = `${g.short || g.label} ${fmt(shown)}`
+              if (h >= 15 && one.length * 5.5 <= w - 6)          // one line still fits inside: keeps it off the next column
+                return <text x={x + w / 2} y={top + h / 2 + 4} textAnchor="middle" fontSize={10.5} fill={g.ink || "#fff"}>{one}</text>
+              return <text x={x + w + 6} y={top + h / 2 + 4} fontSize={10.5} className="fill-muted-foreground">{one}</text>
             }} />
           </Bar>
         ))}
