@@ -41,6 +41,9 @@
   --sidebar-accent-foreground: #1d2329;
   --sidebar-border: #d3d8d5;
   --sidebar-ring: #1f4e79;
+  --chart-grid: #e4e7e5;
+  --chart-axis: #59636b;
+  --chart-event: #9aa2a8;
 }
 
 .dark {
@@ -75,6 +78,9 @@
   --sidebar-accent-foreground: #e4e8eb;
   --sidebar-border: #262e35;
   --sidebar-ring: #7fb0dc;
+  --chart-grid: #2b3238;
+  --chart-axis: #8d979f;
+  --chart-event: #6d777f;
 }
 
 @theme inline {
@@ -136,6 +142,15 @@
   }
   .num {
     font-variant-numeric: tabular-nums;
+  }
+  /* SVG charts (lib/charts.ts): text follows the theme unless a chart colours it itself */
+  .wlca-chart text {
+    fill: var(--foreground);
+    font-family: inherit;
+    font-size: 12px;
+  }
+  .wlca-chart text.lab {
+    fill: var(--muted-foreground);
   }
   @media (prefers-reduced-motion: reduce) {
     *,

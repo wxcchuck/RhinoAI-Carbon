@@ -23,10 +23,11 @@ import { StructurePage } from "@/pages/StructurePage"
 import { FacadePage } from "@/pages/FacadePage"
 import { TargetsPage } from "@/pages/TargetsPage"
 import { RunPage } from "@/pages/RunPage"
+import { ResultsPage } from "@/pages/ResultsPage"
 import { PendingPage } from "@/pages/PendingPage"
 
 const ICONS: ComponentType<{ className?: string }>[] = [ClipboardList, Sheet, ArrowDownToLine, Columns3, Building, Target, Play, ChartColumnBig]
-const PAGES: (ComponentType<PageProps> | null)[] = [ProjectPage, DrawingsPage, SubstructurePage, StructurePage, FacadePage, TargetsPage, RunPage, null]
+const PAGES: (ComponentType<PageProps> | null)[] = [ProjectPage, DrawingsPage, SubstructurePage, StructurePage, FacadePage, TargetsPage, RunPage, ResultsPage]
 const REQUIRED = new Set([0, 2, 4, 5])      // steps with fields marked * (the line explaining the marker shows there)
 const WIDE = 760          // below this panel width the step list starts collapsed to icons
 
@@ -156,7 +157,7 @@ export default function App() {
         </header>
 
         <div ref={main} className="@container/main min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-5xl px-4 py-5 @2xl/main:px-6">
+          <div className={cn("mx-auto w-full px-4 py-5 @2xl/main:px-6", step === last ? "max-w-7xl" : "max-w-5xl")}>
             {Page && REQUIRED.has(step) && (
               <p className="mb-5 text-xs text-muted-foreground"><span className="text-destructive">*</span> Needed to run the assessment; everything else has a default or is optional.</p>
             )}
