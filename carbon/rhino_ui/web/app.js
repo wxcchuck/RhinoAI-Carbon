@@ -8,7 +8,7 @@
   const { hbars, donut, bullet, targetColumns, stackColumns, lineChart, lineLegend, legend, fmt, sf, esc } = window.WlcaCharts;
   const host = window.chrome && window.chrome.webview ? window.chrome.webview : window.eto || null;
   let M = null;              // the latest model from Rhino
-  let step = 0;              // page shown
+  let step = Number((/step=(\d)/.exec(window.location.hash) || [0, 0])[1]);   // page shown (#step=N when switched from the new panel)
   let sel = 0;               // option shown on the facade / structure pages
   let resTab = 0;            // option shown on the results page (-1 = compare)
   let busy = "";             // text shown while Rhino works on an action
@@ -613,7 +613,8 @@
   function renderNav() {
     const flags = stepFlags();
     document.getElementById("nav").innerHTML = M.steps.map((s, i) =>
-      (i === RESULTS ? "<hr>" : "") + `<button type="button" data-step="${i}" title="${esc(s)}" class="${i === step ? "on" : ""}"><span class="n">${i < RESULTS ? i + 1 : "◆"}</span><span class="t">${esc(s)}</span>${flags.has(i) ? '<span class="flag" title="Something to fix on this step"></span>' : ""}</button>`).join("");
+      (i === RESULTS ? "<hr>" : "") + `<button type="button" data-step="${i}" title="${esc(s)}" class="${i === step ? "on" : ""}"><span class="n">${i < RESULTS ? i + 1 : "◆"}</span><span class="t">${esc(s)}</span>${flags.has(i) ? '<span class="flag" title="Something to fix on this step"></span>' : ""}</button>`).join("")
+      + (M.ui && M.ui.next_available ? `<hr><button type="button" class="try-next" data-action="switch_ui" data-args="${esc(JSON.stringify({ ui: "next", step }))}" title="Try the new interface (preview)"><span class="n">✦</span><span class="t">Try the new interface</span></button>` : "");
   }
   function renderFooter() {
     const st = document.getElementById("status");
@@ -660,6 +661,7 @@
       return send({ type: "action", name: "chart_targets", args: { labels: next } });
     }
     if (t.dataset.action) {
+      if (t.dataset.action === "switch_ui") return send({ type: "action", name: "switch_ui", args: JSON.parse(t.dataset.args) });
       const labels = { run_takeoff: "Running the take-off in Rhino…", create_workbook: "Building the workbook…", read_plan: "Reading the plan…" };
       act(t.dataset.action, JSON.parse(t.dataset.args || "{}"), labels[t.dataset.action] || "Working…");
     }

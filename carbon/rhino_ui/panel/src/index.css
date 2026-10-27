@@ -1,0 +1,148 @@
+/* WLCA panel theme. Drafted by an AI agent (Claude) - review before trusting.
+   shadcn/ui token names, WLCA values: cool drawing-office greys, one accent (the navy the charts and
+   the workbook Dashboard use for the project), status colours kept apart from it. Light and dark are
+   chosen with the switch in the header (or follow Windows). */
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "./fonts.css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 0.5rem;
+  --background: #f3f4f2;
+  --foreground: #1d2329;
+  --card: #ffffff;
+  --card-foreground: #1d2329;
+  --popover: #ffffff;
+  --popover-foreground: #1d2329;
+  --primary: #1f4e79;
+  --primary-foreground: #ffffff;
+  --secondary: #e8ebe9;
+  --secondary-foreground: #1d2329;
+  --muted: #eceeec;
+  --muted-foreground: #5c666e;
+  --accent: #e3eaf1;
+  --accent-foreground: #163a5b;
+  --destructive: #b3261e;
+  --border: #d8dcd9;
+  --input: #c9cfcb;
+  --ring: #1f4e79;
+  --good: #2c7a4b;
+  --good-soft: #e3f1e8;
+  --warn: #9a6210;
+  --warn-soft: #fbf0dc;
+  --error-soft: #fbe5e3;
+  --sidebar: #e9ece9;
+  --sidebar-foreground: #1d2329;
+  --sidebar-primary: #1f4e79;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #dde3e6;
+  --sidebar-accent-foreground: #1d2329;
+  --sidebar-border: #d3d8d5;
+  --sidebar-ring: #1f4e79;
+}
+
+.dark {
+  --background: #14181c;
+  --foreground: #e4e8eb;
+  --card: #1b2026;
+  --card-foreground: #e4e8eb;
+  --popover: #1f252b;
+  --popover-foreground: #e4e8eb;
+  --primary: #7fb0dc;
+  --primary-foreground: #0e2338;
+  --secondary: #262d34;
+  --secondary-foreground: #e4e8eb;
+  --muted: #232a30;
+  --muted-foreground: #9aa4ad;
+  --accent: #23384c;
+  --accent-foreground: #d6e6f5;
+  --destructive: #f2867e;
+  --border: #2d353c;
+  --input: #3a434b;
+  --ring: #7fb0dc;
+  --good: #6fc794;
+  --good-soft: #1b3326;
+  --warn: #e7b25b;
+  --warn-soft: #3a2d15;
+  --error-soft: #3d1f1d;
+  --sidebar: #101417;
+  --sidebar-foreground: #dfe4e8;
+  --sidebar-primary: #7fb0dc;
+  --sidebar-primary-foreground: #0e2338;
+  --sidebar-accent: #1f262c;
+  --sidebar-accent-foreground: #e4e8eb;
+  --sidebar-border: #262e35;
+  --sidebar-ring: #7fb0dc;
+}
+
+@theme inline {
+  --font-sans: "IBM Plex Sans Variable", "Segoe UI", system-ui, sans-serif;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.875rem;
+  --text-lg: 1rem;
+  --text-xl: 1.1875rem;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-good: var(--good);
+  --color-good-soft: var(--good-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-error-soft: var(--error-soft);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-background text-foreground text-sm antialiased;
+    font-feature-settings: "tnum" 0;
+  }
+  .num {
+    font-variant-numeric: tabular-nums;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}

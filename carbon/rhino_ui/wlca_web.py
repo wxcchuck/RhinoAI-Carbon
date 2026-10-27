@@ -100,7 +100,12 @@ class WLCAWindow(object):
         self.view.MessageReceived += self._on_msg
         Rhino.RhinoDoc.EndOpenDocument += self._on_open      # the panel stays open across models: follow the open one
         Rhino.RhinoDoc.NewDocument += self._on_new
-        self.view.Url = System.Uri(os.path.join(PKG, "web", "index.html"))     # (re)load: the page then says "ready"
+        self.load_page()                                     # the page then says "ready"
+
+    def load_page(self, step=None):
+        """(Re)load the chosen interface (ws.ui_choice: current or new panel), opening at a step if given."""
+        url = System.Uri(ws.ui_page(PKG, ws.ui_choice())).AbsoluteUri
+        self.view.Url = System.Uri(url + ("#step=%d" % int(step) if step is not None else ""))
 
     @property
     def dialog_parent(self):
@@ -249,6 +254,11 @@ class WLCAWindow(object):
             opts[int(a["i"])]["substructure"]["basement"]["levels"].pop(int(a["j"]))
         elif name == "plan_route":
             st["plan"]["route"] = a["route"]
+        elif name == "switch_ui":
+            ws.remember_ui(a.get("ui"))
+            self.save()
+            self.load_page(a.get("step"))
+            return
         elif name in ("pick_schedule", "pick_plan_json", "pick_folder", "pick_office_settings", "reset_office_settings",
                       "pick_logo", "turn_layers_on"):
             getattr(self, name)()
@@ -406,6 +416,7 @@ class WLCAWindow(object):
                      "exists": bool(logo and os.path.exists(logo))},
             "calc": self.calc,
             "results": self.results,
+            "ui": {"current": ws.ui_choice(), "next_available": os.path.isfile(os.path.join(PKG, *ws.UI_PAGES["next"]))},
             "branding": branding,
             "group_labels": ["Substructure", "Superstructure", "Facade", "Internal finishes", "FF&E", "Services (MEP)",
                              "External works", "Site (A5.1/A5.2)"],

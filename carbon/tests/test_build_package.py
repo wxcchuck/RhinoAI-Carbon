@@ -35,6 +35,12 @@ def test_package_ships_every_module_the_dialog_imports():
     page = open(os.path.join(here, "rhino_ui", "web", "index.html"), encoding="utf-8").read()
     import re as _re
     assert set(_re.findall(r'(?:src|href)="([^"]+)"', page)) <= set(bp.WEB)     # the page loads only shipped files
+    for name in bp.WEB_NEXT:
+        assert os.path.exists(os.path.join(here, "rhino_ui", "web_next", name))
+    nxt = open(os.path.join(here, "rhino_ui", "web_next", "index.html"), encoding="utf-8").read()
+    refs = _re.findall(r'<(?:script|link|img)\b[^>]*\b(?:src|href)="([^"]+)"', nxt)
+    assert all(r.startswith("data:") for r in refs), refs   # one self-contained page: file:// blocks module scripts
+    assert "window.wlca" in nxt or "wlca=" in nxt or ".wlca" in nxt        # the bridge Rhino calls
     src = "".join(open(os.path.join(here, f, n), encoding="utf-8").read() for f, n in bp.SCRIPTS)
     import re
     used = {m + ".py" for m in re.findall(r"^\s*(?:import|from) (wlca_\w+)", src, re.M)}

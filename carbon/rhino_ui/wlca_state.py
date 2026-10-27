@@ -148,17 +148,43 @@ def find_office_settings(pkg_dir, env=None, user_cfg=None):
     return (cands[0][0] if cands else ""), "not found"
 
 
-def remember_office_settings(path):
-    """Store the chosen settings file for this PC ('' forgets it)."""
-    cfg_path = user_config_path()
+def _remember(key, value, cfg_path=None):
+    """Store one per-PC choice in the user config (None or '' forgets it)."""
+    cfg_path = cfg_path or user_config_path()
     cfg = read_json(cfg_path)
-    if path:
-        cfg["office_settings"] = path
+    if value:
+        cfg[key] = value
     else:
-        cfg.pop("office_settings", None)
+        cfg.pop(key, None)
     os.makedirs(os.path.dirname(cfg_path), exist_ok=True)
     with open(cfg_path, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=1)
+
+
+def remember_office_settings(path):
+    """Store the chosen settings file for this PC ('' forgets it)."""
+    _remember("office_settings", path)
+
+
+# Panel interface (XW 27/10/2026): "classic" = web/ (plain HTML / JS), "next" = web_next/ (React + Tailwind + shadcn/ui,
+# built from rhino_ui/panel). The classic one stays the default until the new one covers every step.
+UI_CHOICES = ("classic", "next")
+UI_PAGES = {"classic": ("web", "index.html"), "next": ("web_next", "index.html")}
+
+
+def ui_choice(cfg_path=None):
+    v = read_json(cfg_path or user_config_path()).get("ui")
+    return v if v in UI_CHOICES else "classic"
+
+
+def remember_ui(choice, cfg_path=None):
+    _remember("ui", choice if choice in UI_CHOICES and choice != "classic" else None, cfg_path)
+
+
+def ui_page(pkg_dir, choice):
+    """index.html of the chosen interface; the classic page when the new one is not in this package."""
+    want = os.path.join(pkg_dir, *UI_PAGES.get(choice, UI_PAGES["classic"]))
+    return want if os.path.isfile(want) else os.path.join(pkg_dir, *UI_PAGES["classic"])
 
 
 def package_info(pkg_dir):
