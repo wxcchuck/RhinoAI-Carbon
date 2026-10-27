@@ -147,4 +147,25 @@ export function PathInput({ path, value, action, args, placeholder, buttonLabel 
   )
 }
 
+/** A labelled number field writing into the saved settings (kind "num": blank allowed, Rhino parses "1,200"). */
+export function NumField({ path, value, label, required, hint, kind = "num", className }: {
+  path: Path
+  value: unknown
+  label: string
+  required?: boolean
+  hint?: ReactNode
+  kind?: Kind
+  className?: string
+}) {
+  const shown = value == null || value === "" ? ""
+    : kind === "pct" ? Math.round(Number(value) * 100) + "%"
+    : kind === "int" ? String(value)                    // years: no thousands separator
+    : (Number(value) + 0).toLocaleString("en-GB", { maximumFractionDigits: 3 })
+  return (
+    <FormField label={label} required={required} hint={hint} htmlFor={idOf(path)} className={className}>
+      <TextInput path={path} value={shown} kind={kind} numeric />
+    </FormField>
+  )
+}
+
 export { idOf }

@@ -4,8 +4,9 @@ import { CircleCheck, CircleX, Info, TriangleAlert } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 /** A titled part of a step: the title says what is set here, the lead line why it matters. */
-export function Section({ title, lead, children, className, aside }: {
+export function Section({ title, code, lead, children, className, aside }: {
   title: string
+  code?: string            // RICS element code(s) the section feeds, e.g. "1.2.3"
   lead?: ReactNode
   children?: ReactNode
   className?: string
@@ -14,7 +15,10 @@ export function Section({ title, lead, children, className, aside }: {
   return (
     <section className={cn("border-t border-border pt-5 first:border-t-0 first:pt-0", className)}>
       <div className="mb-3 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-        <h2 className="text-lg font-semibold tracking-[-0.005em]">{title}</h2>
+        <h2 className="text-lg font-semibold tracking-[-0.005em]">
+          {title}
+          {code && <span className="num ml-2 text-sm font-normal text-muted-foreground" title="RICS element code">{code}</span>}
+        </h2>
         {aside && <div className="ml-auto">{aside}</div>}
       </div>
       {lead && <p className="mb-4 max-w-[72ch] text-sm leading-relaxed text-muted-foreground">{lead}</p>}

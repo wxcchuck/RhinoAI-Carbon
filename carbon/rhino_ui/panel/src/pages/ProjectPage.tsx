@@ -5,9 +5,9 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { FieldGrid, Note, Section } from "@/components/blocks"
 import { Choice, ChoiceInput, FormField, TextInput, idOf } from "@/components/form"
 import { act, setValue } from "@/lib/bridge"
-import { numText, type Model } from "@/lib/model"
+import { numText, type PageProps } from "@/lib/model"
 
-export function ProjectPage({ m }: { m: Model }) {
+export function ProjectPage({ m }: PageProps) {
   const p = m.state.project, L = m.lists
   return (
     <div className="space-y-8">

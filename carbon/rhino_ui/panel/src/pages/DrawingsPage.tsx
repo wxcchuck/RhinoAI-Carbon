@@ -4,9 +4,9 @@ import { Button } from "@/components/ui/button"
 import { FieldGrid, Note, Notice, Section } from "@/components/blocks"
 import { Choice, ChoiceInput, FormField, PathInput, idOf } from "@/components/form"
 import { act } from "@/lib/bridge"
-import type { Model } from "@/lib/model"
+import type { PageProps } from "@/lib/model"
 
-export function DrawingsPage({ m }: { m: Model }) {
+export function DrawingsPage({ m }: PageProps) {
   const s = m.state.schedule, pl = m.state.plan, L = m.lists
   const tone = m.schedule.level === "warn" ? "warn" : m.schedule.level === "good" ? "good" : "note"
   const layers: [string, string][] = [["", "(none)"], ...L.all_layers.map((x) => [x, x] as [string, string])]
