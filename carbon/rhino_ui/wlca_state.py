@@ -166,19 +166,20 @@ def remember_office_settings(path):
     _remember("office_settings", path)
 
 
-# Panel interface (XW 27/10/2026): "classic" = web/ (plain HTML / JS), "next" = web_next/ (React + Tailwind + shadcn/ui,
-# built from rhino_ui/panel). The classic one stays the default until the new one covers every step.
+# Panel interface (XW 27/10/2026): "next" = web_next/ (React + Tailwind + shadcn/ui, built from rhino_ui/panel), the
+# default since it covers every step; "classic" = web/ (plain HTML / JS), kept for anyone who switches back.
 UI_CHOICES = ("classic", "next")
+UI_DEFAULT = "next"
 UI_PAGES = {"classic": ("web", "index.html"), "next": ("web_next", "index.html")}
 
 
 def ui_choice(cfg_path=None):
     v = read_json(cfg_path or user_config_path()).get("ui")
-    return v if v in UI_CHOICES else "classic"
+    return v if v in UI_CHOICES else UI_DEFAULT
 
 
 def remember_ui(choice, cfg_path=None):
-    _remember("ui", choice if choice in UI_CHOICES and choice != "classic" else None, cfg_path)
+    _remember("ui", choice if choice in UI_CHOICES and choice != UI_DEFAULT else None, cfg_path)     # only a departure from the default is stored
 
 
 def ui_page(pkg_dir, choice):

@@ -45,7 +45,7 @@ export default function App() {
   const main = useRef<HTMLDivElement>(null)
 
   useEffect(() => ready(), [])
-  useEffect(() => {            // Rhino opens a step with #step=N (switching from the current interface)
+  useEffect(() => {            // Rhino opens a step with #step=N (switching from the classic interface)
     const onHash = () => setStep(initialStep())
     window.addEventListener("hashchange", onHash)
     return () => window.removeEventListener("hashchange", onHash)
@@ -134,10 +134,10 @@ export default function App() {
         <SidebarFooter className="px-2 pb-3">
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton tooltip="Back to the current interface" className="text-muted-foreground"
-                onClick={() => act("switch_ui", { ui: "classic", step }, "Opening the current interface…")}>
+              <SidebarMenuButton tooltip="Use the classic interface" className="text-muted-foreground"
+                onClick={() => act("switch_ui", { ui: "classic", step }, "Opening the classic interface…")}>
                 <Undo2 />
-                <span>Back to the current interface</span>
+                <span>Use the classic interface</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
