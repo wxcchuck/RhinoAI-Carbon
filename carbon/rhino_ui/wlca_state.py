@@ -42,6 +42,9 @@ def default_state():
         "output": {"folder": "", "workbook": "", "font": "Arial", "logo": None},
         # B6 / B7 (PS 5.3 / 5.4): basis for the whole building; energy and water per option
         "operational": {"route": "Not assessed", "op_year": None, "dh_factor": 0.0},
+        # detailed model (step 2): one rule per line - layer, RICS element, measure, build-up, factor, what it replaces
+        # (wlca_modelled.py); measured = the last measurement of those layers; report = what the last run replaced
+        "modelled": {"rules": [], "measured": None, "summary": [], "report": {}},
     }
 
 
@@ -53,6 +56,7 @@ def default_option(name, layer="", source="layer", file_path=""):
                       "sources": {}},
         "operational": {"elec": None, "gas": None, "dh": None, "pv_self": None, "pv_export": None, "water": None, "eui": None},
         "substructure": default_substructure(),
+        "use_modelled": True,          # take off the modelled elements of this model (step 2) for this option
     }
 
 
@@ -443,7 +447,117 @@ def validate(state, office=None):
         out.append(("warning", "Logo should be a PNG or JPG image - other files may not show in Excel (step 7)."))
     if not state["output"].get("folder"):
         out.append(("error", "Choose where to save the take-off and workbook (step 6)."))
+    out += check_modelled(state, office)
     return out
+
+
+# ------------------------------------------------------------------------------------- detailed model (step 2)
+_LIB_CACHE = {}
+
+
+def library_buildups(office):
+    """{code: {"unit", "rics", "desc"}} from the office build-up library, cached on the file's path and time; {} if unreadable."""
+    path = (office or {}).get("library_xlsx")
+    if not path or not os.path.exists(path):
+        return {}
+    key = (path, os.path.getmtime(path))
+    if key not in _LIB_CACHE:
+        try:
+            import wlca_modelled as wm
+            _LIB_CACHE.clear()
+            _LIB_CACHE[key] = wm.read_library(path)
+        except Exception:
+            return {}
+    return _LIB_CACHE[key]
+
+
+def active_rules(state):
+    return [r for r in ((state.get("modelled") or {}).get("rules") or []) if r.get("measure", "ignore") != "ignore"]
+
+
+def uses_model(option, state):
+    return bool(option.get("use_modelled", True) and active_rules(state))
+
+
+def check_modelled(state, office):
+    """Step 2 checks on the rule table, when any included option takes off the model."""
+    if not any(uses_model(o, state) for o in state["options"] if o.get("include")):
+        return []
+    import wlca_modelled as wm
+    out = list(wm.check_rules(active_rules(state), library_buildups(office)))
+    if not (state.get("modelled") or {}).get("measured"):
+        out.append(("warning", "The model layers have not been measured yet - Measure model, or the run measures them (step 2)."))
+    shares = [r for r in active_rules(state) if r["measure"] == "share"]
+    if shares and not any(r["build_up"] and (library_buildups(office).get(r["build_up"]) or {}).get("rics", "").startswith(("2.5.2", "2.6"))
+                          or str(r.get("rics", "")).startswith(("2.5.2", "2.6")) for r in shares):
+        out.append(("warning", "The façade shares from the model have no glazing layer: the whole net façade becomes wall (step 2)."))
+    return out
+
+
+def rule_view(state):
+    """Per rule line: objects, quantity (measure x factor) and unit from the last measurement - for the table."""
+    import wlca_modelled as wm
+    md = state.get("modelled") or {}
+    layers = ((md.get("measured") or {}).get("layers")) or {}
+    rules = md.get("rules") or []
+    share_tot = 0.0
+    for r in rules:
+        if r.get("measure") == "share" and r["layer"] in layers:
+            share_tot += float(layers[r["layer"]].get("face") or 0) * float(r.get("factor") or 1)
+    out = []
+    for r in rules:
+        st = layers.get(r["layer"])
+        m = r.get("measure", "ignore")
+        v = {"n": st.get("n") if st else None, "open": st.get("open") if st else None, "q": None, "unit": wm.UNIT.get(m, ""),
+             "share": None}
+        if st and m != "ignore":
+            v["q"] = round(float(st.get(wm.STAT[m]) or 0) * float(r.get("factor") or 1), 1)
+            if m == "share" and share_tot > 0:
+                v["share"] = round(v["q"] / share_tot, 4)
+        out.append(v)
+    return out
+
+
+def after_rule_edit(state, k, field, lib):
+    """Knock-on changes when a rule's field is edited on step 2."""
+    import wlca_modelled as wm
+    r = state["modelled"]["rules"][k]
+    r["source"] = "edited"
+    if field == "rics":
+        r["replaces"] = wm.default_replaces(r["rics"])
+    elif field == "build_up" and r["build_up"] in lib:
+        b = lib[r["build_up"]]
+        if r.get("measure", "ignore") == "ignore" or wm.UNIT.get(r["measure"]) != b["unit"]:
+            r["measure"] = wm.measure_for(r["build_up"], lib) or r.get("measure", "ignore")
+        if not r.get("rics"):
+            r["rics"] = b["rics"]
+            r["replaces"] = wm.default_replaces(r["rics"])
+    elif field == "measure" and r["measure"] == "share":
+        r["replaces"] = "facade"
+    return r
+
+
+def finish_rows(rows, option, state, office, build_ups):
+    """Rows the take-off wrote for one option -> rows exported: the facade mix of step 5, or, when the option takes off
+    the model, the modelled rows in place of the derived rows they replace (facade shares from the model instead of
+    the step 5 mix). Returns (rows, header extras, report lines, notes)."""
+    glz, opq = build_ups["facade_glazed"], build_ups["facade_opaque"]
+    md = state.get("modelled") or {}
+    if not (uses_model(option, state) and md.get("measured")):
+        return apply_facade_mix(rows, option, office, glazed_code=glz, opaque_code=opq), facade_header(option, office), [], []
+    import wlca_modelled as wm
+    lib = library_buildups(office)
+    t = rows[0] if rows else {}
+    meta = {k: t.get(k, "") for k in ("project_id", "stage", "model_version", "author")}
+    mrows, shares, rep, notes = wm.modelled_rows(active_rules(state), md["measured"], lib, meta)
+    snew, sold = [], []
+    if shares:
+        rows, snew, net, sold = wm.share_rows(rows, shares, build_ups, meta)
+    else:
+        rows = apply_facade_mix(rows, option, office, glazed_code=glz, opaque_code=opq)
+    rows, report = wm.apply_modelled(rows, mrows, rep, build_ups, snew, sold)
+    hdr = wm.facade_header_from_rows(rows, build_ups) or facade_header(option, office)
+    return rows, hdr, wm.report_lines(report), notes
 
 
 def check_substructure(option, tag, sched_basement=None):

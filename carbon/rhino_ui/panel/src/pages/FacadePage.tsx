@@ -1,7 +1,7 @@
 // Step 5: façade types and their shares, per option. Drafted by an AI agent (Claude) - review before trusting.
 import { CircleCheck, Plus, Trash, TriangleAlert } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Note, Section } from "@/components/blocks"
+import { Note, Notice, Section } from "@/components/blocks"
 import { Choice, TextInput } from "@/components/form"
 import { OptionPicker } from "@/components/option-picker"
 import { act } from "@/lib/bridge"
@@ -20,9 +20,18 @@ export function FacadePage({ m, sel, setSel }: PageProps) {
   const punched = rows.some((f) => f.kind !== "unitised")
   const total = rows.reduce((a, f) => a + (Number(f.share) || 0), 0)
   const ok = Math.abs(total - 1) < 0.005
+  const md = (m.state.modelled || {}) as { rules?: { measure: string; replaces: string }[] }
+  const fromModel = m.state.options[i].use_modelled !== false &&
+    (md.rules || []).some((r) => r.measure !== "ignore" && (r.measure === "share" || r.replaces === "facade"))
   return (
     <div className="space-y-8">
       <OptionPicker m={m} sel={i} setSel={setSel} />
+      {fromModel && (
+        <Notice tone="note">
+          This option takes its façade from the detailed model (step 2): the modelled walls and glazing replace the mix below, which is
+          kept for options that do not use the model.
+        </Notice>
+      )}
       <Section title="Façade types and their share" code="2.5, 2.6"
         lead="Up to three types. Shares are of the whole net façade and must add up to 100%. Curtain-wall types carry their glazing in the system; other types take a glazing ratio.">
         <div className="overflow-hidden rounded-lg border bg-card">
