@@ -152,7 +152,7 @@ function RuleLine({ k, r, v, measures, units, bus, codes, groups, modes, several
   k: number; r: Rule; v: View; measures: [string, string][]; units: Record<string, string>; bus: BuildUp[]; codes: string[]
   groups: [string, string][]; modes: [string, string][]; several: boolean
 }) {
-  const on = r.measure !== "ignore"
+  const on = r.measure !== "ignore" && r.measure !== "core_ref"
   const unit = units[r.measure] || ""
   const fit = bus.filter((b) => !on || b[2] === unit)
   const buOpts: [string, string][] = [["", "(choose)"], ...fit.map((b) => [b[0], b[1]] as [string, string])]
@@ -180,7 +180,7 @@ function RuleLine({ k, r, v, measures, units, bus, codes, groups, modes, several
           </span>
         </>
       ) : (
-        <span className="text-sm text-muted-foreground @3xl/main:col-span-5">{r.note || "Ignored"}</span>
+        <span className="text-sm text-muted-foreground @3xl/main:col-span-5">{r.measure === "core_ref" ? "Used for the core height check on step 7; core walls are measured from the plan" : r.note || "Ignored"}</span>
       )}
       <div className="flex justify-end gap-0.5">
         <Button type="button" variant="ghost" size="icon" className="size-8 text-muted-foreground" title="Add another line for this layer"

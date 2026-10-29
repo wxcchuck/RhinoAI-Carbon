@@ -102,7 +102,7 @@ CONFIG = {
     "storey_height_overrides": {},           # {storey_index: height_m}
     "min_storey_fraction": 1.0,              # share of a storey that must fit in a volume
     "area_schedule": None,                   # {"path": r"C:\...\schedule.xlsx", "sheet": "Office"} -> route (a)
-    "schedule_tolerance": 0.03,              # flag levels where massing GEA differs from schedule by more
+    "schedule_tolerance": 0.05,              # flag levels where massing GEA differs from schedule by more
     "facade_zone_m": 0.30,                   # GEA -> GIA inward offset (external wall zone)
     "north_angle_deg": 0.0,                  # true north, degrees clockwise from +Y
     "wwr": {"N": 0.60, "E": 0.60, "S": 0.60, "W": 0.60},   # window-to-wall ratio on storey facade;

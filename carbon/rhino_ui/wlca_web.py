@@ -286,10 +286,17 @@ class WLCAWindow(object):
                 rules.pop(k)
             else:                                   # the last line of a layer: keep the layer, ignored
                 rules[k].update(measure="ignore", build_up="", source="edited")
+        elif name == "reconcile_choice":
+            ws.set_reconcile_choice(st, int(a["i"]), a["key"], a["value"])
         elif name == "run_takeoff":
             self.run_takeoff()
         elif name == "create_workbook":
-            self.create_workbook()
+            stale = ws.reconcile_stale(st)
+            if stale:
+                self.messages = ["Run the take-off again first: the reconciliation choices of %s changed since it ran."
+                                 % ", ".join(stale)]
+            else:
+                self.create_workbook()
         elif name == "calculate":
             self.start_calculation()
         elif name == "open_workbook" and st["output"].get("last_workbook"):
@@ -449,7 +456,10 @@ class WLCAWindow(object):
             "blocked": any(lv == "error" for lv, _ in checks) or self.office is None,
             "layers_off": self.layers_off(),
             "run": {"rows": self.run_rows, "names": [o["name"] for o, _ in self.exports], "ready": bool(self.exports),
-                    "messages": self.messages},
+                    "messages": self.messages, "stale": ws.reconcile_stale(st),
+                    "recon": [dict((st["modelled"].get("reconciliation") or {}).get(o["name"]) or {}, option=o["name"],
+                                   i=st["options"].index(o) if o in st["options"] else -1)
+                              for o, _ in self.exports]},
             "logo": {"path": logo, "url": System.Uri(logo).AbsoluteUri if logo and os.path.exists(logo) else "",
                      "exists": bool(logo and os.path.exists(logo))},
             "calc": self.calc,

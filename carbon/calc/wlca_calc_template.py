@@ -349,8 +349,16 @@ def options_from_cfg(cfg):
         header, rows = read_export(o["takeoff_csv"])
         out.append(dict(k=i, name=o.get("name") or header.get("model_version") or "Option %d" % i,
                         csv=o["takeoff_csv"], header=header, rows=rows, facade_route=o.get("facade_route"),
-                        operational=o.get("operational") or {}))
+                        operational=o.get("operational") or {}, recon=read_recon(o.get("reconciliation_json"))))
     return out
+
+
+def read_recon(path):
+    """The take-off's reconciliation (wlca_reconcile.reconcile rows, JSON), or None."""
+    if not path or not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
 
 
 def copy_sheet(src, dst):
@@ -400,6 +408,8 @@ def build(cfg):
     for o in opts:
         for s in ("Results", "QA", "Takeoff", "Lines", "Mat", "Traj"):
             wb.create_sheet("O%d_%s" % (o["k"], s))
+        if o.get("recon"):
+            wb.create_sheet("O%d_Recon" % o["k"])
     for nm in ["Materials", "Layers", "Buildups", "Benchmarks", "Targets"]:
         wb.create_sheet(nm)
     for nm in ["Rebar_Rates", "Offsite_Params", "REF_T17_Transport", "REF_T18_Waste", "REF_T20_ServiceLife",
@@ -882,6 +892,11 @@ def build(cfg):
                        "(decarbonised: that year's FES factor); C1-C4 of what is left at the RSP. Cumulative columns end at A-C and A-C + B6 + B7, both "
                        "scenarios. Biogenic carbon (-1/+1: stored at year 0, released at the RSP, net zero) is kept out of the cumulative lines, like the "
                        "headline A1-A5, and given in its own column for the optional view; module D is a memo beyond the RSP and is not in them."),
+        ("Reconciliation", "O<k>_Recon (when the take-off wrote one): the Run step's table as it stood when the take-off ran - GEA per level "
+                           "(area schedule, massing, modelled slabs at each level) and building totals (slab, column and beam concrete, facade "
+                           "area, glazing ratio, core height, basement depth and wall length) from each source, with the difference against the "
+                           "reference and a flag beyond the tolerance; then problems found in the detailed model. Core height and basement depth "
+                           "show the source the take-off used (chosen on the Run step); the other rows are decided where they say. Values, not formulas."),
         ("Benchmarks", "Elements not taken off use kgCO2e/m2 GIA by use class (PS 4.5.2 method 2). Benchmark A5 is reported in A5.3. Modelled layers in a benchmarked group are dropped (no double counting)."),
         ("Contingency", "PS Table 10 percentage applied to A-C (not D, not biogenic) as a separate row."),
         ("Assumptions", "Take-off rows whose notes start with [ASSUMED] rest on office defaults (no SI, no detail yet). Takeoff column Z marks them; QA, Results and the Dashboard show how many and "
@@ -906,6 +921,8 @@ def build(cfg):
     wb["Compare"].sheet_properties.tabColor = tab
     wb["Project"].sheet_properties.tabColor = "FFC000"
     for o in opts:
+        if o.get("recon"):
+            build_recon(wb, o)
         wb["O%d_Results" % o["k"]].sheet_properties.tabColor = "70AD47"
         wb["O%d_QA" % o["k"]].sheet_properties.tabColor = "C00000"
     apply_font(wb, (cfg.get("branding") or {}).get("font"))
@@ -1459,6 +1476,63 @@ TRAJ_COLS = (["Year from completion", "Calendar year", "Upfront A1-A5 (t)", "Bio
                 "FES grid factor of the year (kgCO2/kWh)",
                 "Biogenic cumulative, -1/+1 (kgCO2e/m2; not in the cumulative columns)"])
 TRAJ_KEY = dict(t=1, year=2, b4_first=5, emb_nd=20, emb_d=21, wlc_nd=22, wlc_d=23, bio=25)
+
+
+RECON_SOURCES = (("schedule", "Area schedule"), ("plan", "2D plans / storeys"), ("massing", "Massing take-off"),
+                 ("model", "Detailed model"))
+
+
+def build_recon(wb, o):
+    """O<k>_Recon: the Run step's reconciliation table as it stood when the take-off ran (values, not formulas)."""
+    R = wb["O%d_Recon" % o["k"]]
+    rec = o["recon"]
+    rows = rec.get("rows") or []
+    title(R, "Reconciliation - %s" % o["name"],
+          "Take-off quantities from each source side by side (Run step). Differences against the reference source (bold); "
+          "beyond +/-%.0f%% they are flagged. Core height and basement depth: the source used is chosen on the Run step; the rest "
+          "are set where the row says." % (100 * float(rec.get("tolerance", 0.05))))
+    labels = ["Quantity", "Unit"] + [t for _, t in RECON_SOURCES] + ["Difference", "Flag", "Used / set on", "Note"]
+    head(R, 4, labels, [40, 7, 14, 14, 14, 14, 11, 8, 26, 70])
+    r = 5
+    grp = None
+    names = {"levels": "GEA per level", "totals": "Building totals", "checks": "Model checks"}
+    for x in rows:
+        if x["group"] != grp:
+            grp = x["group"]
+            R.cell(r, 1, names.get(grp, grp)).font = BOLD
+            for c in range(1, len(labels) + 1):
+                R.cell(r, c).fill = SECTION
+            r += 1
+        R.cell(r, 1, x["label"])
+        R.cell(r, 2, x["unit"])
+        fmt = "0%" if x["unit"] == "%" else "#,##0" if not x.get("digits") else "0." + "0" * int(x["digits"])
+        for j, (s, _) in enumerate(RECON_SOURCES):
+            v = (x.get("values") or {}).get(s)
+            if v is None:
+                continue
+            c = R.cell(r, 3 + j, v)
+            c.number_format = fmt
+            if s == x.get("ref"):
+                c.font = BOLD
+        d = [v for v in (x.get("diff") or {}).values() if v is not None]
+        if d:
+            c = R.cell(r, 7, max(d, key=abs))
+            c.number_format = "+0.0%;-0.0%;0.0%"
+        if x["group"] == "checks" or x.get("flag"):
+            c = R.cell(r, 8, "CHECK")
+            c.fill = AMBER
+        elif d:
+            R.cell(r, 8, "OK").fill = GREEN
+        ch = x.get("choice")
+        if ch:
+            used = dict(ch["options"]).get(ch["value"], ch["value"])
+            R.cell(r, 9, "Used: " + used).font = BOLD
+        else:
+            R.cell(r, 9, x.get("where") or "")
+        R.cell(r, 10, x.get("note") or "").alignment = WRAP
+        r += 1
+    R.freeze_panes = "C5"
+    R.sheet_properties.tabColor = "BFBFBF"
 
 
 def build_trajectory(wb, o, c):
