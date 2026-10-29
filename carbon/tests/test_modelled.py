@@ -188,9 +188,14 @@ def test_keep_the_larger_compares_a1_a3():
                **{"BEAM-M3": dict(LIB["BEAM-M3"], a13=443.0)})
     a13 = dict((c, b.get("a13")) for c, b in lib.items() if b.get("a13") is not None)
     rule = wm.new_rule("STR::Frame", "2.1.2", "volume_h", "BEAM-M3")
-    assert rule["replaces"] == "beams" and rule["mode"] == "larger"          # edge beams: conservative by default
+    assert rule["replaces"] == "beams" and rule["mode"] == "auto"
+    assert wm.resolve_mode("auto", "beams", 4) == "larger"                  # edge beams: conservative at every stage
+    assert [wm.resolve_mode("auto", g, 2) for g in ("floors", "columns", "lowest_slab", "basement_walls", "facade")] == \
+        ["larger", "larger", "larger", "replace", "replace"]
+    assert [wm.resolve_mode("auto", g, 3) for g in ("floors", "columns", "lowest_slab")] == ["replace"] * 3
+    assert wm.resolve_mode("replace", "beams", 2) == "replace"
     for vol, kept in ((50.0, "derived"), (100.0, "modelled")):
-        rows, _, rep, _ = wm.modelled_rows([rule], {"layers": {"STR::Frame": stats(vol_h=vol)}, "tagged": {}}, lib)
+        rows, _, rep, _ = wm.modelled_rows([rule], {"layers": {"STR::Frame": stats(vol_h=vol)}, "tagged": {}}, lib, {"stage": 2})
         out, report = wm.apply_modelled(derived(), rows, rep, B, a13=a13)
         assert report[0]["kept"] == kept and report[0]["t"] == (31.0, round(vol * 0.443, 1))   # 500 m x 62 kg/m = 31.0 t
         ebs = [r["build_up_code"] for r in out if r["nrm_code"] == "2.1.2"]

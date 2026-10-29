@@ -27,9 +27,12 @@ Measures (per object, from closed solids and meshes; open surfaces only give are
 Replacement: the massing-derived rows of the group a rule replaces are dropped for the options that use the model
 (e.g. floors: the derived upper-floor and roof slabs; facade: the derived walls and glazing). Allowances the model does
 not normally show (soffits, louvres, entrance doors, other roof elements) stay as derived.
-Mode per line: "replace" (the model wins) or "larger" (conservative: whichever of the derived estimate and the model
-carries more A1-A3 carbon is taken forward, compared with the library's A1-A3 per unit of each build-up). Edge beams
-default to "larger": a model often holds a few transfer beams but not the downstands the massing assumes on every edge.
+Mode per line: "replace" (the model wins), "larger" (conservative: whichever of the derived estimate and the model
+carries more A1-A3 carbon is taken forward, compared with the library's A1-A3 per unit of each build-up), or "auto" (the
+office default, XW 29/10/2026): keep the larger for floors, columns and the lowest slab at RIBA 0-2 - early-stage
+assumptions stay conservative unless the user has specific inputs - and for edge beams at every stage (a model often holds
+a few transfer beams but not the downstands assumed on every edge); the model replaces the estimate everywhere else
+(basement walls: the estimate may be a different system, e.g. a secant wall; facade: shares already scale to the massing).
 """
 import fnmatch
 import re
@@ -72,8 +75,10 @@ REPLACE_ORDER = ["facade", "floors", "columns", "beams", "core_walls", "stairs",
 DEFAULT_REPLACES = {"1.1": "piles_caps", "1.2.1": "lowest_slab", "1.2.2": "basement_slabs", "1.2.3": "basement_walls",
                     "2.1.1": "columns", "2.1.2": "beams", "2.2.1": "floors", "2.4": "stairs", "2.5.1": "facade",
                     "2.5.2": "facade", "2.6": "facade", "2.5.3": "roof_finish"}
-MODES = [("replace", "Model replaces the estimate"), ("larger", "Keep the larger (A1-A3)")]
-DEFAULT_MODE = {"beams": "larger"}
+MODES = [("auto", "Office default"), ("replace", "Model replaces the estimate"), ("larger", "Keep the larger (A1-A3)")]
+LARGER_EARLY = ("floors", "columns", "lowest_slab")    # keep the larger at RIBA 0-2
+LARGER_ALWAYS = ("beams",)
+EARLY_STAGE = 2
 TAKEOFF_GROUPS = ("1", "2")      # RICS groups the take-off measures; 3-8 are on benchmarks
 
 RICS_LAYER = re.compile(r"^RICS_(\d+(?:\.\d+)*)(?:_(.*))?$", re.I)
@@ -168,7 +173,18 @@ def default_replaces(rics):
 
 # ----------------------------------------------------------------------------------------------- rules
 def default_mode(group):
-    return DEFAULT_MODE.get(group, "replace")
+    return "auto"
+
+
+def resolve_mode(mode, group, stage):
+    """'replace' or 'larger' for a line: its own choice, or the office default for its group at the RIBA stage."""
+    if mode in ("replace", "larger"):
+        return mode
+    try:
+        early = int(float(stage)) <= EARLY_STAGE
+    except (TypeError, ValueError):
+        early = True
+    return "larger" if group in LARGER_ALWAYS or (early and group in LARGER_EARLY) else "replace"
 
 
 def new_rule(layer, rics="", measure="ignore", build_up="", factor=1.0, replaces=None, source="", note="", mode=None):
@@ -260,7 +276,7 @@ def check_rules(rules, lib):
                 out.append(("error", "%s: the factor must be above 0 (step 2)." % where))
         except (TypeError, ValueError):
             out.append(("error", "%s: the factor must be a number (step 2)." % where))
-        if r.get("mode", "replace") not in dict(MODES):
+        if r.get("mode", "auto") not in dict(MODES):
             out.append(("error", "%s: unknown mode %s (step 2)." % (where, r.get("mode"))))
         if not str(r.get("rics") or "").strip():
             out.append(("error", "%s: give the RICS element it reports to (step 2)." % where))
@@ -310,7 +326,7 @@ def modelled_rows(rules, measured, lib, meta=None):
         row = _row(meta, n, r["rics"], r["build_up"], q, UNIT[m], r["layer"], note + (" - " + r["note"] if r.get("note") else ""))
         rows.append(row)
         g = r.get("replaces") or "none"
-        rep[row["element_id"]] = {"group": g, "mode": r.get("mode") or default_mode(g)}
+        rep[row["element_id"]] = {"group": g, "mode": resolve_mode(r.get("mode"), g, meta.get("stage"))}
     for code, st in sorted(((measured or {}).get("tagged") or {}).items()):
         m = measure_for(code, lib)
         if m is None:
@@ -325,7 +341,7 @@ def modelled_rows(rules, measured, lib, meta=None):
                    "Modelled: %d object(s) tagged %s=%s, %s" % (st.get("n", 0), TAG_KEY, code, LABEL[m].lower()))
         rows.append(row)
         g = default_replaces(rics)
-        rep[row["element_id"]] = {"group": g, "mode": default_mode(g)}
+        rep[row["element_id"]] = {"group": g, "mode": resolve_mode("auto", g, meta.get("stage"))}
     return rows, shares, rep, list(dict.fromkeys(notes))
 
 
