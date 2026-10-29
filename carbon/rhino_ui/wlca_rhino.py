@@ -9,6 +9,7 @@ layers, the plan reader, file pickers, the take-off run and the layer checks. WL
 `self` is the window: it has doc, state, office, exports, run_rows, messages, dialog_parent, save() and refresh().
 (Moved here from the classic Eto dialog, wlca_dialog.py, when that dialog was retired on 23/10/2026.)
 """
+import json
 import os
 import sys
 
@@ -187,7 +188,12 @@ class WLCARhino(object):
         md = self.state["modelled"]
         import wlca_modelled_rhino as wmr
         paths = list(dict.fromkeys(r["layer"] for r in md.get("rules") or []))
-        md["measured"] = wmr.measure(self.doc, paths) if paths else None
+        env = wmr.extent(self.doc, self.option_layers())
+        m = wmr.measure(self.doc, paths, env) if paths else None
+        self.model_objects = {}             # per-piece records (reconciliation): kept on the window, not in the saved state
+        for p, st in ((m or {}).get("layers") or {}).items():
+            self.model_objects[p] = st.pop("objects", None)
+        md["measured"] = m
         if refresh:
             self.save()
             self.refresh()
@@ -347,6 +353,15 @@ class WLCARhino(object):
                 header, rows, geom, paths = tk["run"](cfg)
                 csv = paths[0]
                 h2, r2 = ws.read_export(csv)
+                plan = None
+                if (cfg.get("structure") or {}).get("plan_json") and os.path.exists(cfg["structure"]["plan_json"]):
+                    with open(cfg["structure"]["plan_json"], encoding="utf-8") as f:
+                        plan = json.load(f)
+                recon = ws.reconcile_option(r2, geom, o, self.state, self.office, cfg["build_ups"], plan,
+                                            getattr(self, "model_objects", None))
+                r2, rnotes = ws.apply_reconcile(r2, recon, o, cfg["build_ups"])
+                ws.store_reconciliation(self.state, o, recon, ws.recon_path(csv))
+                self.messages += ["%s - %s" % (o["name"], x) for x in rnotes]
                 r2, hx, rep, notes = ws.finish_rows(r2, o, self.state, self.office, cfg["build_ups"])
                 h2.update(hx)
                 ws.write_export(csv, h2, r2)

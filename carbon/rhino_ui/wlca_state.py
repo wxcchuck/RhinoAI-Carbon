@@ -44,7 +44,7 @@ def default_state():
         "operational": {"route": "Not assessed", "op_year": None, "dh_factor": 0.0},
         # detailed model (step 2): one rule per line - layer, RICS element, measure, build-up, factor, what it replaces
         # (wlca_modelled.py); measured = the last measurement of those layers; report = what the last run replaced
-        "modelled": {"rules": [], "measured": None, "summary": [], "report": {}},
+        "modelled": {"rules": [], "measured": None, "summary": [], "report": {}, "reconciliation": {}},
     }
 
 
@@ -512,7 +512,7 @@ def rule_view(state):
         g = r.get("replaces") or "none"
         v = {"n": st.get("n") if st else None, "open": st.get("open") if st else None, "q": None, "unit": wm.UNIT.get(m, ""),
              "share": None, "group": g, "mode": wm.resolve_mode(r.get("mode"), g, stage) if g != "none" and m != "share" else "replace"}
-        if st and m != "ignore":
+        if st and m not in wm.NO_TAKEOFF:
             v["q"] = round(float(st.get(wm.STAT[m]) or 0) * float(r.get("factor") or 1), 1)
             if m == "share" and share_tot > 0:
                 v["share"] = round(v["q"] / share_tot, 4)
@@ -565,6 +565,90 @@ def finish_rows(rows, option, state, office, build_ups):
     rows, report = wm.apply_modelled(rows, mrows, rep, build_ups, snew, sold, a13)
     hdr = wm.facade_header_from_rows(rows, build_ups) or facade_header(option, office)
     return rows, hdr, wm.report_lines(report), notes
+
+
+def glazing_mix(option, office):
+    """Glazed share of the net facade in the option's step 5 mix (unitised types count whole)."""
+    cat = dict((f["id"], f) for f in facade_catalogue(office or {}))
+    g = 0.0
+    for f in option.get("facade") or []:
+        kind = f.get("kind", (cat.get(f.get("build_up")) or {}).get("kind"))
+        g += float(f.get("share") or 0) * (1.0 if kind == FACADE_UNITISED else float(f.get("wwr") or 0))
+    return g
+
+
+def reconcile_option(rows, geom, option, state, office, build_ups, plan=None, objects=None):
+    """Reconciliation rows (wlca_reconcile.reconcile) for one option, from the take-off's own rows and geometry.
+    objects = {layer: per-piece records} from the last measurement (kept on the window, not in the state)."""
+    import wlca_reconcile as wr
+    md = state.get("modelled") or {}
+    m = md.get("measured") or {}
+    rules = active_rules(state) if uses_model(option, state) and m else []
+    if objects:
+        m = dict(m, layers=dict((p, dict(st, objects=objects.get(p))) for p, st in (m.get("layers") or {}).items()))
+    return wr.reconcile(rows, geom, plan, rules, m, library_buildups(office), build_ups, option,
+                        glazing_mix(option, office))
+
+
+def store_reconciliation(state, option, recon, path=None):
+    """Keep the rows for the Run step (state["modelled"]["reconciliation"][option name]) and write them next to the
+    take-off CSV for the workbook's O<k>_Recon sheet."""
+    import wlca_reconcile as wr
+    doc = {"option": option["name"], "tolerance": wr.TOL, "rows": recon, "factors": wr.scale_factors(recon),
+           "choices": dict(option.get("reconcile") or {}), "stale": False}
+    state.setdefault("modelled", {}).setdefault("reconciliation", {})[option["name"]] = doc
+    if path:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(doc, f, indent=1)
+    return doc
+
+
+def set_reconcile_choice(state, i, key, value):
+    """A Run step choice (core height / basement depth): stored on the option; the take-off must run again to apply it."""
+    import wlca_reconcile as wr
+    if key not in wr.CHOICES or value not in [v for v, _ in wr.CHOICES[key]]:
+        raise ValueError("Unknown reconciliation choice %s = %s" % (key, value))
+    o = state["options"][int(i)]
+    o.setdefault("reconcile", {})[key] = value
+    doc = ((state.get("modelled") or {}).get("reconciliation") or {}).get(o["name"])
+    if doc:
+        for r in doc["rows"]:
+            if r.get("choice") and r["choice"]["key"] == key:
+                r["choice"]["value"] = value
+        ran = doc.get("choices") or {}
+        doc["stale"] = any(ran.get(k, wr.CHOICES[k][0][0]) != v for k, v in o["reconcile"].items())
+
+
+def reconcile_stale(state):
+    """Names of the options whose Run step choices changed since the take-off ran."""
+    rc = (state.get("modelled") or {}).get("reconciliation") or {}
+    return [n for n, d in rc.items() if d.get("stale")]
+
+
+def apply_reconcile(rows, recon, option, build_ups):
+    """Derived core walls / basement walls scaled to the source chosen on the Run step (scale_factors()). Rows from
+    the engineer's figures and secant piles of a given length are left as they are. Returns (rows, notes)."""
+    import wlca_modelled as wm
+    import wlca_reconcile as wr
+    f = wr.scale_factors(recon)
+    if not f:
+        return rows, []
+    ret = ((option.get("substructure") or {}).get("retaining_walls") or {})
+    out, notes, n = [], [], {}
+    for r in rows:
+        k = wm.kind_of(r, build_ups)
+        if k in f and r.get("method") != "Supplied" and \
+                not (k == "basement_wall" and ret.get("pile_length_m") and "secant" in str(r.get("notes", "")).lower()):
+            r = dict(r)
+            r["quantity"] = round(float(r["quantity"]) * f[k], 3)
+            r["notes"] = "%s; x %.3f to the modelled %s (Run step)" % (
+                r.get("notes", ""), f[k], "core height" if k == "core_wall" else "basement depth")
+            n[k] = n.get(k, 0) + 1
+        out.append(r)
+    for k, c in n.items():
+        notes.append("%s: %d row(s) x %.3f to the model (Run step choice)" % ("Core walls" if k == "core_wall" else
+                                                                             "Basement walls", c, f[k]))
+    return out, notes
 
 
 def check_substructure(option, tag, sched_basement=None):
@@ -765,6 +849,11 @@ def takeoff_config(state, option, office, base_config):
     return cfg
 
 
+def recon_path(csv):
+    """The reconciliation JSON written next to a take-off CSV."""
+    return os.path.splitext(csv)[0] + "_reconciliation.json"
+
+
 def calc_config(state, office, exports):
     """Config for wlca_calc_template.build(); exports = [(option, csv_path)] from the take-off run."""
     t = state["targets"]
@@ -783,7 +872,9 @@ def calc_config(state, office, exports):
     if op.get("op_year"):
         params["op_year"] = int(op["op_year"])
     for o, csv in exports:      # facade rows are already split by apply_facade_mix: no routing in the workbook
+        rj = recon_path(csv)
         options.append({"name": o["name"], "takeoff_csv": csv, "facade_route": "As exported",
+                        "reconciliation_json": rj if os.path.exists(rj) else None,
                         "operational": dict((k, v) for k, v in (o.get("operational") or {}).items() if v not in (None, ""))})
     out = state["output"]
     branding = dict(office.get("branding") or {})

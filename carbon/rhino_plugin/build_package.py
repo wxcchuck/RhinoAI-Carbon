@@ -35,7 +35,7 @@ NETSTANDARD = ["/r:" + _FACADE] if os.path.exists(_FACADE) else []
 CSC = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Microsoft.NET", "Framework64", "v4.0.30319", "csc.exe")
 SCRIPTS = [("rhino_ui", "wlca_web.py"), ("rhino_ui", "wlca_results.py"), ("rhino_ui", "wlca_rhino.py"), ("rhino_ui", "wlca_state.py"),
            ("takeoff", "wlca_core.py"), ("takeoff", "wlca_massing_takeoff.py"), ("takeoff", "wlca_plan_rhino.py"),
-           ("takeoff", "wlca_plan_extract.py"), ("takeoff", "wlca_modelled.py"), ("takeoff", "wlca_modelled_rhino.py"),
+           ("takeoff", "wlca_plan_extract.py"), ("takeoff", "wlca_modelled.py"), ("takeoff", "wlca_modelled_rhino.py"), ("takeoff", "wlca_reconcile.py"),
            ("calc", "wlca_calc_template.py"), ("calc", "wlca_dashboard.py")]
 WEB = ["index.html", "style.css", "app.js", "charts.js"]       # rhino_ui/web: the window's page, shipped as web/
 WEB_NEXT = ["index.html"]                                       # rhino_ui/web_next: the new panel (npm run build in rhino_ui/panel)

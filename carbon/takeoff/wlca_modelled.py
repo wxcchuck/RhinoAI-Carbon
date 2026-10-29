@@ -48,8 +48,10 @@ MEASURES = [  # key, label, unit
     ("face", "Face area (one side)", "m2"),
     ("share", "Share of the massing façade", "m2"),
     ("count", "Count", "nr"),
+    ("core_ref", "Core volume - checks only (height)", ""),
     ("ignore", "Ignore", ""),
 ]
+NO_TAKEOFF = ("ignore", "core_ref")      # lines that never write rows (core_ref feeds the reconciliation, step 3)
 UNIT = dict((k, u) for k, _, u in MEASURES)
 LABEL = dict((k, lb) for k, lb, _ in MEASURES)
 STAT = {"volume": "vol", "volume_v": "vol_v", "volume_h": "vol_h", "plan": "plan", "face": "face", "share": "face",
@@ -96,7 +98,8 @@ def _f(v):
 
 
 def read_library(path):
-    """{build-up code: {"unit", "rics", "desc", "a13"}} from the build-up library (header on row 4 of each sheet).
+    """{build-up code: {"unit", "rics", "desc", "a13", "conc"}} from the build-up library (header on row 4 of each sheet).
+    conc = m3 of concrete per declared unit (CONC* and PC-* materials), present only when the build-up has concrete.
     a13 = A1-A3 kgCO2e per declared unit, worked out as the library's own Layers formulas do (quantity in the material's
     unit x the material's A1-A3; rebar quantities from Rebar_Rates); None when a layer cannot be resolved."""
     import openpyxl
@@ -141,6 +144,9 @@ def read_library(path):
                 bad.add(code)
                 continue
             tot[code] = tot.get(code, 0.0) + x * fac
+            if mat.startswith(("CONC", "PC-")):          # concrete volume per unit, for the reconciliation (step 3)
+                vol = q if u == "m3" else (q / dens if u == "kg" and dens else 0.0)
+                out[code]["conc"] = round(out[code].get("conc", 0.0) + vol, 6)
         for code, v in tot.items():
             if code not in bad:
                 out[code]["a13"] = round(v, 6)
@@ -255,7 +261,7 @@ def check_rules(rules, lib):
     """[(level, message)] - errors block the run (step 2)."""
     out = []
     for r in rules:
-        if r.get("measure", "ignore") == "ignore":
+        if r.get("measure", "ignore") in NO_TAKEOFF:
             continue
         where = "Model layer '%s'" % r["layer"].split("::")[-1]
         bu = r.get("build_up") or ""
@@ -304,7 +310,7 @@ def modelled_rows(rules, measured, lib, meta=None):
     layers = (measured or {}).get("layers") or {}
     for r in rules:
         m = r.get("measure", "ignore")
-        if m == "ignore":
+        if m in NO_TAKEOFF:
             continue
         st = layers.get(r["layer"])
         if st is None:
