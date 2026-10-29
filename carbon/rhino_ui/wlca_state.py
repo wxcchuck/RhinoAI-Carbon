@@ -498,6 +498,7 @@ def rule_view(state):
     """Per rule line: objects, quantity (measure x factor) and unit from the last measurement - for the table."""
     import wlca_modelled as wm
     md = state.get("modelled") or {}
+    stage = (state.get("project") or {}).get("riba_stage")
     layers = ((md.get("measured") or {}).get("layers")) or {}
     rules = md.get("rules") or []
     share_tot = 0.0
@@ -508,8 +509,9 @@ def rule_view(state):
     for r in rules:
         st = layers.get(r["layer"])
         m = r.get("measure", "ignore")
+        g = r.get("replaces") or "none"
         v = {"n": st.get("n") if st else None, "open": st.get("open") if st else None, "q": None, "unit": wm.UNIT.get(m, ""),
-             "share": None}
+             "share": None, "group": g, "mode": wm.resolve_mode(r.get("mode"), g, stage) if g != "none" and m != "share" else "replace"}
         if st and m != "ignore":
             v["q"] = round(float(st.get(wm.STAT[m]) or 0) * float(r.get("factor") or 1), 1)
             if m == "share" and share_tot > 0:
@@ -525,6 +527,9 @@ def after_rule_edit(state, k, field, lib):
     r["source"] = "edited"
     if field == "rics":
         r["replaces"] = wm.default_replaces(r["rics"])
+        r["mode"] = wm.default_mode(r["replaces"])
+    elif field == "replaces":
+        r["mode"] = wm.default_mode(r["replaces"])
     elif field == "build_up" and r["build_up"] in lib:
         b = lib[r["build_up"]]
         if r.get("measure", "ignore") == "ignore" or wm.UNIT.get(r["measure"]) != b["unit"]:
@@ -532,8 +537,9 @@ def after_rule_edit(state, k, field, lib):
         if not r.get("rics"):
             r["rics"] = b["rics"]
             r["replaces"] = wm.default_replaces(r["rics"])
+            r["mode"] = wm.default_mode(r["replaces"])
     elif field == "measure" and r["measure"] == "share":
-        r["replaces"] = "facade"
+        r["replaces"], r["mode"] = "facade", "auto"
     return r
 
 
@@ -555,7 +561,8 @@ def finish_rows(rows, option, state, office, build_ups):
         rows, snew, net, sold = wm.share_rows(rows, shares, build_ups, meta)
     else:
         rows = apply_facade_mix(rows, option, office, glazed_code=glz, opaque_code=opq)
-    rows, report = wm.apply_modelled(rows, mrows, rep, build_ups, snew, sold)
+    a13 = dict((c, b.get("a13")) for c, b in lib.items() if b.get("a13") is not None)
+    rows, report = wm.apply_modelled(rows, mrows, rep, build_ups, snew, sold, a13)
     hdr = wm.facade_header_from_rows(rows, build_ups) or facade_header(option, office)
     return rows, hdr, wm.report_lines(report), notes
 

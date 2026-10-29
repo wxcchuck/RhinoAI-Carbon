@@ -10,12 +10,48 @@ import { fmt, type Model } from "@/lib/model"
 import { useSticky } from "@/lib/results"
 import { cn } from "@/lib/utils"
 
-type Rule = { layer: string; rics: string; measure: string; build_up: string; factor: number; replaces: string; source: string; note: string }
-type View = { n: number | null; open: number | null; q: number | null; unit: string; share: number | null }
+type Rule = { layer: string; rics: string; measure: string; build_up: string; factor: number; replaces: string; mode?: string; source: string; note: string }
+type View = { n: number | null; open: number | null; q: number | null; unit: string; share: number | null; group?: string; mode?: string }
 type BuildUp = [string, string, string, string]          // code, label, unit, RICS code
 
 const UNIT: Record<string, string> = { m2: "m²", m3: "m³", nr: "nr", m: "m" }
 const LINE = "grid gap-2 @3xl/main:grid-cols-[minmax(9rem,12rem)_minmax(0,1fr)_6.5rem_4.5rem_minmax(9rem,13rem)_6.5rem_4rem] @3xl/main:items-center"
+
+/** The office default for modelled vs estimated quantities (XW 29/10/2026), shown on steps 2 to 4. */
+export const CONSERVATIVE = "Where the model and the massing estimate cover the same element, \"keep the larger\" takes forward whichever " +
+  "carries more A1-A3 carbon (library factors). Office default: keep the larger for floors, columns and the lowest slab at RIBA 0-2 - " +
+  "early-stage assumptions stay conservative unless you have specific inputs - and for edge beams at every stage (a model often has a " +
+  "few beams but not the downstands assumed on every slab edge); the model replaces the estimate for basement walls (the estimate may be " +
+  "a different system), the façade and from RIBA 3 on. Each line can be set either way on step 2."
+
+const GROUP_LABEL: Record<string, string> = {
+  floors: "Upper floors and roof slabs", columns: "Columns", beams: "Edge beams", core_walls: "Core walls", stairs: "Stairs",
+  lowest_slab: "Lowest slab", basement_slabs: "Basement suspended slabs", basement_walls: "Basement walls", piles_caps: "Piles and caps",
+}
+
+/** Steps 3 and 4: which of this step's elements come from the detailed model, and how (replace / keep the larger). */
+export function ModelNotice({ m, option, groups }: { m: Model; option: number; groups: string[] }) {
+  const o = m.state.options[option]
+  const md = (m.state.modelled || {}) as { rules?: Rule[]; report?: Record<string, string[]> }
+  const view = (m.model_rules || []) as View[]
+  if (!o || o.use_modelled === false) return null
+  const hit = new Map<string, string>()
+  ;(md.rules || []).forEach((r, k) => {
+    const v = view[k]
+    if (r.measure === "ignore" || !groups.includes(r.replaces)) return
+    const mode = v?.mode === "larger" ? "keep the larger of the estimate and the model" : "the model replaces the estimate"
+    hit.set(r.replaces, `${GROUP_LABEL[r.replaces] || r.replaces}: ${mode}${(r.mode || "auto") === "auto" ? " (office default)" : ""}`)
+  })
+  if (!hit.size) return null
+  const labels = groups.map((g) => GROUP_LABEL[g]).filter(Boolean)
+  const last = ((md.report || {})[o.name] || []).filter((l) => labels.some((x) => l.startsWith(x)))
+  return (
+    <Notice tone="note">
+      {"From the detailed model (step 2):\n" + [...hit.values()].join("\n") +
+        (last.length ? "\n\nLast run:\n" + last.join("\n") : "") + "\n\n" + CONSERVATIVE}
+    </Notice>
+  )
+}
 
 export function ModelSection({ m }: { m: Model }) {
   const md = (m.state.modelled || {}) as { rules?: Rule[]; summary?: string[]; report?: Record<string, string[]>; measured?: unknown }
@@ -27,6 +63,7 @@ export function ModelSection({ m }: { m: Model }) {
   const bus = (L.build_ups || []) as BuildUp[]
   const codes = (L.rics_codes || []) as string[]
   const groups = (L.replace_groups || []) as [string, string][]
+  const modes = (L.replace_modes || []) as [string, string][]
   const [showIgnored, setShowIgnored] = useSticky("model.ignored", false)
 
   // lines grouped by layer, in table order; k = the line's index in the saved table
@@ -71,7 +108,7 @@ export function ModelSection({ m }: { m: Model }) {
           </div>
 
           <div className={cn("mt-4 hidden gap-2 px-3 text-xs font-medium text-muted-foreground @3xl/main:grid", LINE)}>
-            <span>Measure</span><span>Build-up</span><span>RICS</span><span>Factor</span><span>Replaces</span>
+            <span>Measure</span><span>Build-up</span><span>RICS</span><span>Factor</span><span>Replaces · if both exist</span>
             <span className="text-right">Quantity</span><span />
           </div>
           <ul className="mt-1 space-y-2">
@@ -89,7 +126,7 @@ export function ModelSection({ m }: { m: Model }) {
                   </div>
                   <div className="space-y-2">
                     {g.lines.map((k) => <RuleLine key={k} k={k} r={rules[k]} v={view[k] || ({} as View)} measures={measures} units={units}
-                      bus={bus} codes={codes} groups={groups} several={g.lines.length > 1} />)}
+                      bus={bus} codes={codes} groups={groups} modes={modes} several={g.lines.length > 1} />)}
                   </div>
                 </li>
               )
@@ -100,6 +137,7 @@ export function ModelSection({ m }: { m: Model }) {
             one side of a wall-like piece. "Share of the massing façade" splits the massing's net façade between the share lines by their
             modelled face areas - the model says what the façade is made of, the massing how much façade there is. An object with user text
             WLCA_BUILDUP=&lt;code&gt; is taken off on its own with that build-up. A layer named RICS_&lt;code&gt;_…_&lt;build-up&gt; maps itself.
+            {CONSERVATIVE}
           </Note>
         </>
       )}
@@ -110,9 +148,9 @@ export function ModelSection({ m }: { m: Model }) {
   )
 }
 
-function RuleLine({ k, r, v, measures, units, bus, codes, groups, several }: {
+function RuleLine({ k, r, v, measures, units, bus, codes, groups, modes, several }: {
   k: number; r: Rule; v: View; measures: [string, string][]; units: Record<string, string>; bus: BuildUp[]; codes: string[]
-  groups: [string, string][]; several: boolean
+  groups: [string, string][]; modes: [string, string][]; several: boolean
 }) {
   const on = r.measure !== "ignore"
   const unit = units[r.measure] || ""
@@ -129,7 +167,13 @@ function RuleLine({ k, r, v, measures, units, bus, codes, groups, several }: {
           <ChoiceInput path={P("build_up")} value={r.build_up} options={buOpts} aria-label="Build-up" />
           <ChoiceInput path={P("rics")} value={r.rics} options={[["", "–"], ...codeOpts.map((c) => [c, c] as [string, string])]} aria-label="RICS element" />
           <TextInput path={P("factor")} value={r.factor} kind="num" numeric aria-label="Factor" />
-          <ChoiceInput path={P("replaces")} value={r.replaces} options={groups} aria-label="Replaces" />
+          <div className="grid gap-1">
+            <ChoiceInput path={P("replaces")} value={r.replaces} options={groups} aria-label="Replaces" />
+            {r.replaces !== "none" && r.measure !== "share" && (
+              <ChoiceInput path={P("mode")} value={r.mode || "auto"} aria-label="If both exist"
+                options={modes.map(([k, l]) => [k, k === "auto" ? `${l}: ${v.mode === "larger" ? "keep the larger" : "model replaces"}` : l] as [string, string])} />
+            )}
+          </div>
           <span className="num text-right text-sm" title={v.share != null ? `${(v.share * 100).toFixed(1)}% of the modelled façade` : undefined}>
             {v.q == null ? "–" : `${fmt(v.q)} ${UNIT[v.unit] || v.unit}`}
             {v.share != null && <span className="block text-xs text-muted-foreground">{(v.share * 100).toFixed(1)}% of façade</span>}

@@ -415,6 +415,7 @@ class WLCAWindow(object):
             "build_ups": [[c, "%s - %s (per %s)" % (c, b["desc"][:70], b["unit"]), b["unit"], b["rics"]] for c, b in sorted(lib.items())],
             "rics_codes": codes,
             "replace_groups": [[g, wm.REPLACE[g][0]] for g in wm.REPLACE_ORDER],
+            "replace_modes": [list(m) for m in wm.MODES],
         }
 
     def model(self):

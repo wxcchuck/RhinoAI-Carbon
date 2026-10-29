@@ -2,6 +2,7 @@
 import { FieldGrid, Note, Section } from "@/components/blocks"
 import { ChoiceInput, FormField, NumField, idOf } from "@/components/form"
 import { OptionPicker } from "@/components/option-picker"
+import { ModelNotice } from "./ModelSection"
 import type { PageProps } from "@/lib/model"
 
 type Structure = { frame: string; grid_x_m: number | null; grid_y_m: number | null; column_size_m: number | null }
@@ -13,6 +14,7 @@ export function StructurePage({ m, sel, setSel }: PageProps) {
   return (
     <div className="space-y-8">
       <OptionPicker m={m} sel={i} setSel={setSel} />
+      <ModelNotice m={m} option={i} groups={["floors", "columns", "beams", "core_walls", "stairs"]} />
       <Section title="Frame" code="2.1, 2.2"
         lead="Steel and timber frames use the PF Stage 1 rates per m² of floor; their columns are scaled with height and tagged [ASSUMED]. Cores stay RC.">
         <FieldGrid>
