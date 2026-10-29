@@ -39,7 +39,7 @@ except NameError:
     DOC = scriptcontext.doc
 
 _D = rh.WLCARhino
-STEPS = ["Project & options", "Drawings & schedule", "Substructure", "Superstructure - Structure",
+STEPS = ["Project & options", "Drawings, schedule & model", "Substructure", "Superstructure - Structure",
          "Superstructure - Façade", "Targets & reporting", "Run", "Results"]
 PLAN_ROUTES = [("rhino", "Plan in Rhino (layers)"), ("pdf", "PDF plan extract (.json)"), ("none", "None - use office defaults")]
 
@@ -204,6 +204,8 @@ class WLCAWindow(object):
         """Knock-on changes when a field changes."""
         if path[:1] == ["plan"] and path[-1] in ("walls_layer", "columns_layer", "stairs_layer"):
             self.state["plan"]["summary"], self.state["plan"]["json"] = [], ""
+        if path[:2] == ["modelled", "rules"] and len(path) == 4:
+            ws.after_rule_edit(self.state, int(path[2]), path[3], ws.library_buildups(self.office))
         if path[:2] == ["schedule", "path"]:
             names = self.sheet_names(self.state["schedule"]["path"])
             self.state["schedule"]["sheet"] = names[0] if names else ""
@@ -268,6 +270,22 @@ class WLCAWindow(object):
             self.find_plan_layers(refresh=False)
         elif name == "read_plan":
             self.read_plan(refresh=False)
+        elif name == "scan_model":
+            self.scan_model(refresh=False)
+        elif name == "measure_model":
+            self.measure_model(refresh=False)
+        elif name == "add_model_rule":
+            k = int(a["k"])
+            rules = st["modelled"]["rules"]
+            import wlca_modelled as wm
+            rules.insert(k + 1, wm.new_rule(rules[k]["layer"], source="edited"))
+        elif name == "remove_model_rule":
+            k = int(a["k"])
+            rules = st["modelled"]["rules"]
+            if sum(1 for r in rules if r["layer"] == rules[k]["layer"]) > 1:
+                rules.pop(k)
+            else:                                   # the last line of a layer: keep the layer, ignored
+                rules[k].update(measure="ignore", build_up="", source="edited")
         elif name == "run_takeoff":
             self.run_takeoff()
         elif name == "create_workbook":
@@ -382,6 +400,23 @@ class WLCAWindow(object):
         except Exception as e:
             return {"text": "Could not read the schedule: %s" % e, "level": "warn"}
 
+    def model_lists(self):
+        """Choices for the model table on step 2: measures, build-ups (from the office library), RICS codes, groups."""
+        try:
+            import wlca_modelled as wm
+        except Exception:
+            return {}
+        lib = ws.library_buildups(self.office)
+        codes = sorted(set(list(wm.DEFAULT_REPLACES) + [b["rics"] for b in lib.values() if b["rics"]]),
+                       key=lambda c: [int(x) if x.isdigit() else 0 for x in c.split(".")])
+        return {
+            "measures": [[k, lb] for k, lb, _ in wm.MEASURES],
+            "measure_units": dict((k, u) for k, _, u in wm.MEASURES),
+            "build_ups": [[c, "%s - %s (per %s)" % (c, b["desc"][:70], b["unit"]), b["unit"], b["rics"]] for c, b in sorted(lib.items())],
+            "rics_codes": codes,
+            "replace_groups": [[g, wm.REPLACE[g][0]] for g in wm.REPLACE_ORDER],
+        }
+
     def model(self):
         st, office = self.state, self.office or {}
         logo = ws.effective_logo(st, self.office)
@@ -401,12 +436,14 @@ class WLCAWindow(object):
                 "fonts": _D.font_names(),
                 "wall_sources": ws.WALL_SOURCES, "wall_types": ws.WALL_TYPES, "pile_sources": ws.PILE_SOURCES,
                 "cap_sources": ws.CAP_SOURCES,
+                **self.model_lists(),
             },
             "office": {"path": self.office_path, "source": self.office_source, "loaded": self.office is not None,
                        "error": self.office_error},
             "schedule": self.schedule_info(),
             "basement": self.basement_info(),
             "massing_z": [self.massing_extent(o) for o in st["options"]],
+            "model_rules": ws.rule_view(st),
             "checks": [{"level": lv, "text": m} for lv, m in checks],
             "blocked": any(lv == "error" for lv, _ in checks) or self.office is None,
             "layers_off": self.layers_off(),

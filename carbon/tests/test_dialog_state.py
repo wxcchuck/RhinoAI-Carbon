@@ -304,7 +304,7 @@ def _steps(path, name="STEPS"):
 
 def test_step_order():
     web = _steps("wlca_web.py")
-    assert web == ["Project & options", "Drawings & schedule", "Substructure", "Superstructure - Structure",
+    assert web == ["Project & options", "Drawings, schedule & model", "Substructure", "Superstructure - Structure",
                    "Superstructure - Façade", "Targets & reporting", "Run", "Results"]
     js = open(os.path.join(os.path.dirname(__file__), "..", "rhino_ui", "web", "app.js"), encoding="utf-8").read()
     assert "const PAGES = [pageProject, pageDrawings, pageSubstructure, pageStructure, pageFacade, pageTargets, pageRun, pageResults];" in js

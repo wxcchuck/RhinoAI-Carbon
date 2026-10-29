@@ -111,6 +111,11 @@
       h += "</div><div class='row' style='margin-top:8px'>" + button("Find layers again", "find_plan_layers", {}, {}) + button("Read plan", "read_plan", {}, { primary: true }) + "</div>";
       for (const line of pl.summary || []) h += `<div class="msg ${/^(No |Units)/.test(line) ? "warn" : "note"}">${esc(line)}</div>`;
     }
+    const md = S().modelled || {}, on = (md.rules || []).filter((r) => r.measure !== "ignore").length;
+    h += "<h2>Modelled elements (detailed model)</h2>";
+    h += note(on ? `${on} table line(s) take off modelled quantities; they replace the massing estimate for the options that use the model. The table is edited in the new interface.`
+      : "Slabs, frames, walls or façade modelled in this file can replace the massing estimate. Set this up in the new interface (step 2).");
+    if (M.ui && M.ui.next_available) h += `<div class='row'>${button("Open in the new interface", "switch_ui", { ui: "next", step: 1 }, {})}</div>`;
     return h;
   }
 

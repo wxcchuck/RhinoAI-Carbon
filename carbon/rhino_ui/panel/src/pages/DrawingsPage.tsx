@@ -1,10 +1,11 @@
-// Step 2: area schedule and typical floor plan. Drafted by an AI agent (Claude) - review before trusting.
+// Step 2: area schedule, typical floor plan and the detailed model. Drafted by an AI agent (Claude) - review before trusting.
 import { RefreshCw, ScanLine } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { FieldGrid, Note, Notice, Section } from "@/components/blocks"
 import { Choice, ChoiceInput, FormField, PathInput, idOf } from "@/components/form"
 import { act } from "@/lib/bridge"
 import type { PageProps } from "@/lib/model"
+import { ModelSection } from "./ModelSection"
 
 export function DrawingsPage({ m }: PageProps) {
   const s = m.state.schedule, pl = m.state.plan, L = m.lists
@@ -63,6 +64,8 @@ export function DrawingsPage({ m }: PageProps) {
           </>
         )}
       </Section>
+
+      <ModelSection m={m} />
     </div>
   )
 }

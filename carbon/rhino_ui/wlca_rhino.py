@@ -158,6 +158,40 @@ class WLCARhino(object):
             self.refresh()
         return pl["json"] or None
 
+    # ------------------------------------------------------------ detailed model (step 2)
+    def option_layers(self):
+        return [o["layer"] for o in self.state["options"] if o.get("source") == "layer" and o.get("layer")]
+
+    def scan_model(self, refresh=True):
+        """List the layers with 3D objects (not the massing layers), fill the rule table from the layer names and the
+        office pattern list (lines already in the table are kept), and measure them."""
+        md = self.state.setdefault("modelled", ws.default_state()["modelled"])
+        try:
+            import wlca_modelled as wm
+            import wlca_modelled_rhino as wmr
+            layers = wmr.model_layers(self.doc, exclude=self.option_layers())
+            lib = ws.library_buildups(self.office)
+            md["rules"], dropped = wm.suggest_rules(layers, (self.office or {}).get("modelled_layer_patterns"), lib, md.get("rules"))
+            self.measure_model(refresh=False)
+            n_on = len(ws.active_rules(self.state))
+            md["summary"] = ["%d layers with 3D objects found; %d table lines take off quantities, the rest are ignored." % (
+                len(layers), n_on)] + (["No longer in the model, removed from the table: " + ", ".join(dropped)] if dropped else [])
+        except Exception as e:
+            md["summary"] = ["The model could not be read: %s" % e]
+        self.save()
+        if refresh:
+            self.refresh()
+
+    def measure_model(self, refresh=True):
+        """Measure every layer in the rule table (all lines, so switching a line on shows its quantity at once)."""
+        md = self.state["modelled"]
+        import wlca_modelled_rhino as wmr
+        paths = list(dict.fromkeys(r["layer"] for r in md.get("rules") or []))
+        md["measured"] = wmr.measure(self.doc, paths) if paths else None
+        if refresh:
+            self.save()
+            self.refresh()
+
     def pick_schedule(self):
         dlg = forms.OpenFileDialog()
         dlg.Filters.Add(forms.FileFilter("Excel", ".xlsx", ".xlsm"))
@@ -297,6 +331,11 @@ class WLCARhino(object):
         if pl.get("route") == "rhino" and (pl.get("walls_layer") or pl.get("columns_layer")):
             if not self.read_plan(refresh=False):         # re-read: the plan may have changed since step 2
                 self.messages.append("Plan: " + " ".join(pl.get("summary") or []))
+        if any(ws.uses_model(o, self.state) for o in self.state["options"] if o["include"]):
+            try:
+                self.measure_model(refresh=False)       # measured again: the model may have changed since step 2
+            except Exception as e:
+                self.messages.append("Model layers could not be measured: %s" % e)
         cols = []
         for o in [o for o in self.state["options"] if o["include"]]:
             tmp_ids = []
@@ -308,18 +347,22 @@ class WLCARhino(object):
                 header, rows, geom, paths = tk["run"](cfg)
                 csv = paths[0]
                 h2, r2 = ws.read_export(csv)
-                r2 = ws.apply_facade_mix(r2, o, self.office, glazed_code=cfg["build_ups"]["facade_glazed"],
-                                         opaque_code=cfg["build_ups"]["facade_opaque"])
-                h2.update(ws.facade_header(o, self.office))
+                r2, hx, rep, notes = ws.finish_rows(r2, o, self.state, self.office, cfg["build_ups"])
+                h2.update(hx)
                 ws.write_export(csv, h2, r2)
+                if rep or notes:
+                    self.state["modelled"].setdefault("report", {})[o["name"]] = rep
+                    self.messages += ["%s - model: %s" % (o["name"], x) for x in rep + notes]
                 self.exports.append((o, csv))
-                glaz = sum(float(r["quantity"]) for r in r2 if r["unit"] == "m2" and (str(r["nrm_code"]) == "2.5.2" or
-                           (str(r["nrm_code"]) == "2.6" and "windows:" in str(r.get("notes", "")))))
+                import wlca_modelled as wm
+                glaz = sum(float(r["quantity"]) for r in r2 if r["unit"] == "m2" and
+                           wm.kind_of(r, cfg["build_ups"]) in ("facade_glazed", "windows"))
+                mod = sum(1 for r in r2 if r.get("method") == wm.METHOD)
                 asm = sum(1 for r in r2 if str(r.get("notes", "")).startswith("[ASSUMED]"))
                 found = sum(float(r["quantity"]) for r in r2 if str(r["nrm_code"]) == "1.1" and r["unit"] == "m3")
                 depth = (geom.get("structure") or {}).get("basement_depth_m") or 0
                 cols.append([geom["gia_m2"], geom["facade_total_m2"], glaz, geom["horizontals"].get("upper", 0),
-                             "%.1f" % depth if depth else "none", found, "%d of %d" % (asm, len(r2))])
+                             "%.1f" % depth if depth else "none", found, "%d of %d" % (mod, len(r2)), "%d of %d" % (asm, len(r2))])
                 for w in geom.get("warnings", []):
                     self.messages.append("%s: %s" % (o["name"], w))
             except Exception as e:
@@ -328,7 +371,7 @@ class WLCARhino(object):
                 for i in tmp_ids:
                     self.doc.Objects.Delete(i, True)
         names = ["GIA (m²)", "Façade (m²)", "Curtain wall + windows (m²)", "Upper floor slabs (m²)", "Basement depth (m)",
-                 "Piles + caps (m³)", "Rows resting on an assumption"]
+                 "Piles + caps (m³)", "Rows from the detailed model", "Rows resting on an assumption"]
         fmt = lambda v: "{:,.0f}".format(v) if isinstance(v, (int, float)) else str(v)  # noqa: E731
         self.run_rows = [[n] + [fmt(c[i]) for c in cols] for i, n in enumerate(names)] if cols else []
         self.doc.Views.Redraw()
