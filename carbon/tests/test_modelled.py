@@ -180,4 +180,42 @@ def test_read_library(tmp_path):
     ws_.append(["SLAB-M3", "2.2.1", "RC slab", "m3"])
     p = tmp_path / "lib.xlsx"
     wb.save(p)
-    assert wm.read_library(str(p)) == {"SLAB-M3": {"rics": "2.2.1", "desc": "RC slab", "unit": "m3"}}
+    assert wm.read_library(str(p)) == {"SLAB-M3": {"rics": "2.2.1", "desc": "RC slab", "unit": "m3", "a13": None}}
+
+
+def test_keep_the_larger_compares_a1_a3():
+    lib = dict(LIB, EB={"unit": "m", "rics": "2.1.2", "desc": "edge beam", "a13": 62.0},
+               **{"BEAM-M3": dict(LIB["BEAM-M3"], a13=443.0)})
+    a13 = dict((c, b.get("a13")) for c, b in lib.items() if b.get("a13") is not None)
+    rule = wm.new_rule("STR::Frame", "2.1.2", "volume_h", "BEAM-M3")
+    assert rule["replaces"] == "beams" and rule["mode"] == "larger"          # edge beams: conservative by default
+    for vol, kept in ((50.0, "derived"), (100.0, "modelled")):
+        rows, _, rep, _ = wm.modelled_rows([rule], {"layers": {"STR::Frame": stats(vol_h=vol)}, "tagged": {}}, lib)
+        out, report = wm.apply_modelled(derived(), rows, rep, B, a13=a13)
+        assert report[0]["kept"] == kept and report[0]["t"] == (31.0, round(vol * 0.443, 1))   # 500 m x 62 kg/m = 31.0 t
+        ebs = [r["build_up_code"] for r in out if r["nrm_code"] == "2.1.2"]
+        assert ebs == (["EB"] if kept == "derived" else ["BEAM-M3"])
+        assert "taken forward" in wm.report_lines(report)[0]
+    rule["mode"] = "replace"
+    rows, _, rep, _ = wm.modelled_rows([rule], {"layers": {"STR::Frame": stats(vol_h=72.0)}, "tagged": {}}, lib)
+    out, report = wm.apply_modelled(derived(), rows, rep, B, a13=a13)
+    assert [r["build_up_code"] for r in out if r["nrm_code"] == "2.1.2"] == ["BEAM-M3"] and report[0]["t"] is None
+
+
+def test_read_library_works_out_a1_a3_per_unit(tmp_path):
+    openpyxl = pytest.importorskip("openpyxl")
+    wb = openpyxl.Workbook()
+    sh = {n: wb.create_sheet(n) for n in ("Buildups", "Layers", "Materials", "Rebar_Rates")}
+    del wb["Sheet"]
+    for s in sh.values():
+        for _ in range(4):
+            s.append([None])
+    sh["Buildups"].append(["BEAM", "2.1.2", "beam", "m"])
+    sh["Materials"].append(["CONC", "c", "kg", 1, 2400, 0.10625])
+    sh["Materials"].append(["REBAR", "r", "kg", 1, 7850, 0.8])
+    sh["Rebar_Rates"].append(["RB-BEAM", "beams", 235])
+    sh["Layers"].append(["BEAM", 1, "CONC", 0.14, "m3"])
+    sh["Layers"].append(["BEAM", 2, "REBAR", '=0.14*INDEX(Rebar_Rates!$C$5:$C$30,MATCH("RB-BEAM",Rebar_Rates!$A$5:$A$30,0))', "kg"])
+    p = tmp_path / "lib.xlsx"
+    wb.save(p)
+    assert wm.read_library(str(p))["BEAM"]["a13"] == pytest.approx(0.14 * 2400 * 0.10625 + 0.14 * 235 * 0.8)

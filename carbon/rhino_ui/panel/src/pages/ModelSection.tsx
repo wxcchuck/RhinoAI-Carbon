@@ -10,7 +10,7 @@ import { fmt, type Model } from "@/lib/model"
 import { useSticky } from "@/lib/results"
 import { cn } from "@/lib/utils"
 
-type Rule = { layer: string; rics: string; measure: string; build_up: string; factor: number; replaces: string; source: string; note: string }
+type Rule = { layer: string; rics: string; measure: string; build_up: string; factor: number; replaces: string; mode?: string; source: string; note: string }
 type View = { n: number | null; open: number | null; q: number | null; unit: string; share: number | null }
 type BuildUp = [string, string, string, string]          // code, label, unit, RICS code
 
@@ -27,6 +27,7 @@ export function ModelSection({ m }: { m: Model }) {
   const bus = (L.build_ups || []) as BuildUp[]
   const codes = (L.rics_codes || []) as string[]
   const groups = (L.replace_groups || []) as [string, string][]
+  const modes = (L.replace_modes || []) as [string, string][]
   const [showIgnored, setShowIgnored] = useSticky("model.ignored", false)
 
   // lines grouped by layer, in table order; k = the line's index in the saved table
@@ -71,7 +72,7 @@ export function ModelSection({ m }: { m: Model }) {
           </div>
 
           <div className={cn("mt-4 hidden gap-2 px-3 text-xs font-medium text-muted-foreground @3xl/main:grid", LINE)}>
-            <span>Measure</span><span>Build-up</span><span>RICS</span><span>Factor</span><span>Replaces</span>
+            <span>Measure</span><span>Build-up</span><span>RICS</span><span>Factor</span><span>Replaces · if both exist</span>
             <span className="text-right">Quantity</span><span />
           </div>
           <ul className="mt-1 space-y-2">
@@ -89,7 +90,7 @@ export function ModelSection({ m }: { m: Model }) {
                   </div>
                   <div className="space-y-2">
                     {g.lines.map((k) => <RuleLine key={k} k={k} r={rules[k]} v={view[k] || ({} as View)} measures={measures} units={units}
-                      bus={bus} codes={codes} groups={groups} several={g.lines.length > 1} />)}
+                      bus={bus} codes={codes} groups={groups} modes={modes} several={g.lines.length > 1} />)}
                   </div>
                 </li>
               )
@@ -100,6 +101,8 @@ export function ModelSection({ m }: { m: Model }) {
             one side of a wall-like piece. "Share of the massing façade" splits the massing's net façade between the share lines by their
             modelled face areas - the model says what the façade is made of, the massing how much façade there is. An object with user text
             WLCA_BUILDUP=&lt;code&gt; is taken off on its own with that build-up. A layer named RICS_&lt;code&gt;_…_&lt;build-up&gt; maps itself.
+            "Keep the larger" takes forward whichever of the massing estimate and the model carries more A1-A3 carbon (edge beams
+            by default: a model often holds a few beams but not the downstands assumed on every slab edge).
           </Note>
         </>
       )}
@@ -110,9 +113,9 @@ export function ModelSection({ m }: { m: Model }) {
   )
 }
 
-function RuleLine({ k, r, v, measures, units, bus, codes, groups, several }: {
+function RuleLine({ k, r, v, measures, units, bus, codes, groups, modes, several }: {
   k: number; r: Rule; v: View; measures: [string, string][]; units: Record<string, string>; bus: BuildUp[]; codes: string[]
-  groups: [string, string][]; several: boolean
+  groups: [string, string][]; modes: [string, string][]; several: boolean
 }) {
   const on = r.measure !== "ignore"
   const unit = units[r.measure] || ""
@@ -129,7 +132,12 @@ function RuleLine({ k, r, v, measures, units, bus, codes, groups, several }: {
           <ChoiceInput path={P("build_up")} value={r.build_up} options={buOpts} aria-label="Build-up" />
           <ChoiceInput path={P("rics")} value={r.rics} options={[["", "–"], ...codeOpts.map((c) => [c, c] as [string, string])]} aria-label="RICS element" />
           <TextInput path={P("factor")} value={r.factor} kind="num" numeric aria-label="Factor" />
-          <ChoiceInput path={P("replaces")} value={r.replaces} options={groups} aria-label="Replaces" />
+          <div className="grid gap-1">
+            <ChoiceInput path={P("replaces")} value={r.replaces} options={groups} aria-label="Replaces" />
+            {r.replaces !== "none" && r.measure !== "share" && (
+              <ChoiceInput path={P("mode")} value={r.mode || "replace"} options={modes} aria-label="If both exist" />
+            )}
+          </div>
           <span className="num text-right text-sm" title={v.share != null ? `${(v.share * 100).toFixed(1)}% of the modelled façade` : undefined}>
             {v.q == null ? "–" : `${fmt(v.q)} ${UNIT[v.unit] || v.unit}`}
             {v.share != null && <span className="block text-xs text-muted-foreground">{(v.share * 100).toFixed(1)}% of façade</span>}

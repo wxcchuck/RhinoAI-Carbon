@@ -27,6 +27,9 @@ Measures (per object, from closed solids and meshes; open surfaces only give are
 Replacement: the massing-derived rows of the group a rule replaces are dropped for the options that use the model
 (e.g. floors: the derived upper-floor and roof slabs; facade: the derived walls and glazing). Allowances the model does
 not normally show (soffits, louvres, entrance doors, other roof elements) stay as derived.
+Mode per line: "replace" (the model wins) or "larger" (conservative: whichever of the derived estimate and the model
+carries more A1-A3 carbon is taken forward, compared with the library's A1-A3 per unit of each build-up). Edge beams
+default to "larger": a model often holds a few transfer beams but not the downstands the massing assumes on every edge.
 """
 import fnmatch
 import re
@@ -69,22 +72,73 @@ REPLACE_ORDER = ["facade", "floors", "columns", "beams", "core_walls", "stairs",
 DEFAULT_REPLACES = {"1.1": "piles_caps", "1.2.1": "lowest_slab", "1.2.2": "basement_slabs", "1.2.3": "basement_walls",
                     "2.1.1": "columns", "2.1.2": "beams", "2.2.1": "floors", "2.4": "stairs", "2.5.1": "facade",
                     "2.5.2": "facade", "2.6": "facade", "2.5.3": "roof_finish"}
+MODES = [("replace", "Model replaces the estimate"), ("larger", "Keep the larger (A1-A3)")]
+DEFAULT_MODE = {"beams": "larger"}
 TAKEOFF_GROUPS = ("1", "2")      # RICS groups the take-off measures; 3-8 are on benchmarks
 
 RICS_LAYER = re.compile(r"^RICS_(\d+(?:\.\d+)*)(?:_(.*))?$", re.I)
 
 
 # ----------------------------------------------------------------------------------------------- library
+REBAR_FX = re.compile(r'^=\s*(?:([\d.]+)\s*\*\s*)?INDEX\(Rebar_Rates!.*?MATCH\("([^"]+)"', re.I)
+
+
+def _f(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def read_library(path):
-    """{build-up code: {"unit", "rics", "desc"}} from the build-up library's Buildups sheet (header on row 4)."""
+    """{build-up code: {"unit", "rics", "desc", "a13"}} from the build-up library (header on row 4 of each sheet).
+    a13 = A1-A3 kgCO2e per declared unit, worked out as the library's own Layers formulas do (quantity in the material's
+    unit x the material's A1-A3; rebar quantities from Rebar_Rates); None when a layer cannot be resolved."""
     import openpyxl
     wb = openpyxl.load_workbook(path, read_only=True)
-    ws = wb["Buildups"]
     out = {}
-    for r in ws.iter_rows(min_row=5, values_only=True):
+    for r in wb["Buildups"].iter_rows(min_row=5, values_only=True):
         if r and r[0]:
             out[str(r[0]).strip()] = {"rics": str(r[1] or "").strip(), "desc": str(r[2] or "").strip(),
-                                      "unit": str(r[3] or "").strip()}
+                                      "unit": str(r[3] or "").strip(), "a13": None}
+    names = wb.sheetnames
+    if "Materials" in names and "Layers" in names:
+        mats = {}
+        for r in wb["Materials"].iter_rows(min_row=5, values_only=True):
+            if r and r[0]:
+                mats[str(r[0]).strip()] = (str(r[2] or "").strip(), _f(r[4]), _f(r[5]))   # declared unit, density, A1-A3
+        rates = {}
+        if "Rebar_Rates" in names:
+            for r in wb["Rebar_Rates"].iter_rows(min_row=5, values_only=True):
+                if r and r[0]:
+                    rates[str(r[0]).strip()] = _f(r[2])
+        tot, bad = {}, set()
+        for r in wb["Layers"].iter_rows(min_row=5, values_only=True):
+            if not r or not r[0] or str(r[0]).strip() not in out:
+                continue
+            code, mat, q, u = str(r[0]).strip(), str(r[2] or "").strip(), r[3], str(r[4] or "").strip()
+            if isinstance(q, str) and q.startswith("="):
+                m = REBAR_FX.match(q.replace(" ", ""))
+                q = (float(m.group(1) or 1) * rates[m.group(2)]) if m and rates.get(m.group(2)) is not None else None
+            else:
+                q = _f(q)
+            du, dens, fac = mats.get(mat, (None, None, None))
+            if q is None or fac is None:
+                bad.add(code)
+                continue
+            if u == du:
+                x = q
+            elif u == "m3" and du == "kg" and dens:
+                x = q * dens
+            elif u == "kg" and du == "m3" and dens:
+                x = q / dens
+            else:
+                bad.add(code)
+                continue
+            tot[code] = tot.get(code, 0.0) + x * fac
+        for code, v in tot.items():
+            if code not in bad:
+                out[code]["a13"] = round(v, 6)
     wb.close()
     return out
 
@@ -113,10 +167,15 @@ def default_replaces(rics):
 
 
 # ----------------------------------------------------------------------------------------------- rules
-def new_rule(layer, rics="", measure="ignore", build_up="", factor=1.0, replaces=None, source="", note=""):
+def default_mode(group):
+    return DEFAULT_MODE.get(group, "replace")
+
+
+def new_rule(layer, rics="", measure="ignore", build_up="", factor=1.0, replaces=None, source="", note="", mode=None):
+    g = replaces if replaces is not None else default_replaces(rics)
     return {"layer": layer, "rics": str(rics or ""), "measure": measure, "build_up": build_up or "",
-            "factor": float(factor if factor not in (None, "") else 1.0),
-            "replaces": replaces if replaces is not None else default_replaces(rics), "source": source, "note": note}
+            "factor": float(factor if factor not in (None, "") else 1.0), "replaces": g,
+            "mode": mode or default_mode(g), "source": source, "note": note}
 
 
 def parse_rics_layer(leaf):
@@ -151,7 +210,8 @@ def rules_from_patterns(path, patterns):
         if fnmatch.fnmatch(path.lower(), str(p.get("pattern", "")).lower()):
             hit = [q for q in patterns if q.get("pattern") == p.get("pattern")]
             return [new_rule(path, q.get("rics", ""), q.get("measure", "ignore"), q.get("build_up", ""), q.get("factor", 1.0),
-                             q.get("replaces"), source="office pattern '%s'" % p["pattern"], note=q.get("note", "")) for q in hit]
+                             q.get("replaces"), source="office pattern '%s'" % p["pattern"], note=q.get("note", ""),
+                             mode=q.get("mode")) for q in hit]
     return None
 
 
@@ -200,6 +260,8 @@ def check_rules(rules, lib):
                 out.append(("error", "%s: the factor must be above 0 (step 2)." % where))
         except (TypeError, ValueError):
             out.append(("error", "%s: the factor must be a number (step 2)." % where))
+        if r.get("mode", "replace") not in dict(MODES):
+            out.append(("error", "%s: unknown mode %s (step 2)." % (where, r.get("mode"))))
         if not str(r.get("rics") or "").strip():
             out.append(("error", "%s: give the RICS element it reports to (step 2)." % where))
     return out
@@ -219,7 +281,7 @@ def modelled_rows(rules, measured, lib, meta=None):
     "plan", "face"}. Returns (rows, shares, replaces, notes):
       rows      interchange rows (method Modelled)
       shares    [(layer, build-up, rics, face m2)] for 'share' rules - turned into rows by share_rows()
-      replaces  {row element_id: group}
+      replaces  {row element_id: {"group", "mode"}}
       notes     warnings for the run messages"""
     meta = meta or {}
     rows, shares, rep, notes, n = [], [], {}, [], 0
@@ -247,7 +309,8 @@ def modelled_rows(rules, measured, lib, meta=None):
                                                      " x %g" % f if abs(f - 1) > 1e-9 else "")
         row = _row(meta, n, r["rics"], r["build_up"], q, UNIT[m], r["layer"], note + (" - " + r["note"] if r.get("note") else ""))
         rows.append(row)
-        rep[row["element_id"]] = r.get("replaces") or "none"
+        g = r.get("replaces") or "none"
+        rep[row["element_id"]] = {"group": g, "mode": r.get("mode") or default_mode(g)}
     for code, st in sorted(((measured or {}).get("tagged") or {}).items()):
         m = measure_for(code, lib)
         if m is None:
@@ -261,7 +324,8 @@ def modelled_rows(rules, measured, lib, meta=None):
         row = _row(meta, n, rics, code, q, UNIT[m], " | ".join(st.get("layers") or []),
                    "Modelled: %d object(s) tagged %s=%s, %s" % (st.get("n", 0), TAG_KEY, code, LABEL[m].lower()))
         rows.append(row)
-        rep[row["element_id"]] = default_replaces(rics)
+        g = default_replaces(rics)
+        rep[row["element_id"]] = {"group": g, "mode": default_mode(g)}
     return rows, shares, rep, list(dict.fromkeys(notes))
 
 
@@ -320,36 +384,64 @@ def share_rows(rows, shares, build_ups, meta=None, start=1000):
     return out, new, net, fac
 
 
-def apply_modelled(rows, mrows, replaces, build_ups, share_new=None, share_old=None):
+def apply_modelled(rows, mrows, replaces, build_ups, share_new=None, share_old=None, a13=None):
     """Drop the derived rows of every group a modelled row replaces, then add the modelled rows (and the facade
     share rows, which replace the facade group; share_old = the derived facade rows share_rows() took out, for the
-    report). Returns (rows, report) - report: [{"group", "label", "derived", "modelled"}] with quantities summed by
-    unit, e.g. {"m2": 1234.5}."""
-    groups = set(replaces.get(r["element_id"], "none") for r in mrows)
+    report). A group whose lines are all mode "larger" keeps whichever side - derived or modelled - carries more A1-A3
+    (a13 = {build-up: kgCO2e per unit}); without a factor for every row it falls back to replace and says so.
+    Returns (rows, report) - report: [{"group", "label", "derived", "modelled", "kept", "t"}]; quantities summed by unit,
+    e.g. {"m2": 1234.5}; t = (derived, modelled) tCO2e A1-A3 when compared."""
+    a13 = a13 or {}
+    info = lambda r: replaces.get(r["element_id"]) or {"group": "none", "mode": "replace"}      # noqa: E731
+    groups = set(info(r)["group"] for r in mrows)
     if share_new:
         groups.add("facade")
     groups.discard("none")
-    kinds = set(k for g in groups for k in REPLACE[g][1])
-    keep, gone = [], list(share_old or [])
-    for r in rows:
-        (gone if kind_of(r, build_ups) in kinds else keep).append(r)
+    old = list(share_old or [])
+    by_kind = {}
+    for r in rows + old:
+        by_kind.setdefault(kind_of(r, build_ups), []).append(r)
+
+    def carbon(rs):
+        t = 0.0
+        for r in rs:
+            f = a13.get(r["build_up_code"])
+            if f is None:
+                return None
+            t += float(r["quantity"]) * f / 1000.0
+        return t
 
     def by_unit(rs):
         d = {}
         for r in rs:
             d[r["unit"]] = round(d.get(r["unit"], 0) + float(r["quantity"]), 1)
         return d
-    report = []
+    drop_derived, drop_model, report = set(), set(), []
     for g in [g for g in REPLACE_ORDER if g in groups]:
-        ks = REPLACE[g][1]
-        report.append({"group": g, "label": REPLACE[g][0],
-                       "derived": by_unit([r for r in gone if kind_of(r, build_ups) in ks]),
-                       "modelled": by_unit([r for r in mrows if replaces.get(r["element_id"]) == g] +
-                                           (list(share_new) if g == "facade" and share_new else []))})
-    added = [r for r in mrows if replaces.get(r["element_id"], "none") == "none"]
+        der = [r for k in REPLACE[g][1] for r in by_kind.get(k, [])]
+        mod = [r for r in mrows if info(r)["group"] == g] + (list(share_new) if g == "facade" and share_new else [])
+        modes = set(info(r)["mode"] for r in mrows if info(r)["group"] == g)
+        kept, t = "modelled", None
+        if modes == {"larger"} and not (g == "facade" and share_new) and der:
+            cd, cm = carbon(der), carbon(mod)
+            if cd is None or cm is None:
+                kept = "modelled (not compared: a build-up has no A1-A3 factor)"
+            else:
+                t = (round(cd, 1), round(cm, 1))
+                kept = "derived" if cd > cm else "modelled"
+        if kept == "derived":
+            drop_model.update(id(r) for r in mod)
+        else:
+            drop_derived.update(id(r) for r in der)
+        report.append({"group": g, "label": REPLACE[g][0], "derived": by_unit(der), "modelled": by_unit(mod), "kept": kept, "t": t})
+    added = [r for r in mrows if info(r)["group"] == "none"]
     if added:
-        report.append({"group": "none", "label": REPLACE["none"][0], "derived": {}, "modelled": by_unit(added)})
-    return keep + list(share_new or []) + list(mrows), report
+        report.append({"group": "none", "label": REPLACE["none"][0], "derived": {}, "modelled": by_unit(added), "kept": "added",
+                       "t": None})
+    keep = [r for r in rows if id(r) not in drop_derived]
+    keep += [r for r in old if id(r) not in drop_derived]       # only when the facade side kept the estimate
+    new = [r for r in list(share_new or []) + list(mrows) if id(r) not in drop_model]
+    return keep + new, report
 
 
 def facade_header_from_rows(rows, build_ups):
@@ -367,4 +459,15 @@ def report_lines(report):
     """Lines for the Run step: what the model replaced."""
     def q(d):
         return ", ".join("{:,.0f} {}".format(v, u.replace("m2", "m²").replace("m3", "m³")) for u, v in sorted(d.items())) or "-"
-    return ["%s: derived %s -> modelled %s" % (x["label"], q(x["derived"]), q(x["modelled"])) for x in report]
+    out = []
+    for x in report:
+        line = "%s: derived %s, modelled %s" % (x["label"], q(x["derived"]), q(x["modelled"]))
+        if x.get("t"):
+            line += " - A1-A3 %s t vs %s t: the larger (%s) is taken forward" % ("{:,.0f}".format(x["t"][0]), "{:,.0f}".format(x["t"][1]),
+                                                                                x["kept"])
+        elif x.get("kept") == "added":
+            line += " - added"
+        else:
+            line += " - %s" % ("the model replaces the estimate" if x.get("kept") == "modelled" else x.get("kept"))
+        out.append(line)
+    return out
