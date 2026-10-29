@@ -498,6 +498,7 @@ def rule_view(state):
     """Per rule line: objects, quantity (measure x factor) and unit from the last measurement - for the table."""
     import wlca_modelled as wm
     md = state.get("modelled") or {}
+    stage = (state.get("project") or {}).get("riba_stage")
     layers = ((md.get("measured") or {}).get("layers")) or {}
     rules = md.get("rules") or []
     share_tot = 0.0
@@ -508,8 +509,9 @@ def rule_view(state):
     for r in rules:
         st = layers.get(r["layer"])
         m = r.get("measure", "ignore")
+        g = r.get("replaces") or "none"
         v = {"n": st.get("n") if st else None, "open": st.get("open") if st else None, "q": None, "unit": wm.UNIT.get(m, ""),
-             "share": None}
+             "share": None, "group": g, "mode": wm.resolve_mode(r.get("mode"), g, stage) if g != "none" and m != "share" else "replace"}
         if st and m != "ignore":
             v["q"] = round(float(st.get(wm.STAT[m]) or 0) * float(r.get("factor") or 1), 1)
             if m == "share" and share_tot > 0:
@@ -537,7 +539,7 @@ def after_rule_edit(state, k, field, lib):
             r["replaces"] = wm.default_replaces(r["rics"])
             r["mode"] = wm.default_mode(r["replaces"])
     elif field == "measure" and r["measure"] == "share":
-        r["replaces"], r["mode"] = "facade", "replace"
+        r["replaces"], r["mode"] = "facade", "auto"
     return r
 
 

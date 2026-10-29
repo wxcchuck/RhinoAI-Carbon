@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label"
 import { FieldGrid, Note, Notice, Section } from "@/components/blocks"
 import { ChoiceInput, FormField, NumField, TextInput, idOf } from "@/components/form"
 import { OptionPicker } from "@/components/option-picker"
+import { ModelNotice } from "./ModelSection"
 import { act, setValue, type Path } from "@/lib/bridge"
 import { fmt, type PageProps } from "@/lib/model"
 
@@ -33,6 +34,7 @@ export function SubstructurePage({ m, sel, setSel }: PageProps) {
   return (
     <div className="space-y-8">
       <OptionPicker m={m} sel={i} setSel={setSel} />
+      <ModelNotice m={m} option={i} groups={["lowest_slab", "basement_slabs", "basement_walls", "piles_caps"]} />
 
       <Section title="Basement" code="1.2.1, 1.2.2">
         {fromSchedule ? (
