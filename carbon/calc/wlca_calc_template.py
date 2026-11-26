@@ -592,7 +592,7 @@ def build(cfg):
     pm = (tg or {}).get("PM_Structure") or [["group", "use_class", "n", "p10", "p25", "p50", "p75", "p90", "ac_p25", "ac_p50", "ac_p75"]]
     pm_col = 23
     for i, row in enumerate(pm):
-        for c, v in enumerate(row[:11], start=pm_col):
+        for c, v in enumerate(row[:12], start=pm_col):          # 12th column: the release, method and samples (source)
             TG.cell(4 + i, c, v)
     pm_last = 4 + len(pm) - 1
     for c in list(TG[4])[gb_col - 1:]:
@@ -689,7 +689,7 @@ def build(cfg):
         ("Non-modelled scenario tier", params["scenario"], "",
          "Scenario only - never the headline. Benchmarked elements re-run at GLA aspirational / GLA benchmark per module group", "SCN"),
         ("Budget target", params["budget_target"], "", "Carbon budget chart: target minus modelled + site = what is left for elements not yet designed", "BUD"),
-        ("Price & Myers structure group", pm_default, "", "Structural A1-A5 range (structure only; RICS 2017 / IStructE v2 method, ICE v3)", "PM_GROUP"),
+        ("Price & Myers structure group", pm_default, "", "Structural A1-A5 and A1-C4 ranges (structure only). Release, method and samples: Targets, P&M source column", "PM_GROUP"),
         ("OPERATIONAL", None, None, None, None),
         ("Operational energy (B6) basis", params["op_route"], "",
          "PS 5.3: whole life carbon needs a predictive energy model (TM54 or equivalent, never Part L). 'Indicative' uses each option's EUI estimate "
