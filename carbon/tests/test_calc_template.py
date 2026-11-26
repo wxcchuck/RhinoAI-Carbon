@@ -646,3 +646,26 @@ def test_trajectory_ends_at_the_totals(built, tmp_path):
 def test_trajectory_layout_shared_with_the_reader():
     import wlca_results as wr
     assert wr.TRAJ_FIRST == ct.TRAJ_FIRST and wr.TRAJ_COLS == ct.TRAJ_KEY and wr.TRAJ_GROUPS == len(ct.GROUPS)
+
+
+def test_scope_of_assessment(built, tmp_path):
+    """Project scope rows (Y / N), the headline marks and the two QA checks; a config without scopes keeps A1-A5 + A-C."""
+    wb = openpyxl.load_workbook(built["out"])
+    for nm in ("SCOPE_UP", "SCOPE_EMB", "SCOPE_WLC"):
+        assert nm in wb.defined_names
+    P = wb["Project"]
+    val = lambda nm: P[wb.defined_names[nm].attr_text.split("!")[1].replace("$", "")].value  # noqa: E731
+    assert (val("SCOPE_UP"), val("SCOPE_EMB"), val("SCOPE_WLC")) == ("Y", "Y", "N")
+    for tag, sc, op, flags in (("ok", dict(upfront="Y", embodied="N", wlc="N"), "Not assessed", 0),
+                               ("wlc", dict(upfront="N", embodied="N", wlc="Y"), "Not assessed", 1),
+                               ("none", dict(upfront="N", embodied="N", wlc="N"), "Not assessed", 1)):
+        cfg = dict(built, out=str(tmp_path / ("sc_%s.xlsx" % tag)), params=dict(built["params"], scopes=sc, op_route=op))
+        ct.build(cfg).save(cfg["out"])
+        w = _calc(cfg["out"], str(tmp_path / ("c_sc_" + tag)))
+        R, Q = w["O1_Results"], w["O1_QA"]
+        assert R["E5"].value == ("In scope" if sc["upfront"] == "Y" else "Outside the scope - for information")
+        assert R["E6"].value == "Outside the scope - for information"
+        assert bool(R["G5"].value) == (sc["wlc"] == "Y")
+        rows = dict((Q.cell(r, 2).value, Q.cell(r, 4).value) for r in range(7, Q.max_row + 1) if Q.cell(r, 2).value)
+        bad = [k for k in ("Scope of assessment ticked (Project)", "Whole life carbon in scope with a B6 basis") if rows[k] == "FLAG"]
+        assert len(bad) == flags

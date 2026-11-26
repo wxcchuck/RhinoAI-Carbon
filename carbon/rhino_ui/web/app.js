@@ -78,6 +78,9 @@
     h += field("Occupied days per year", input(["project", "occ_days"], numText(p.occ_days), "num", "num"));
     h += "</div>";
     h += note("Occupancy sets the project's water budget (B7) against the RIBA 2030 Climate Challenge potable water target: workplaces for offices, residents for homes, pupils for schools. Days default to 250 (office), 365 (homes), 190 (schools).");
+    h += "<h2>Scope of assessment</h2><div class='row'>";
+    for (const [k, label, mods] of (L.scopes || [])) h += check(["project", "scopes", k], !!(p.scopes || {})[k], `${label} (${mods})`);
+    h += "</div>" + note("Tick one or more. Each ticked scope is a headline in the results and the workbook; every module is still calculated. Whole life carbon needs operational energy and water (B6, B7) on step 6.");
     h += "<h2>Design options</h2>" + note("Each option is one massing layer in this file, or another .3dm. Substructure, structure and façade are set per option on steps 3 to 5, so options can share a massing.");
     h += "<table class='form' style='width:100%;max-width:1100px'><tr><th>Include</th><th class='req'>Option name</th><th>Massing from</th><th class='req'>Layer / file</th><th></th></tr>";
     S().options.forEach((o, i) => {
@@ -255,6 +258,7 @@
     h += field("Elements not yet designed - scenario", select(["targets", "scenario"], L.scenarios, t.scenario));
     h += field("Carbon budget against", select(["targets", "budget_target"], L.budgets, t.budget_target));
     h += "</div><h2>Operational energy and water (B6 / B7)</h2>";
+    if (!((S().project.scopes || {}).wlc)) h += note("Not assessed: whole life carbon is not in the scope of assessment (step 1). Anything entered here is kept but not used until it is ticked.");
     h += note("Whole life carbon needs a predictive energy model (CIBSE TM54 or equivalent - never Part L). Without one, the 'Indicative' basis uses each option's EUI estimate, else the UKNZCBS limit, x GIA (all electric).");
     const route = L.op_routes.indexOf(op.route) >= 0 ? op.route : (String(op.route || "").startsWith("Indicative") ? L.op_routes[1] : L.op_routes[2]);
     h += "<div class='grid'>";

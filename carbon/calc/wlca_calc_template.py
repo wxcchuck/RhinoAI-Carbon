@@ -606,6 +606,7 @@ def build(cfg):
     title(P, "Project inputs", "Yellow cells are inputs. Header values come from the take-off export(s); change them here if needed.")
     use_classes = sorted({K.cell(r, 1).value for r in range(k_first, k_last + 1)})
     show = params["show_targets"]
+    scopes = scope_flags(params)
     pm_groups = [r[0] for r in pm[1:] if r and r[0]]
     pm_default = params.get("pm_group") or next((r[0] for r in pm[1:] if r and r[1] == header.get("use_class", "Office")), pm_groups[0] if pm_groups else "")
     items = [
@@ -663,6 +664,13 @@ def build(cfg):
          "Wood and bio-based products follow the Table 23 split (e.g. engineered timber 5/35/59/1%). The Table 28 wood factor is fugitive "
          "methane from landfill, so it applies to the landfilled share only (C4). Reused / recycled share: inert factor as the processing "
          "stand-in (default, XW 16/10/2026); 'wood' charges methane on it too.", "BIO_STANDIN"),
+        ("SCOPE", None, None, None, None),
+        ("Upfront embodied carbon (A1-A5)", scopes["upfront"], "", "Scope of assessment (RICS PS terms). Y = reported as a headline. "
+         "Every module is calculated whatever the scope; the scope marks what is reported", "SCOPE_UP"),
+        ("Life cycle embodied carbon (A-C, excl. B6 & B7)", scopes["embodied"], "", "A1-A5, B1-B5, C1-C4 (B1 / B5 not in this version)",
+         "SCOPE_EMB"),
+        ("Whole life carbon (A-C, incl. B6 & B7)", scopes["wlc"], "", "Needs a B6 basis other than 'Not assessed' (Operational below)",
+         "SCOPE_WLC"),
         ("TARGETS", None, None, None, None),
         ("Construction start year (UKNZCBS limit year)", params["construction_start_year"], "", "UKNZCBS 4.2.5.3: limits for the year construction commences", "UK_YEAR"),
         ("Show UKNZCBS", show.get("UKNZCBS", "Y"), "", "Upfront A1-A5 excl. external works. Offices: shell & core limit (5.1.6.2) and whole-building limit (incl. Cat B + loose FF&E)", "SH_UK"),
@@ -690,13 +698,14 @@ def build(cfg):
     head(P, 4, ["", "Input", "Value", "Unit", "Note / source"], [3, 44, 24, 22, 110])
     r = 5
     lists = {"USE": ",".join(use_classes), "BM_C1": "Exclude,Include",
-             "SH_UK": "Y,N", "SH_LETI": "Y,N", "SH_RIBA": "Y,N", "SH_GLA": "Y,N", "SCN": "GLA aspirational,GLA benchmark,None",
+             "SH_UK": "Y,N", "SH_LETI": "Y,N", "SCOPE_UP": "Y,N", "SCOPE_EMB": "Y,N", "SCOPE_WLC": "Y,N", "SH_RIBA": "Y,N", "SH_GLA": "Y,N", "SCN": "GLA aspirational,GLA benchmark,None",
              "BUD": "UKNZCBS,LETI 2030 (A),LETI 2020 (C),RIBA 2030,GLA aspirational A1-A5,GLA benchmark A1-A5",
              "PM_GROUP": ",".join(pm_groups), "EFW": ",".join(EFW_OPTS), "BIO_STANDIN": ",".join(STANDIN_OPTS),
              "OP_ROUTE": ",".join(OP_ROUTES)}
     for lbl, val, unit, note, nm in items:
-        if lbl in ("TARGETS", "OPERATIONAL"):
-            P.cell(r, 2, {"TARGETS": "Targets and benchmarking", "OPERATIONAL": "Operational energy and water (B6 / B7)"}[lbl]).font = BOLD
+        if lbl in ("SCOPE", "TARGETS", "OPERATIONAL"):
+            P.cell(r, 2, {"SCOPE": "Scope of assessment", "TARGETS": "Targets and benchmarking",
+                          "OPERATIONAL": "Operational energy and water (B6 / B7)"}[lbl]).font = BOLD
             r += 1
             continue
         P.cell(r, 2, lbl)
@@ -849,7 +858,9 @@ def build(cfg):
         ("Inputs", "Take-offs: %s\nLibrary: %s\nBenchmarks: %s\nTargets: %s" % (
             "; ".join("%s = %s" % (o["name"], os.path.basename(o["csv"])) for o in opts), lib_src, bm_src,
             os.path.basename(cfg["targets_xlsx"]) if cfg.get("targets_xlsx") else "none")),
-        ("Standard", "RICS Whole life carbon assessment for the built environment, 2nd ed. (PS). RSP 60 years. Modules A1-A5, B2, B3, B4, C1-C4 (embodied) and B6, B7 (operational, when assessed); D and biogenic carbon reported separately. B1 and B5 not in this version."),
+        ("Standard", "RICS Whole life carbon assessment for the built environment, 2nd ed. (PS). RSP 60 years. Modules A1-A5, B2, B3, B4, C1-C4 (embodied) and B6, B7 (operational, when assessed); D and biogenic carbon reported separately. B1 and B5 not in this version. "
+         "Scope of assessment (Project): upfront embodied carbon A1-A5, life cycle embodied carbon A-C excl. B6 & B7, whole life carbon A-C - one or more; "
+         "every module is calculated, the scope marks what is reported."),
         ("How to use", "1 Project: GIA per option, use class, stage, facade route, targets.\n2 O<k>_QA: every FLAG must be fixed or justified.\n"
                        "3 Dashboard: pick an option at the top. Compare: all options side by side. O<k>_Results: the element x module table.\n"
                        "Change factors or layer quantities on Materials / Layers only for project-specific overrides; library-wide changes go to the library owner."),
@@ -1257,6 +1268,10 @@ def build_option(wb, ctx, o):
         c.font = BOLD
         c.number_format = "0%" if "share" in lbl.lower() else "#,##0"
         R.cell(5 + i, 4, unit)
+    # scope of assessment (Project): which headline rows are reported; whole life carbon (B6 / B7) is on the Summary
+    for i, nm in ((0, "SCOPE_UP"), (1, "SCOPE_EMB")):
+        R.cell(5 + i, 5, '=IF(%s="Y","In scope","Outside the scope - for information")' % nm).font = Font(italic=True, color="595959")
+    R.cell(5, 7, '=IF(SCOPE_WLC="Y","Whole life carbon (A-C + B6 + B7) in scope: see Summary","")').font = Font(italic=True, color="595959")
     R.freeze_panes = "D14"
 
     # ---------------------------------------------------------------- Summary block (X:Z) for Dashboard / Compare
@@ -1407,6 +1422,10 @@ def build_option(wb, ctx, o):
         ("Share of A1-A5 resting on assumed quantities (before contingency)",
          '=IFERROR(%s/%s!I%d,0)' % (asm, RS, sub), '="INFO"',
          "The part of the result that moves when assumptions are replaced."),
+        ("Scope of assessment ticked (Project)", '=COUNTIF(SCOPE_UP,"Y")+COUNTIF(SCOPE_EMB,"Y")+COUNTIF(SCOPE_WLC,"Y")',
+         '=IF(C{r}=0,"FLAG","OK")', "Tick at least one scope: upfront, life cycle embodied or whole life carbon."),
+        ("Whole life carbon in scope with a B6 basis", '=IF(SCOPE_WLC="Y",IF(OP_ROUTE="Not assessed",0,1),1)',
+         '=IF(C{r}=0,"FLAG","OK")', "PS 5.3: whole life carbon needs B6 and B7. Choose a B6 basis on Project, or take whole life carbon out of scope."),
         ("Contingency at RIBA 0-2 at least 15%", "=CONT", '=IF(AND(STAGE<=2,CONT<0.15),"FLAG","OK")', "PS Table 10."),
         ("Scope elements with neither take-off nor benchmark (GAPS)", None, '=IF(C{r}=0,"OK","FLAG")',
          "RICS PS 4.4.1: all in-scope elements are included at every stage. Add a quantity, a benchmark, or mark the element not applicable in the coverage table below."),
@@ -1533,6 +1552,15 @@ def build_recon(wb, o):
         r += 1
     R.freeze_panes = "C5"
     R.sheet_properties.tabColor = "BFBFBF"
+
+
+def scope_flags(params):
+    """{"upfront", "embodied", "wlc": "Y" / "N"} from params["scopes"]; a config without it keeps the earlier reporting
+    (A1-A5 and A-C, plus whole life when B6 is assessed)."""
+    sc = params.get("scopes")
+    if not sc:
+        return {"upfront": "Y", "embodied": "Y", "wlc": "N" if params.get("op_route", "Not assessed") == "Not assessed" else "Y"}
+    return dict((k, "Y" if sc.get(k) in ("Y", True) else "N") for k in ("upfront", "embodied", "wlc"))
 
 
 def build_trajectory(wb, o, c):

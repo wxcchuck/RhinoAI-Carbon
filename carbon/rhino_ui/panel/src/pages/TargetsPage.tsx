@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label"
 import { FieldGrid, Note, Section } from "@/components/blocks"
 import { ChoiceInput, FormField, NumField, PathInput, TextInput, idOf } from "@/components/form"
 import { setValue } from "@/lib/bridge"
-import type { PageProps } from "@/lib/model"
+import { scopeOf, type PageProps } from "@/lib/model"
 
 type Targets = {
   show: Record<string, boolean>
@@ -78,6 +78,12 @@ export function TargetsPage({ m }: PageProps) {
 
       <Section title="Operational energy and water" code="B6, B7"
         lead="Whole life carbon needs a predictive energy model (CIBSE TM54 or equivalent, never Part L). Without one, the Indicative basis uses each option's EUI estimate, else the UKNZCBS limit, × GIA (all electric).">
+        {!scopeOf(m).wlc ? (
+          <Note className="mt-0">
+            Not assessed: whole life carbon is not in the scope of assessment (step 1). Tick it there to enter energy and water
+            {route !== "Not assessed" || anyOp ? "; the figures entered before are kept" : ""}.
+          </Note>
+        ) : (<>
         <FieldGrid>
           <FormField label="Basis" htmlFor={idOf(["operational", "route"])} className="@md/main:col-span-2">
             <ChoiceInput path={["operational", "route"]} value={route} options={routes} />
@@ -127,6 +133,7 @@ export function TargetsPage({ m }: PageProps) {
             reported in D2.
           </Note>
         )}
+        </>)}
       </Section>
 
       <Section title="Where to save">
