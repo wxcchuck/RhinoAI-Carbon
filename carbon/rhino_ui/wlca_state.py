@@ -24,11 +24,30 @@ FACADE_UNITISED = "unitised"         # glazing is part of the system (whole shar
 FACADE_PUNCHED = "punched"           # opaque wall with windows at the type's glazing ratio
 
 
+# Scope of assessment (step 1), RICS PS terms: one or more may be ticked; each ticked scope is reported as a headline.
+# The scopes nest, so the workbook always calculates every module; the scope decides what is required (B6 / B7 only for
+# whole life carbon), what the Results page and the targets show, and what the workbook marks as in scope.
+SCOPES = [("upfront", "Upfront embodied carbon", "A1-A5"),
+          ("embodied", "Life cycle embodied carbon", "A-C, excl. B6 & B7"),
+          ("wlc", "Whole life carbon", "A-C, incl. B6 & B7")]
+
+
+def default_scopes():
+    return {"upfront": True, "embodied": False, "wlc": False}
+
+
+def scopes_of(state):
+    """Ticked scope keys, in SCOPES order."""
+    sc = (state.get("project") or {}).get("scopes") or {}
+    return [k for k, _, _ in SCOPES if sc.get(k)]
+
+
 def default_state():
     return {
         "version": 1,
         "project": {"name": "", "use_class": "Office", "riba_stage": 2, "start_year": 2027,
-                    "demolished_gia_m2": 0.0, "assessor": "", "occupancy": None, "occ_days": None},
+                    "demolished_gia_m2": 0.0, "assessor": "", "occupancy": None, "occ_days": None,
+                    "scopes": default_scopes()},
         "options": [],
         "schedule": {"path": "", "sheet": ""},
         # plan route (D5): "rhino" = typical floor read from Rhino layers (default), "pdf" = plan extract json, "none"
@@ -325,6 +344,12 @@ def loads(text, base=None, exists=os.path.exists):
             st[k].update(v)
         else:
             st[k] = v
+    sp = (saved.get("project") or {}).get("scopes")
+    if not isinstance(sp, dict):
+        # saved before the scope existed: keep what it reported - A1-A5 and A-C, plus whole life when B6 was assessed
+        op = (st.get("operational") or {}).get("route") or "Not assessed"
+        sp = {"upfront": True, "embodied": True, "wlc": op != "Not assessed"}
+    st["project"]["scopes"] = dict(default_scopes(), **dict((k, bool(v)) for k, v in sp.items() if k in default_scopes()))
     for o in st.get("options") or []:
         fill_substructure(o)
     if base and rel:
@@ -396,6 +421,11 @@ def validate(state, office=None):
     names = [o["name"].strip() for o in opts]
     if len(set(names)) != len(names) or any(not n for n in names):
         out.append(("error", "Option names must be filled in and different from each other (step 1)."))
+    scopes = scopes_of(state)
+    if not scopes:
+        out.append(("error", "Tick at least one scope of assessment (step 1)."))
+    if "wlc" in scopes and ((state.get("operational") or {}).get("route") or "Not assessed") == "Not assessed":
+        out.append(("error", "Whole life carbon is in scope (step 1): choose a B6 / B7 basis on step 6, or untick whole life carbon."))
     cat = {f["id"]: f for f in facade_catalogue(office or {})}
     sched_bsm = basement_from_schedule(state["schedule"].get("path"), state["schedule"].get("sheet"))
     for o in opts:
@@ -424,6 +454,8 @@ def validate(state, office=None):
             or (pl.get("route") == "pdf" and not pl.get("pdf_json")):
         out.append(("warning", "No plan: cores, columns and stairs use office defaults and are tagged [ASSUMED] (step 2)."))
     op = state.get("operational") or {}
+    if "wlc" not in scopes:
+        op = {"route": "Not assessed"}      # B6 / B7 only for whole life carbon
     if op.get("route", "").startswith("Engineer"):
         for o in opts:
             if not any((o.get("operational") or {}).get(k) for k in ("elec", "gas", "dh")):
@@ -867,7 +899,10 @@ def calc_config(state, office, exports):
     })
     options = []
     op = state.get("operational") or {}
-    params.update({"op_route": op.get("route") or "Not assessed", "dh_factor": float(op.get("dh_factor") or 0),
+    scopes = scopes_of(state)
+    params["scopes"] = dict((k, "Y" if k in scopes else "N") for k, _, _ in SCOPES)
+    params.update({"op_route": (op.get("route") or "Not assessed") if "wlc" in scopes else "Not assessed",
+                   "dh_factor": float(op.get("dh_factor") or 0),
                    "occupancy": state["project"].get("occupancy"), "occ_days": state["project"].get("occ_days")})
     if op.get("op_year"):
         params["op_year"] = int(op["op_year"])

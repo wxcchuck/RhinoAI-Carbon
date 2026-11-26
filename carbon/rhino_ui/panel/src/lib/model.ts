@@ -21,12 +21,25 @@ export type State = {
     assessor: string
     occupancy: number | null
     occ_days: number | null
+    scopes?: Partial<Record<ScopeKey, boolean>>
   }
   options: Option[]
   schedule: { path: string; sheet: string }
   plan: { route: string; walls_layer: string; columns_layer: string; stairs_layer: string; pdf_json: string; summary: string[] }
   output: { folder: string; last_workbook?: string; [k: string]: unknown }
   [k: string]: unknown
+}
+
+/** Scope of assessment (step 1): upfront A1-A5, life cycle embodied A-C excl. B6 & B7, whole life A-C. One or more. */
+export type ScopeKey = "upfront" | "embodied" | "wlc"
+export type Scope = { up: boolean; emb: boolean; wlc: boolean; ac: boolean }
+
+/** The ticked scopes; ac = any scope that reports A-C (life cycle embodied or whole life). A state without scopes shows everything. */
+export function scopeOf(m: { state: State }): Scope {
+  const sc = m.state.project.scopes
+  if (!sc) return { up: true, emb: true, wlc: true, ac: true }
+  const up = !!sc.upfront, emb = !!sc.embodied, wlc = !!sc.wlc
+  return { up, emb, wlc, ac: emb || wlc }
 }
 
 export type Check = { level: "error" | "note"; text: string }

@@ -2,10 +2,11 @@
 import { CopyPlus, FolderOpen, Plus, Trash } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { FieldGrid, Note, Section } from "@/components/blocks"
+import { Label } from "@/components/ui/label"
+import { FieldGrid, Note, Notice, Section } from "@/components/blocks"
 import { Choice, ChoiceInput, FormField, TextInput, idOf } from "@/components/form"
 import { act, setValue } from "@/lib/bridge"
-import { numText, type PageProps } from "@/lib/model"
+import { numText, scopeOf, type PageProps } from "@/lib/model"
 
 export function ProjectPage({ m }: PageProps) {
   const p = m.state.project, L = m.lists
@@ -41,6 +42,8 @@ export function ProjectPage({ m }: PageProps) {
           </FormField>
         </FieldGrid>
       </Section>
+
+      <ScopeSection m={m} />
 
       <Section title="Design options"
         lead="Each option is a massing layer in this file or another .3dm. Substructure, structure and façade are set per option on steps 3 to 5, so options can share a massing.">
@@ -89,5 +92,42 @@ export function ProjectPage({ m }: PageProps) {
         <Note>Tick at least one option. Option names must differ from each other.</Note>
       </Section>
     </div>
+  )
+}
+
+// Scope of assessment (RICS PS terms). One or more; each ticked scope is a headline on the Results page and in the workbook.
+function ScopeSection({ m }: { m: PageProps["m"] }) {
+  const scopes = (m.lists as unknown as { scopes?: [string, string, string][] }).scopes || []
+  const sc = scopeOf(m), ticked = sc.up || sc.emb || sc.wlc
+  const opRoute = String((m.state.operational as { route?: string } | undefined)?.route || "Not assessed")
+  return (
+    <Section title="Scope of assessment"
+      lead="Tick what this assessment reports. Each ticked scope is a headline on the Results page and in the workbook; every module is still calculated.">
+      <div className="grid gap-2 @2xl/main:grid-cols-3" role="group" aria-label="Scope of assessment">
+        {scopes.map(([k, label, modules]) => {
+          const id = idOf(["project", "scopes", k])
+          const on = !!(m.state.project.scopes || {})[k as "upfront"]
+          return (
+            <Label key={k} htmlFor={id}
+              className={"flex cursor-pointer items-start gap-3 rounded-lg border p-3 font-normal transition-colors "
+                + (on ? "border-primary bg-accent" : "bg-card hover:bg-muted")}>
+              <Checkbox id={id} checked={on} className="mt-0.5" onCheckedChange={(v) => setValue(["project", "scopes", k], v === true, "bool")} />
+              <span className="min-w-0">
+                <span className="block font-medium">{label}</span>
+                <span className="block text-xs text-muted-foreground">{modules}</span>
+              </span>
+            </Label>
+          )
+        })}
+      </div>
+      {!ticked && <Notice tone="warn" className="mt-3">Tick at least one scope.</Notice>}
+      {sc.wlc && opRoute === "Not assessed" && (
+        <Notice tone="warn" className="mt-3">Whole life carbon needs operational energy and water (B6, B7): choose a basis on step 6.</Notice>
+      )}
+      <Note>
+        Upfront: A1-A5. Life cycle embodied: A1-A5, B1-B5 and C1-C4 (B1 and B5 are not in this version). Whole life: life cycle embodied plus
+        operational energy and water, B6 and B7. Module D and biogenic carbon are always reported separately.
+      </Note>
+    </Section>
   )
 }

@@ -8,7 +8,7 @@ import { ChartCard, Tile, Verdict } from "@/components/chart-ui"
 import { fmt, forDark, sf } from "@/lib/charts"
 import { DonutChart, HBarChart, type BarRow } from "@/components/charts"
 import { act } from "@/lib/bridge"
-import type { Model, PageProps } from "@/lib/model"
+import { scopeOf, type Model, type PageProps, type Scope } from "@/lib/model"
 import { n, palette, useDark, useSticky, type Palette, type ResOption, type Results } from "@/lib/results"
 import { CalcStatus } from "@/pages/RunPage"
 import { TargetsCard } from "@/pages/results/TargetsCard"
@@ -40,6 +40,7 @@ export function ResultsPage({ m }: PageProps) {
   const cur = tab >= opts.length ? 0 : tab
   const P = palette(m.branding as Record<string, unknown>)
   const lineColor = (c: string) => forDark(c, dark)
+  const sc = scopeOf(m)
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-2">
@@ -56,8 +57,8 @@ export function ResultsPage({ m }: PageProps) {
       </div>
       <CalcStatus m={m} />
       {cur === -1
-        ? <CompareView m={m} R={R} sfN={sfN} P={P} lineColor={lineColor} />
-        : <OptionView m={m} R={R} o={opts[cur]} sfN={sfN} P={P} lineColor={lineColor} />}
+        ? <CompareView m={m} R={R} sfN={sfN} P={P} lineColor={lineColor} sc={sc} />
+        : <OptionView m={m} R={R} o={opts[cur]} sfN={sfN} P={P} lineColor={lineColor} sc={sc} />}
       <Note>
         Results are read from the calculated workbook ({R.workbook}). Building-level figures are shown to {sfN} significant figures (PS 6.1.4);
         all figures include the PS Table 10 contingency unless stated. The workbook holds every assumption and breakdown.
@@ -66,11 +67,14 @@ export function ResultsPage({ m }: PageProps) {
   )
 }
 
-type ViewProps = { m: Model; R: Results; sfN: number; P: Palette; lineColor: (c: string) => string }
+type ViewProps = { m: Model; R: Results; sfN: number; P: Palette; lineColor: (c: string) => string; sc: Scope }
 
-function OptionView({ m, R, o, sfN, P, lineColor }: ViewProps & { o: ResOption }) {
+/** Targets on a boundary the scope reports: A1-A5 boundaries for upfront, A-C boundaries for life cycle / whole life. */
+export const targetInScope = (key: string, sc: Scope) => (key.startsWith("UP_") ? sc.up : sc.ac)
+
+function OptionView({ m, R, o, sfN, P, lineColor, sc }: ViewProps & { o: ResOption }) {
   const v = o.values, S = (k: string) => fmt(sf(n(v, k), sfN))
-  const op = n(v, "WLC_ND") != null && !!(n(v, "B6_ND") || n(v, "B7_ND"))
+  const op = sc.wlc && n(v, "WLC_ND") != null && !!(n(v, "B6_ND") || n(v, "B7_ND"))
   const basis = ([["Modelled: project information", "B_MOD"], ["Modelled: assumed quantities", "B_ASM"], ["Benchmarked", "B_BM"],
     ["Site lumps (A5.1 / A5.2)", "B_SITE"], ["Contingency (PS Table 10)", "B_CONT"]] as const)
     .map(([label, k], i) => ({ label, value: n(v, k), color: P.basis[i % P.basis.length] }))
@@ -79,6 +83,7 @@ function OptionView({ m, R, o, sfN, P, lineColor }: ViewProps & { o: ResOption }
   const mods: BarRow[] = ([["A1-A3 (product)", "M_A13"], ["A4 (transport)", "M_A4"], ["A5 (construction)", "M_A5"], ["B2 (maintenance)", "M_B2"],
     ["B3 (repair)", "M_B3"], ["B4 (replacement)", "M_B4"], ["C1-C4 (end of life)", "M_C"]] as const)
     .map(([label, k], i) => ({ label, value: n(v, k), color: mc[i] }))
+  if (!sc.ac) mods.splice(3)                                    // upfront only: A1-A3, A4, A5
   if (n(v, "M_D")) mods.push({ label: "D (memo, not in A-C)", value: n(v, "M_D"), color: P.module_d, sep: true, muted: true })
   const groups: BarRow[] = (m.group_labels as string[]).map((label, i) => ({ label, value: n(v, "E_" + i), color: P.groups[i % P.groups.length] }))
   groups.push({ label: "Contingency", value: n(v, "E_CONT"), color: P.cont })
@@ -86,8 +91,8 @@ function OptionView({ m, R, o, sfN, P, lineColor }: ViewProps & { o: ResOption }
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-3 @4xl/main:grid-cols-4">
-        <Tile title="Upfront carbon A1-A5" value={S("UP_ALL")} unit="kgCO2e/m² GIA" sub={upT != null ? `${fmt(sf(upT, sfN))} tCO2e` : undefined} />
-        <Tile title="Embodied carbon A-C" value={S("AC_ALL")} unit="kgCO2e/m² GIA" sub="incl. B2-B4, excl. B6/B7" />
+        {sc.up && <Tile title="Upfront carbon A1-A5" value={S("UP_ALL")} unit="kgCO2e/m² GIA" sub={upT != null ? `${fmt(sf(upT, sfN))} tCO2e` : undefined} />}
+        {sc.emb && <Tile title="Life cycle embodied carbon A-C" value={S("AC_ALL")} unit="kgCO2e/m² GIA" sub="incl. B2-B4, excl. B6/B7" />}
         {op && <Tile title="Whole life, non-decarbonised" value={S("WLC_ND")} unit="kgCO2e/m² GIA" sub="A-C + B6 + B7" />}
         {op && <Tile title="Whole life, decarbonised" value={S("WLC_D")} unit="kgCO2e/m² GIA" sub="PS Table 15, FES grid" />}
       </div>
@@ -95,7 +100,7 @@ function OptionView({ m, R, o, sfN, P, lineColor }: ViewProps & { o: ResOption }
         <Notice tone="warn">{fmt(n(v, "QA_FLAGS"))} QA flag(s) open: check sheet O{o.k}_QA in the workbook before using these figures.</Notice>
       ) : null}
       <div className="grid grid-cols-1 gap-5 @3xl/main:grid-cols-2">
-        {R.targets.length > 0 && <TargetsCard m={m} R={R} o={o} sfN={sfN} P={P} lineColor={lineColor} />}
+        {R.targets.some((t) => targetInScope(t.key, sc)) && <TargetsCard m={m} R={R} o={o} sfN={sfN} P={P} lineColor={lineColor} sc={sc} />}
         <ChartCard title="Basis of A1-A5"
           note="How much of the upfront figure rests on project information, on assumed quantities, on benchmarks for elements not yet designed, on site lumps and on the contingency.">
           <div className="flex flex-wrap items-center gap-5">
@@ -126,8 +131,8 @@ function OptionView({ m, R, o, sfN, P, lineColor }: ViewProps & { o: ResOption }
             </p>
           </div>
         </ChartCard>
-        <WholeLifeCard v={v} sfN={sfN} P={P} />
-        <TrajectoryCard opts={[o]} R={R} sfN={sfN} P={P} lineColor={lineColor} />
+        {sc.ac && <WholeLifeCard v={v} sfN={sfN} P={P} op={op} />}
+        {sc.ac && <TrajectoryCard opts={[o]} R={R} sfN={sfN} P={P} lineColor={lineColor} wlc={sc.wlc} />}
       </div>
       {n(v, "BIO_STORED") ? (
         <Note>Biogenic carbon stored in products: {fmt(n(v, "BIO_STORED"))} kgCO2e/m² GIA (reported separately, not in A1-A5; released at end of life within A-C).</Note>
@@ -136,11 +141,12 @@ function OptionView({ m, R, o, sfN, P, lineColor }: ViewProps & { o: ResOption }
   )
 }
 
-function CompareView({ R, sfN, P, lineColor }: ViewProps) {
+function CompareView({ R, sfN, P, lineColor, sc }: ViewProps) {
   const opts = R.options, names = opts.map((o) => String(o.values.NAME || `Option ${o.k}`))
-  const rows = ([["Upfront A1-A5", "UP_ALL"], ["Embodied A-C", "AC_ALL"], ["Embodied A-C decarbonised", "AC_DEC"],
+  const want: Record<string, boolean> = { UP_ALL: sc.up, AC_ALL: sc.emb, AC_DEC: sc.wlc, WLC_ND: sc.wlc, WLC_D: sc.wlc, EUI: sc.wlc, QA_FLAGS: true }
+  const rows = ([["Upfront A1-A5", "UP_ALL"], ["Life cycle embodied A-C", "AC_ALL"], ["Embodied A-C decarbonised", "AC_DEC"],
     ["Whole life, non-decarbonised", "WLC_ND"], ["Whole life, decarbonised", "WLC_D"], ["EUI (kWh/m²/yr)", "EUI"], ["QA flags open", "QA_FLAGS"]] as const)
-    .filter(([, k]) => opts.some((o) => n(o.values, k) != null))
+    .filter(([, k]) => want[k] && opts.some((o) => n(o.values, k) != null))
   return (
     <div className="space-y-5">
       <ChartCard title="Options side by side">
@@ -162,7 +168,7 @@ function CompareView({ R, sfN, P, lineColor }: ViewProps) {
                   })}
                 </tr>
               ))}
-              {R.targets.map((t, i) => (
+              {R.targets.map((t, i) => targetInScope(t.key, sc) && (
                 <tr key={t.label}>
                   <td className="px-3 py-1.5 text-muted-foreground">{t.label} ({fmt(t.target)})</td>
                   {opts.map((o) => <td key={o.k} className="px-3 py-1.5 text-right"><Verdict v={o.verdicts[i]} /></td>)}
@@ -173,8 +179,8 @@ function CompareView({ R, sfN, P, lineColor }: ViewProps) {
         </div>
       </ChartCard>
       <div className="grid grid-cols-1 gap-5 @3xl/main:grid-cols-2">
-        <TrajectoryCard opts={opts} R={R} sfN={sfN} P={P} lineColor={lineColor} />
-        {([["Upfront A1-A5", "UP_ALL"], ["Embodied A-C", "AC_ALL"]] as const).map(([label, k]) => (
+        {sc.ac && <TrajectoryCard opts={opts} R={R} sfN={sfN} P={P} lineColor={lineColor} wlc={sc.wlc} />}
+        {([["Upfront A1-A5", "UP_ALL", sc.up], ["Life cycle embodied A-C", "AC_ALL", sc.ac]] as const).filter(([, , on]) => on).map(([label, k]) => (
           <ChartCard key={k} title={label} note="kgCO2e/m² GIA incl. contingency.">
             <HBarChart rows={opts.map((o, i) => ({ label: names[i], value: n(o.values, k), color: P.project }))} unit="kgCO2e/m²" title={label} labelWidth={120} />
           </ChartCard>

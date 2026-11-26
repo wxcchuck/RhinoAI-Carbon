@@ -5,7 +5,7 @@ import { ChartCard, Legend, Verdict, VerdictDot } from "@/components/chart-ui"
 import { TargetColumnsChart } from "@/components/charts-rich"
 import { fmt, sf, type Col, type Part } from "@/lib/charts"
 import { patchModel, send } from "@/lib/bridge"
-import type { Model } from "@/lib/model"
+import type { Model, Scope } from "@/lib/model"
 import { BOUNDARY, type Palette, type ResOption, type Results, type Target } from "@/lib/results"
 import { cn } from "@/lib/utils"
 
@@ -20,11 +20,14 @@ const UPFRONT = ["UP_SC", "UP_WB", "UP_X8", "UP_ALL"], LIFECYCLE = ["AC_X8", "AC
 const short = (l: string) => l.replace("shell & core limit", "S&C").replace("whole-building limit", "whole bldg").replace(" design target", "")
   .replace("RIBA 2030 Challenge - ", "RIBA ").replace(" A1-A5", "").replace(" A-C", "")
 
-export function chartTargets(m: Model, R: Results): string[] {
-  const saved = (m.state.targets as { chart?: string[] | null }).chart, labels = R.targets.map((t) => t.label)
+const inScope = (key: string, sc?: Scope) => !sc || (key.startsWith("UP_") ? sc.up : sc.ac)
+
+export function chartTargets(m: Model, R: Results, sc?: Scope): string[] {
+  const saved = (m.state.targets as { chart?: string[] | null }).chart
+  const labels = R.targets.filter((t) => inScope(t.key, sc)).map((t) => t.label)
   if (Array.isArray(saved)) return saved.filter((l) => labels.includes(l))
   const pick: string[] = []         // default: the main limit, GLA aspirational, RIBA 2030 and GLA aspirational A-C
-  const first = (re: RegExp) => { const t = R.targets.find((x) => re.test(x.label) && !pick.includes(x.label)); if (t) pick.push(t.label) }
+  const first = (re: RegExp) => { const t = R.targets.find((x) => re.test(x.label) && labels.includes(x.label) && !pick.includes(x.label)); if (t) pick.push(t.label) }
   first(/UKNZCBS.*shell/); if (!pick.length) first(/UKNZCBS/)
   first(/GLA aspirational A1-A5/); first(/RIBA 2030.*2030/); first(/GLA aspirational A-C/)
   return pick.slice(0, MAX_CHART_TARGETS)
@@ -50,10 +53,10 @@ function boundarySegs(key: string, v: ResOption["values"], R: Results, P: Palett
   return { segs, total }
 }
 
-export function TargetsCard({ m, R, o, sfN, P, lineColor }: {
-  m: Model; R: Results; o: ResOption; sfN: number; P: Palette; lineColor: (c: string) => string
+export function TargetsCard({ m, R, o, sfN, P, lineColor, sc }: {
+  m: Model; R: Results; o: ResOption; sfN: number; P: Palette; lineColor: (c: string) => string; sc?: Scope   // sc: scope of assessment
 }) {
-  const v = o.values, pick = chartTargets(m, R), groupLabels = m.group_labels as string[]
+  const v = o.values, pick = chartTargets(m, R, sc), groupLabels = m.group_labels as string[]
   const sel = R.targets.map((t, i) => [t, i] as [Target, number]).filter(([t]) => pick.includes(t.label))
   const toggle = (label: string) => {
     const next = pick.includes(label) ? pick.filter((x) => x !== label) : pick.length >= MAX_CHART_TARGETS ? pick : [...pick, label]
@@ -84,7 +87,7 @@ export function TargetsCard({ m, R, o, sfN, P, lineColor }: {
       note="Each column is one reporting boundary, with that boundary's targets as dashed lines. Project figures include the PS Table 10 contingency (top segment); targets are bare thresholds (PS 4.10). Element segments are before contingency.">
       <div className="mb-4 flex flex-wrap items-center gap-1.5">
         <span className="mr-1 text-xs text-muted-foreground">Show up to {MAX_CHART_TARGETS}:</span>
-        {([["Upfront", UPFRONT], ["Life cycle", LIFECYCLE]] as const).map(([g, keys], gi) => (
+        {([["Upfront", UPFRONT], ["Life cycle", LIFECYCLE]] as const).filter(([, keys]) => inScope(keys[0], sc)).map(([g, keys], gi) => (
           <span key={g} className="contents">
             {gi > 0 && <span className="mx-1 h-5 w-px bg-border" aria-hidden />}
             <span className="mr-0.5 text-xs font-medium">{g}</span>
@@ -104,9 +107,9 @@ export function TargetsCard({ m, R, o, sfN, P, lineColor }: {
       {sel.length > 0 && <TargetTable rows={sel} v={v} o={o} sfN={sfN} className="mt-4" />}
       <details className="group mt-3">
         <summary className="inline-flex cursor-pointer list-none items-center gap-1 text-sm font-medium text-primary">
-          <ChevronRight className="size-4 transition-transform group-open:rotate-90" />All {R.targets.length} targets
+          <ChevronRight className="size-4 transition-transform group-open:rotate-90" />All {R.targets.filter((t) => inScope(t.key, sc)).length} targets in scope
         </summary>
-        <TargetTable rows={R.targets.map((t, i) => [t, i] as [Target, number])} v={v} o={o} sfN={sfN} className="mt-2" />
+        <TargetTable rows={R.targets.map((t, i) => [t, i] as [Target, number]).filter(([t]) => inScope(t.key, sc))} v={v} o={o} sfN={sfN} className="mt-2" />
       </details>
     </ChartCard>
   )

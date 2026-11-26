@@ -5,9 +5,10 @@ import { StackColumnsChart } from "@/components/charts-rich"
 import { fmt, sf, type StackCol } from "@/lib/charts"
 import { n, type Palette, type Values } from "@/lib/results"
 
-export function WholeLifeCard({ v, sfN, P }: { v: Values; sfN: number; P: Palette }) {
+export function WholeLifeCard({ v, sfN, P, op: opIn }: { v: Values; sfN: number; P: Palette; op?: boolean }) {
   if (n(v, "AC_ALL") == null) return null
-  const WLC_ND = n(v, "WLC_ND"), op = WLC_ND != null && !!(n(v, "B6_ND") || n(v, "B7_ND"))
+  // op: whole life carbon in scope with B6 / B7 results (ResultsPage); without it, from the results alone
+  const op = opIn ?? (n(v, "WLC_ND") != null && !!(n(v, "B6_ND") || n(v, "B7_ND")))
   const stored = n(v, "BIO_STORED") || 0, up = n(v, "UP_ALL") || 0, MD = n(v, "M_D")
   const col = (label: string, sub: string, ac: number, b6: number, b7: number, total: number): StackCol => ({
     label, sub, total: sf(total, sfN), totalLabel: "Net ",

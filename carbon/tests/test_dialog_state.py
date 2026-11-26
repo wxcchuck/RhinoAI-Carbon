@@ -161,6 +161,7 @@ def test_operational_inputs_reach_the_workbook_config():
     o = ws.default_option("A", layer="L")
     st["options"] = [o]
     assert st["operational"]["route"] == "Not assessed"
+    st["project"]["scopes"]["wlc"] = True                               # B6 / B7 only for whole life carbon
     st["operational"].update(route="Engineer prediction (TM54)", op_year=2031, dh_factor=0.05)
     assert any("predicted annual energy" in m for lv, m in ws.validate(st, {}) if lv == "error")
     o["operational"].update(elec=120000, water=900)
@@ -179,6 +180,7 @@ def test_water_warning_follows_occupancy():
     o = ws.default_option("A", layer="L")
     o["operational"]["elec"] = 1000
     st["options"] = [o]
+    st["project"]["scopes"]["wlc"] = True
     st["operational"]["route"] = "Engineer prediction (TM54)"
     water = lambda: [m for lv, m in ws.validate(st, {}) if "water" in m.lower()]  # noqa: E731
     assert "not assessed" in water()[0]
@@ -476,3 +478,37 @@ def test_interface_choice_is_remembered_per_pc(tmp_path):
     (pkg / "web_next" / "index.html").write_text("x")
     assert ws.ui_page(str(pkg), "next").endswith(os.path.join("web_next", "index.html"))
     assert ws.ui_page(str(pkg), "classic").endswith(os.path.join("web", "index.html"))
+
+
+def test_scope_of_assessment():
+    st = ws.default_state()
+    assert ws.scopes_of(st) == ["upfront"]                               # new projects: upfront A1-A5
+    st["project"]["name"], st["output"]["folder"] = "P", "out"
+    o = ws.default_option("A", layer="L")
+    st["options"] = [o]
+    errs = lambda: [m for lv, m in ws.validate(st, {}) if lv == "error" and "scope" in m]  # noqa: E731
+    assert errs() == []
+    st["project"]["scopes"]["upfront"] = False
+    assert "Tick at least one scope" in errs()[0]
+    ws.apply_edit(st, ["project", "scopes", "wlc"], True, "bool")
+    assert "B6 / B7 basis" in errs()[0]                                 # whole life needs a B6 basis
+    st["operational"]["route"] = "Indicative - EUI estimate or UKNZCBS limit"
+    assert errs() == []
+    cc = ws.calc_config(st, {"library_xlsx": "lib", "benchmarks": {"path": "b"}}, [(o, "a.csv")])
+    assert cc["params"]["scopes"] == {"upfront": "N", "embodied": "N", "wlc": "Y"}
+    assert cc["params"]["op_route"].startswith("Indicative")
+    st["project"]["scopes"].update(wlc=False, embodied=True)              # B6 / B7 out of scope: basis ignored
+    cc = ws.calc_config(st, {"library_xlsx": "lib", "benchmarks": {"path": "b"}}, [(o, "a.csv")])
+    assert cc["params"]["op_route"] == "Not assessed"
+    assert not [m for lv, m in ws.validate(st, {}) if "water" in m.lower() or "energy" in m]
+
+
+def test_scope_in_older_saves():
+    old = ws.default_state()
+    del old["project"]["scopes"]
+    assert ws.loads(json.dumps(old))["project"]["scopes"] == {"upfront": True, "embodied": True, "wlc": False}
+    old["operational"]["route"] = "Engineer prediction (TM54)"
+    assert ws.loads(json.dumps(old))["project"]["scopes"]["wlc"] is True
+    new = ws.default_state()
+    new["project"]["scopes"] = {"wlc": True}
+    assert ws.loads(json.dumps(new))["project"]["scopes"] == {"upfront": True, "embodied": False, "wlc": True}

@@ -25,8 +25,8 @@ function trajEvents(tr: Traj, R: Results, gia: number): Event[] {
   return ev
 }
 
-export function TrajectoryCard({ opts, R, sfN, P, lineColor }: {
-  opts: ResOption[]; R: Results; sfN: number; P: Palette; lineColor: (c: string) => string
+export function TrajectoryCard({ opts, R, sfN, P, lineColor, wlc = true }: {
+  opts: ResOption[]; R: Results; sfN: number; P: Palette; lineColor: (c: string) => string; wlc?: boolean   // wlc: whole life in scope
 }) {
   const [scopePick, setScope] = useSticky<"wlc" | "emb">("traj.scope", "wlc")
   const [bioOn, setBio] = useSticky("traj.bio", false)
@@ -34,7 +34,7 @@ export function TrajectoryCard({ opts, R, sfN, P, lineColor }: {
   const have = opts.filter((o) => o.traj && o.traj.t && o.traj.t.length) as (ResOption & { traj: Traj })[]
   if (!have.length) return null
   const multi = opts.length > 1
-  const anyOp = have.some((o) => n(o.values, "WLC_ND") != null && (n(o.values, "B6_ND") || n(o.values, "B7_ND")))
+  const anyOp = wlc && have.some((o) => n(o.values, "WLC_ND") != null && (n(o.values, "B6_ND") || n(o.values, "B7_ND")))
   const scope = anyOp ? scopePick : "emb"
   const bioOk = have.every((o) => Array.isArray(o.traj.bio)), anyBio = bioOk && have.some((o) => o.traj.bio!.some((x) => Math.abs(x) > 1e-9))
   const anyD = have.some((o) => n(o.values, "M_D")), showBio = bioOn && anyBio, showD = dOn && anyD
