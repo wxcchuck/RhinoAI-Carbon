@@ -25,8 +25,9 @@ FACADE_PUNCHED = "punched"           # opaque wall with windows at the type's gl
 
 
 # Scope of assessment (step 1), RICS PS terms: one or more may be ticked; each ticked scope is reported as a headline.
-# The scopes nest, so the workbook always calculates every module; the scope decides what is required (B6 / B7 only for
-# whole life carbon), what the Results page and the targets show, and what the workbook marks as in scope.
+# The scope sets what the workbook calculates (D19, D20): A1-A5 always; B2-B4, C1-C4, D and biogenic release only with
+# life cycle embodied or whole life carbon; B6 / B7 only with whole life carbon. It also sets what is required on the
+# steps, what the Results page and the targets show, and what the workbook marks as in scope.
 SCOPES = [("upfront", "Upfront embodied carbon", "A1-A5"),
           ("embodied", "Life cycle embodied carbon", "A-C, excl. B6 & B7"),
           ("wlc", "Whole life carbon", "A-C, incl. B6 & B7")]
@@ -424,6 +425,9 @@ def validate(state, office=None):
     scopes = scopes_of(state)
     if not scopes:
         out.append(("error", "Tick at least one scope of assessment (step 1)."))
+    if (state.get("targets") or {}).get("budget_target") == "RIBA 2030" and not ({"embodied", "wlc"} & set(scopes)):
+        out.append(("error", "The RIBA 2030 carbon budget is on A-C, which is outside the scope of assessment (step 1): "
+                             "choose an upfront budget on step 6, or tick life cycle embodied carbon."))
     if "wlc" in scopes and ((state.get("operational") or {}).get("route") or "Not assessed") == "Not assessed":
         out.append(("error", "Whole life carbon is in scope (step 1): choose a B6 / B7 basis on step 6, or untick whole life carbon."))
     cat = {f["id"]: f for f in facade_catalogue(office or {})}

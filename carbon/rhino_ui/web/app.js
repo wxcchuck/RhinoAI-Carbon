@@ -80,7 +80,7 @@
     h += note("Occupancy sets the project's water budget (B7) against the RIBA 2030 Climate Challenge potable water target: workplaces for offices, residents for homes, pupils for schools. Days default to 250 (office), 365 (homes), 190 (schools).");
     h += "<h2>Scope of assessment</h2><div class='row'>";
     for (const [k, label, mods] of (L.scopes || [])) h += check(["project", "scopes", k], !!(p.scopes || {})[k], `${label} (${mods})`);
-    h += "</div>" + note("Tick one or more. Each ticked scope is a headline in the results and the workbook; every module is still calculated. Whole life carbon needs operational energy and water (B6, B7) on step 6.");
+    h += "</div>" + note("Tick one or more. Each ticked scope is a headline in the results and the workbook, and only the modules in scope are calculated: A1-A5 always; B2-B4, C1-C4 and D with life cycle embodied or whole life carbon. Whole life carbon needs operational energy and water (B6, B7) on step 6.");
     h += "<h2>Design options</h2>" + note("Each option is one massing layer in this file, or another .3dm. Substructure, structure and façade are set per option on steps 3 to 5, so options can share a massing.");
     h += "<table class='form' style='width:100%;max-width:1100px'><tr><th>Include</th><th class='req'>Option name</th><th>Massing from</th><th class='req'>Layer / file</th><th></th></tr>";
     S().options.forEach((o, i) => {

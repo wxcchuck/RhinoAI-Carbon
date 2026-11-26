@@ -102,7 +102,7 @@ function ScopeSection({ m }: { m: PageProps["m"] }) {
   const opRoute = String((m.state.operational as { route?: string } | undefined)?.route || "Not assessed")
   return (
     <Section title="Scope of assessment"
-      lead="Tick what this assessment reports. Each ticked scope is a headline on the Results page and in the workbook; every module is still calculated.">
+      lead="Tick what this assessment reports. Each ticked scope is a headline on the Results page and in the workbook, and only the modules in scope are calculated.">
       <div className="grid gap-2 @2xl/main:grid-cols-3" role="group" aria-label="Scope of assessment">
         {scopes.map(([k, label, modules]) => {
           const id = idOf(["project", "scopes", k])
@@ -125,8 +125,9 @@ function ScopeSection({ m }: { m: PageProps["m"] }) {
         <Notice tone="warn" className="mt-3">Whole life carbon needs operational energy and water (B6, B7): choose a basis on step 6.</Notice>
       )}
       <Note>
-        Upfront: A1-A5. Life cycle embodied: A1-A5, B1-B5 and C1-C4 (B1 and B5 are not in this version). Whole life: life cycle embodied plus
-        operational energy and water, B6 and B7. Module D and biogenic carbon are always reported separately.
+        Upfront: A1-A5, with the biogenic carbon stored in the products reported separately. Life cycle embodied: A1-A5, B1-B5 and C1-C4
+        (B1 and B5 are not in this version), with module D and biogenic carbon reported separately. Whole life: life cycle embodied plus
+        operational energy and water, B6 and B7. Whole life ticked on its own still calculates A-C, since it includes it.
       </Note>
     </Section>
   )

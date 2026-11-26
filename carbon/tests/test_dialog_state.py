@@ -512,3 +512,14 @@ def test_scope_in_older_saves():
     new = ws.default_state()
     new["project"]["scopes"] = {"wlc": True}
     assert ws.loads(json.dumps(new))["project"]["scopes"] == {"upfront": True, "embodied": False, "wlc": True}
+
+
+def test_budget_needs_its_boundary_in_scope():
+    st = ws.default_state()
+    st["project"]["name"], st["output"]["folder"] = "P", "out"
+    st["options"] = [ws.default_option("A", layer="L")]
+    st["targets"]["budget_target"] = "RIBA 2030"
+    msg = lambda: [m for lv, m in ws.validate(st, {}) if lv == "error" and "RIBA 2030 carbon budget" in m]  # noqa: E731
+    assert msg() and "(step 1)" in msg()[0]
+    st["project"]["scopes"]["embodied"] = True
+    assert msg() == []
