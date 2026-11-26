@@ -209,13 +209,14 @@ def reconcile(derived, geom, plan, rules, measured, lib, build_ups, option=None,
         d, _ = _derived(derived, ("column",), build_ups, lib, "conc")
         mv = sum(_model_stat(measured, [r], wm.STAT[r["measure"]]) for r in cl)
         out.append(row("columns_m3", "Columns: concrete", "m3", {"massing": d, "model": mv}, "massing", where="step 2"))
-        typ = (geom.get("structure") or {}).get("typical_level")
+        gs = geom.get("structure") or {}
+        typ = gs.get("plan_level") or gs.get("typical_level")      # the level the plan shows, when given (D22)
         z = dict((n, (zz, f)) for n, zz, f, _, _ in lv).get(typ)
         pc = ((plan or {}).get("columns") or {}).get("count_per_floor")
         if z and z[0] is not None:
             mid = z[0] + (z[1] or 3.0) / 2.0
             n = sum(1 for o in _objects(measured, _layers(cl)) if o[5] and o[0] <= mid <= o[1])
-            out.append(row("columns_n", "Columns at the typical level (%s)" % typ, "nr", {"plan": pc, "model": n},
+            out.append(row("columns_n", "Columns at the %s level (%s)" % ("plan" if gs.get("plan_level") else "typical", typ), "nr", {"plan": pc, "model": n},
                            "plan" if pc else "model", where="step 2 (plan layers)"))
     bl = _lines(rules, ("beams",), VOLUME_MEASURES)
     if bl:

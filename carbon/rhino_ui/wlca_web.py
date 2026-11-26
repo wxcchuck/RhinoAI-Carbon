@@ -254,6 +254,10 @@ class WLCAWindow(object):
             b["levels"].append(ws.new_basement_level(len(b["levels"]) + 1))
         elif name == "remove_basement_level":
             opts[int(a["i"])]["substructure"]["basement"]["levels"].pop(int(a["j"]))
+        elif name == "add_column_band":
+            opts[int(a["i"])]["structure"].setdefault("column_sections", []).append({"from": "", "to": "", "sizes": ""})
+        elif name == "remove_column_band":
+            opts[int(a["i"])]["structure"]["column_sections"].pop(int(a["j"]))
         elif name == "plan_route":
             st["plan"]["route"] = a["route"]
         elif name == "switch_ui":
@@ -389,6 +393,17 @@ class WLCAWindow(object):
         s = self.state["schedule"]
         return ws.basement_from_schedule(s["path"], s["sheet"])
 
+    def schedule_levels(self):
+        """Level names bottom -> top from the area schedule ([] without one) - for the plan level and column bands."""
+        s = self.state["schedule"]
+        if not s["path"] or not os.path.exists(s["path"]):
+            return []
+        try:
+            import wlca_core as core
+            return [x["name"] for x in core.parse_area_schedule({"path": s["path"], "sheet": s["sheet"] or None}, [])]
+        except Exception:
+            return []
+
     def schedule_info(self):
         s = self.state["schedule"]
         if not s["path"]:
@@ -450,6 +465,7 @@ class WLCAWindow(object):
                        "error": self.office_error},
             "schedule": self.schedule_info(),
             "basement": self.basement_info(),
+            "levels": self.schedule_levels(),
             "massing_z": [self.massing_extent(o) for o in st["options"]],
             "model_rules": ws.rule_view(st),
             "checks": [{"level": lv, "text": m} for lv, m in checks],

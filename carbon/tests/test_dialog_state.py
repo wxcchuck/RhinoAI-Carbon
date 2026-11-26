@@ -530,6 +530,26 @@ def test_rics_edition():
     assert [e for e, _, _ in ws.RICS_EDITIONS] == [2, 1]
 
 
+def test_column_sections_state(defaults):
+    """D22: the plan level and the engineer's column sections per option - defaults, older saves, workbook config, checks."""
+    st = ws.default_state()
+    o = ws.default_option("A", layer="L")
+    assert o["structure"]["plan_level"] == "" and o["structure"]["column_sections"] == []
+    del o["structure"]["plan_level"], o["structure"]["column_sections"]
+    st["options"] = [o]
+    st = ws.loads(ws.dumps(st))
+    o = st["options"][0]
+    assert o["structure"]["plan_level"] == "" and o["structure"]["column_sections"] == []
+    o["structure"]["plan_level"] = " 01 "
+    o["structure"]["column_sections"] = [{"from": "0", "to": "1", "sizes": "450x1100, 450x1700"}, {"from": "", "to": "", "sizes": ""}]
+    st["output"]["folder"] = "C:/x"
+    tc = ws.takeoff_config(st, o, {}, defaults)
+    assert tc["structure"]["plan_level"] == "01" and tc["structure"]["column_sections"] == [{"from": "0", "to": "1", "sizes": "450x1100, 450x1700"}]
+    assert not [m for lvl, m in ws.validate(st) if "column sections" in m]
+    o["structure"]["column_sections"].append({"from": "2", "to": "", "sizes": "big"})
+    assert [m for lvl, m in ws.validate(st) if lvl == "error" and "column sections 2-?" in m]
+
+
 def test_budget_needs_its_boundary_in_scope():
     st = ws.default_state()
     st["project"]["name"], st["output"]["folder"] = "P", "out"
