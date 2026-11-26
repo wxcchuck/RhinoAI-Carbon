@@ -212,6 +212,9 @@ def coverage_expected(code, default, header):
     return default, ""
 
 
+# Summary keys on an A-C boundary: they read "not in scope" when only upfront carbon is in the scope of assessment
+AC_KEYS = ("AC_T", "BC_ALL", "AC_ALL", "AC_X8", "MOD_AC_ALL", "MOD_AC_X8", "BM_AC_ALL", "BM_AC_X8", "BMS_AC_ALL", "BMS_AC_X8",
+           "SCN_AC_ALL", "STRUCT_AC", "LETI_LC", "AC_DEC", "D_DEC")
 MODULES = ["A1-A3", "A4", "A5.1", "A5.2", "A5.3", "A1-A5", "B4", "C1", "C2", "C3", "C4", "A-C", "D", "Bio"]
 
 
@@ -666,7 +669,7 @@ def build(cfg):
          "stand-in (default, XW 16/10/2026); 'wood' charges methane on it too.", "BIO_STANDIN"),
         ("SCOPE", None, None, None, None),
         ("Upfront embodied carbon (A1-A5)", scopes["upfront"], "", "Scope of assessment (RICS PS terms). Y = reported as a headline. "
-         "Every module is calculated whatever the scope; the scope marks what is reported", "SCOPE_UP"),
+         "A1-A5 is always calculated; B2-B4, C1-C4 and D only with life cycle or whole life carbon, B6 / B7 only with whole life", "SCOPE_UP"),
         ("Life cycle embodied carbon (A-C, excl. B6 & B7)", scopes["embodied"], "", "A1-A5, B1-B5, C1-C4 (B1 / B5 not in this version)",
          "SCOPE_EMB"),
         ("Whole life carbon (A-C, incl. B6 & B7)", scopes["wlc"], "", "Needs a B6 basis other than 'Not assessed' (Operational below)",
@@ -775,6 +778,8 @@ def build(cfg):
                  "+MAX(0,MIN(%s)-OP_YEAR)*INDEX(%s,MATCH(MIN(%s),%s,0)))/RSP,0)"
                  % (fy, fy, fv, fy, fv, fy, fy, fy, fv, fy, fy))
     derived = [
+        ("Life cycle modules calculated (B2-B4, C1-C4, D): 1 = yes", '=IF(OR(SCOPE_EMB="Y",SCOPE_WLC="Y"),1,0)', "1 / 0", "SC_AC"),
+        ("B6 / B7 basis used (whole life carbon in scope)", '=IF(SCOPE_WLC="Y",OP_ROUTE,"%s")' % OP_ROUTES[2], "", "OP_EFF"),
         ("A4 vehicle payload", veh("VEH_A4", "C"), "t", "V1_PAY"),
         ("A4 vehicle volume", veh("VEH_A4", "D"), "m3", "V1_VOL"),
         ("A4 c1 outward", veh("VEH_A4", "E"), "kgCO2e/km", "V1_C1"),
@@ -859,8 +864,9 @@ def build(cfg):
             "; ".join("%s = %s" % (o["name"], os.path.basename(o["csv"])) for o in opts), lib_src, bm_src,
             os.path.basename(cfg["targets_xlsx"]) if cfg.get("targets_xlsx") else "none")),
         ("Standard", "RICS Whole life carbon assessment for the built environment, 2nd ed. (PS). RSP 60 years. Modules A1-A5, B2, B3, B4, C1-C4 (embodied) and B6, B7 (operational, when assessed); D and biogenic carbon reported separately. B1 and B5 not in this version. "
-         "Scope of assessment (Project): upfront embodied carbon A1-A5, life cycle embodied carbon A-C excl. B6 & B7, whole life carbon A-C - one or more; "
-         "every module is calculated, the scope marks what is reported."),
+         "Scope of assessment (Project): upfront embodied carbon A1-A5, life cycle embodied carbon A-C excl. B6 & B7, whole life carbon A-C - one or more. "
+         "Only the modules in scope are calculated: A1-A5 always (with biogenic carbon stored, reported separately); B2-B4, C1-C4, D and biogenic "
+         "carbon released only with life cycle or whole life carbon (else A-C results read 'not in scope'); B6 / B7 only with whole life carbon."),
         ("How to use", "1 Project: GIA per option, use class, stage, facade route, targets.\n2 O<k>_QA: every FLAG must be fixed or justified.\n"
                        "3 Dashboard: pick an option at the top. Compare: all options side by side. O<k>_Results: the element x module table.\n"
                        "Change factors or layer quantities on Materials / Layers only for project-specific overrides; library-wide changes go to the library owner."),
@@ -1044,14 +1050,14 @@ def build_option(wb, ctx, o):
                 22: '=IF(E{r}<>1,0,IF(%s&""<>"",N(%s),IF(P{r}=0,0,%s)))' % (li("P"), li("P"), mi("Y")),
                 23: '=IF(P{r}=0,0,V{r}*(Q{r}+T{r}+U{r}+O{r}*%s))' % mo("AP"),
                 24: '=IF(E{r}<>1,RSP,IF(%s&""<>"",N(%s),IF(P{r}=0,RSP,%s)))' % (li("O"), li("O"), mi("X")),
-                25: '=IF(OR(J{r}=0,X{r}<=0),0,MAX(0,ROUNDUP(RSP/X{r},0)-1))',
+                25: '=IF(OR(J{r}=0,X{r}<=0,SC_AC=0),0,MAX(0,ROUNDUP(RSP/X{r},0)-1))',    # no B4 outside the scope
                 26: '=Y{r}*(Q{r}+T{r}+U{r}+W{r}+AA{r}+AB{r}+AC{r})',      # B4 incl. the end of life of the removed item (PS 5.2.4)
-                27: '=IF(P{r}=0,0,O{r}*%s)' % mo("AL"),
-                28: '=IF(P{r}=0,0,O{r}*%s)' % mi("AM"),
-                29: '=IF(P{r}=0,0,O{r}*%s)' % mi("AN"),
-                30: '=IF(P{r}=0,0,O{r}*%s*(1+Y{r}))' % mi("AO"),
+                27: '=IF(OR(P{r}=0,SC_AC=0),0,O{r}*%s)' % mo("AL"),             # C2-C4 and D only with A-C in scope
+                28: '=IF(OR(P{r}=0,SC_AC=0),0,O{r}*%s)' % mi("AM"),
+                29: '=IF(OR(P{r}=0,SC_AC=0),0,O{r}*%s)' % mi("AN"),
+                30: '=IF(OR(P{r}=0,SC_AC=0),0,O{r}*%s*(1+Y{r}))' % mi("AO"),
                 31: '=IF(P{r}=0,0,N{r}*N(%s)*(1+Y{r}))' % mi("G"),
-                32: '=-AE{r}',
+                32: '=IF(SC_AC=0,0,-AE{r})',                                   # released at end of life: A-C only
                 33: ('=IF(G{r}="","",IF(LEFT(G{r},1)="1","Substructure",IF(OR(LEFT(G{r},5)="2.5.1",LEFT(G{r},5)="2.5.2",LEFT(G{r},3)="2.6"),'
                      '"Facade",IF(LEFT(G{r},1)="3","Internal finishes",IF(LEFT(G{r},1)="4","FFE",IF(LEFT(G{r},1)="5","Services/MEP",'
                      'IF(LEFT(G{r},1)="8","External works",IF(LEFT(G{r},1)="0","Site","Superstructure"))))))))'),
@@ -1119,9 +1125,9 @@ def build_option(wb, ctx, o):
 
     def row_formulas(rr):
         R.cell(rr, mod_col["A1-A5"], "=SUM(D{r}:H{r})".format(r=rr))
-        R.cell(rr, mod_col["A-C"], "=I{r}+SUM(J{r}:N{r})".format(r=rr))
+        R.cell(rr, mod_col["A-C"], '=IF(SC_AC=0,"",I{r}+SUM(J{r}:N{r}))'.format(r=rr))       # blank outside the scope
         R.cell(rr, 18, "=IF({g}>0,I{r}*1000/{g},0)".format(r=rr, g=GIA))
-        R.cell(rr, 19, "=IF({g}>0,O{r}*1000/{g},0)".format(r=rr, g=GIA))
+        R.cell(rr, 19, '=IF(SC_AC=0,"",IF({g}>0,O{r}*1000/{g},0))'.format(r=rr, g=GIA))
         for c in range(4, 20):
             R.cell(rr, c).number_format = "#,##0.0"
 
@@ -1162,12 +1168,12 @@ def build_option(wb, ctx, o):
         R.cell(rr, mod_col["A1-A3"], "=" + s("D"))
         R.cell(rr, mod_col["A4"], "=" + s("E"))
         R.cell(rr, mod_col["A5.3"], "=" + s("F"))
-        R.cell(rr, mod_col["B4"], "=" + s("G"))
-        R.cell(rr, mod_col["C1"], '=IF(BM_C1="Include",1,0)*' + s("H"))
-        R.cell(rr, mod_col["C2"], "=" + s("I"))
-        R.cell(rr, mod_col["C3"], "=" + s("J"))
-        R.cell(rr, mod_col["C4"], "=" + s("K"))
-        R.cell(rr, mod_col["D"], "=" + s("L"))
+        R.cell(rr, mod_col["B4"], "=SC_AC*" + s("G"))                  # B4, C and D only with A-C in scope
+        R.cell(rr, mod_col["C1"], '=SC_AC*IF(BM_C1="Include",1,0)*' + s("H"))
+        R.cell(rr, mod_col["C2"], "=SC_AC*" + s("I"))
+        R.cell(rr, mod_col["C3"], "=SC_AC*" + s("J"))
+        R.cell(rr, mod_col["C4"], "=SC_AC*" + s("K"))
+        R.cell(rr, mod_col["D"], "=SC_AC*" + s("L"))
         row_formulas(rr)
         tag(rr, key, "Benchmark")
         rr += 1
@@ -1179,7 +1185,7 @@ def build_option(wb, ctx, o):
     site_first = rr
     for code, label, mod, f in [("A5.1", "Pre-construction demolition (existing GIA x rate)", "A5.1", "=%s*R_A51/1000" % GIA_DEMO),
                                 ("A5.2", "Construction site activities (GIA x rate)", "A5.2", "=%s*R_A52/1000" % GIA),
-                                ("C1", "Deconstruction / demolition at end of life (GIA x rate)", "C1", "=%s*R_C1/1000" % GIA)]:
+                                ("C1", "Deconstruction / demolition at end of life (GIA x rate)", "C1", "=%s*R_C1/1000*SC_AC" % GIA)]:
         R.cell(rr, 1, code)
         R.cell(rr, 2, label)
         R.cell(rr, 3, "Site lump")
@@ -1228,13 +1234,14 @@ def build_option(wb, ctx, o):
     lines = {
         "g": ("B2 option 1: GIA x rate", "={GIA}*B2_RATE/1000", '="GIA "&TEXT({GIA},"#,##0")&" m2 x "&B2_RATE&" kgCO2e/m2"'),
         "p": ("B2 option 2: share of A1-A5 (before contingency)", "=B2_PCT*I{sub}", '=TEXT(B2_PCT,"0%")&" x A1-A5 "&TEXT(I{sub},"#,##0")&" t"'),
-        "b2": ("B2 maintenance - the greater of the two", "=MAX(C{g},C{p})", '=IF(C{g}>=C{p},"GIA x rate","% of A1-A5")'),
+        "b2": ("B2 maintenance - the greater of the two", "=MAX(C{g},C{p})*SC_AC",
+               '=IF(SC_AC=0,"outside the scope of assessment",IF(C{g}>=C{p},"GIA x rate","% of A1-A5"))'),
         "sh": ("Services (group 5) share of A1-A5", "=IF(I{sub}=0,0,MEP_UP/I{sub})", '="element group 5, before contingency"'),
         "b2n": ("B2 non-MEP part", "=C{b2}*(1-C{sh})", '="B2 x (1 - services share)"'),
         "b3n": ("B3 repair - non-MEP: share of B2 non-MEP", "=B3_PCT*C{b2n}", '=TEXT(B3_PCT,"0%")&" of the non-MEP part of B2"'),
         "mep": ("Services A1-A3 (initial installation)", "=MEP_A13", '="element group 5"'),
         "b3m": ("B3 repair - MEP: share of services A1-A3", "=B3_MEP*C{mep}", '=TEXT(B3_MEP,"0%")&" of services A1-A3 (CIBSE TM65)"'),
-        "b3": ("B3 repair", "=C{b3n}+C{b3m}", '="25% non-MEP + 10% MEP rule (PS 5.2.3)"'),
+        "b3": ("B3 repair", "=(C{b3n}+C{b3m})*SC_AC", '=IF(SC_AC=0,"outside the scope of assessment","25% non-MEP + 10% MEP rule (PS 5.2.3)")'),
         "b2c": ("B2 incl. contingency", "=C{b2}*(1+CONT)", '="kgCO2e/m2 GIA: "&TEXT(IF({GIA}>0,C{b2c}*1000/{GIA},0),"#,##0.0")'),
         "b3c": ("B3 incl. contingency", "=C{b3}*(1+CONT)", '="kgCO2e/m2 GIA: "&TEXT(IF({GIA}>0,C{b3c}*1000/{GIA},0),"#,##0.0")'),
     }
@@ -1343,30 +1350,33 @@ def build_option(wb, ctx, o):
     for i, g in enumerate(GROUPS):
         F["E_%d" % i] = '=IF(%s>0,SUMIFS(%s,%s,"%s")*1000/%s,0)' % (GIA, RG("I"), RG("T"), g, GIA)
     # ---- B6 / B7 (PS 5.3 / 5.4, App. G): per option; no contingency; indicative route = UKNZCBS EUI limit x GIA, all electric
-    eng, ind = 'LEFT(OP_ROUTE,8)="Engineer"', 'LEFT(OP_ROUTE,10)="Indicative"'
+    eng, ind = 'LEFT(OP_EFF,8)="Engineer"', 'LEFT(OP_EFF,10)="Indicative"'
     E_ = "IF(%s,N(O%d_E_ELEC),IF(%s,IF(N(O%d_EUI_IN)>0,O%d_EUI_IN,UK_EUI)*%s,0))" % (eng, k, ind, k, k, GIA)
     G_, DH_ = "IF(%s,N(O%d_E_GAS),0)" % (eng, k), "IF(%s,N(O%d_E_DH),0)" % (eng, k)
     PVS_, PVX_ = "IF(%s,N(O%d_E_PVS),0)" % (eng, k), "IF(%s,N(O%d_E_PVX),0)" % (eng, k)
     W_ = "Y%d" % SUM_ROW["W_M3"]                                            # engineer's water, else the occupancy budget
     y = lambda key: "Y%d" % SUM_ROW[key]                                     # noqa: E731
     F.update({
-        "EUI": '=IF(OP_ROUTE="%s","not assessed",IF(%s>0,(%s+%s+%s+%s)/%s,0))' % (OP_ROUTES[2], GIA, E_, G_, DH_, PVS_, GIA),
+        "EUI": '=IF(OP_EFF="%s","not assessed",IF(%s>0,(%s+%s+%s+%s)/%s,0))' % (OP_ROUTES[2], GIA, E_, G_, DH_, PVS_, GIA),
         "EUI_LIM": "=UK_EUI",
         "B6_ND": "=IF(%s>0,RSP*(%s*F_E_ND+%s*F_G_ND+%s*F_DH)/%s,0)" % (GIA, E_, G_, DH_, GIA),
         "B6_D": "=IF(%s>0,RSP*(%s*F_E_D+%s*F_G_D+%s*F_DH)/%s,0)" % (GIA, E_, G_, DH_, GIA),
         "B7_ND": "=IF(%s>0,RSP*%s*F_W_ND/%s,0)" % (GIA, W_, GIA),
         "B7_D": "=IF(%s>0,RSP*%s*F_W_D/%s,0)" % (GIA, W_, GIA),
         "D2_PV": "=IF(%s>0,-RSP*%s*FES_AVG/%s,0)" % (GIA, PVX_, GIA),
-        "WLC_ND": '=IF(OP_ROUTE="%s","not assessed",%s+%s+%s)' % (OP_ROUTES[2], y("AC_ALL"), y("B6_ND"), y("B7_ND")),
-        "WLC_D": '=IF(OP_ROUTE="%s","not assessed",%s+%s+%s)' % (OP_ROUTES[2], y("AC_DEC"), y("B6_D"), y("B7_D")),
-        "W_M3": "=IF(N(O%d_W)>0,O%d_W,W_BUDGET)" % (k, k),
+        "WLC_ND": '=IF(OP_EFF="%s","not assessed",%s+%s+%s)' % (OP_ROUTES[2], y("AC_ALL"), y("B6_ND"), y("B7_ND")),
+        "WLC_D": '=IF(OP_EFF="%s","not assessed",%s+%s+%s)' % (OP_ROUTES[2], y("AC_DEC"), y("B6_D"), y("B7_D")),
+        "W_M3": '=IF(SCOPE_WLC<>"Y",0,IF(N(O%d_W)>0,O%d_W,W_BUDGET))' % (k, k),     # B7 only with whole life carbon
         "AC_DEC": "=IF(%s>0,(I%d+0.5*(J%d+%s)+0.5*(K%d+L%d)+M%d+N%d)*%s,0)+%s" % (GIA, sub, sub, BB, sub, sub, sub, sub, G1, BIO),
         "D_DEC": "=IF(%s>0,0.5*P%d*1000/%s,0)" % (GIA, sub, GIA),
-        "OP_STATUS": ('=IF(OP_ROUTE="%s","Energy not assessed - embodied carbon only",IF(%s,"Energy: engineer prediction",'
+        "OP_STATUS": ('=IF(OP_EFF="%s","Energy not assessed - embodied carbon only",IF(%s,"Energy: engineer prediction",'
                       'IF(N(O%d_EUI_IN)>0,"Energy: indicative (EUI estimate)","Energy: indicative (UKNZCBS limit)")))'
                       '&IF(N(O%d_W)>0," | water: engineer",IF(W_BUDGET>0," | water: indicative budget (occupancy x RIBA 2025)"," | water: not assessed"))'
                       % (OP_ROUTES[2], eng, k, k)),
     })
+    # A-C results only with life cycle embodied / whole life carbon in scope (Project); module totals read 0 outside it
+    for key in AC_KEYS:
+        F[key] = '=IF(SC_AC=0,"not in scope",%s)' % F[key][1:]
     R.cell(4, 24, "Summary (read by Dashboard and Compare - do not move)").font = BOLD
     R.column_dimensions["X"].width = 12
     R.column_dimensions["Y"].width = 12
@@ -1599,7 +1609,7 @@ def build_trajectory(wb, o, c):
             parts.append("%s%s*%s/%s" % ("0.5*" if dec else "", rs("$J$%d" % rr), cnt, n_))
         return "+".join(parts)
     first, last = TRAJ_FIRST, TRAJ_FIRST + rsp
-    na = 'OP_ROUTE="%s"' % OP_ROUTES[2]
+    na = 'OP_EFF="%s"' % OP_ROUTES[2]
     op_nd = "IF(%s,0,(%s+%s)/RSP)" % (na, rs("$Y$%d" % SUM_ROW["B6_ND"]), rs("$Y$%d" % SUM_ROW["B7_ND"]))
     fy, fv = "REF_B6B7!$G$5:$G$60", "REF_B6B7!$H$5:$H$60"
     for i in range(rsp + 1):

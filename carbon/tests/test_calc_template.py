@@ -669,3 +669,46 @@ def test_scope_of_assessment(built, tmp_path):
         rows = dict((Q.cell(r, 2).value, Q.cell(r, 4).value) for r in range(7, Q.max_row + 1) if Q.cell(r, 2).value)
         bad = [k for k in ("Scope of assessment ticked (Project)", "Whole life carbon in scope with a B6 basis") if rows[k] == "FLAG"]
         assert len(bad) == flags
+
+
+def test_scope_sets_what_is_calculated(built, tmp_path):
+    """Upfront only: A1-A5 (and biogenic stored) unchanged, B2-B4, C1-C4, D, biogenic released and B6 / B7 not calculated,
+    A-C results read 'not in scope', no error values anywhere. Whole life ticked on its own still calculates A-C."""
+    lib2 = str(tmp_path / "lib_b6.xlsx")
+    _b6_library(built["library_xlsx"], lib2)
+    opts = [dict(name="Opt A", takeoff_csv=built["takeoff_csv"], operational=dict(elec=100000, gas=20000, water=1000))]
+    base = dict(built["params"], op_route=ct.OP_ROUTES[0], op_year=2030)
+    tg = str(tmp_path / "targets.xlsx")
+    _targets(tg)
+    wbs = {}
+    for tag, sc in (("all", dict(upfront="Y", embodied="Y", wlc="Y")), ("up", dict(upfront="Y", embodied="N", wlc="N")),
+                    ("wlc", dict(upfront="N", embodied="N", wlc="Y"))):
+        cfg = dict(built, library_xlsx=lib2, options=opts, targets_xlsx=tg, out=str(tmp_path / ("s_%s.xlsx" % tag)),
+                   params=dict(base, scopes=sc))
+        cfg.pop("takeoff_csv", None)
+        ct.build(cfg).save(cfg["out"])
+        wbs[tag] = _calc(cfg["out"], str(tmp_path / ("c_" + tag)))
+    err = lambda wb: set((ws.title, c.coordinate, c.value) for ws in wb for row in ws.iter_rows() for c in row  # noqa: E731
+                         if isinstance(c.value, str) and c.value[:4] in ("#VAL", "#REF", "#DIV", "#N/A", "#NAM", "#NUM"))
+    for tag, wb in wbs.items():         # no error values on any sheet, except the Dashboard's NA() chart gaps (by design)
+        bad = sorted(e for e in err(wb) if not (e[0] == "Dashboard" and e[2] == "#N/A"))
+        assert not bad, (tag, bad[:10])
+    y = lambda wb, key: wb["O1_Results"].cell(ct.SUM_ROW[key], 25).value          # noqa: E731
+    up, al, wl = wbs["up"], wbs["all"], wbs["wlc"]
+    for key in ("UP_ALL", "UP_X8", "UP_T", "M_A13", "M_A4", "M_A5", "BIO_STORED"):
+        assert y(up, key) == pytest.approx(y(al, key)), key
+    for key in ("M_B4", "M_C", "M_D", "M_B2", "M_B3", "B6_ND", "B7_ND"):
+        assert y(up, key) == 0 and y(al, key) != 0, key
+    assert y(up, "BIO_RELEASED") == 0                                # (the test library has no bio-based material)
+    for key in ct.AC_KEYS:
+        assert y(up, key) == "not in scope", key
+    assert y(up, "WLC_ND") == "not assessed" and isinstance(y(al, "WLC_ND"), float)
+    assert y(wl, "AC_ALL") == pytest.approx(y(al, "AC_ALL")) and y(wl, "WLC_ND") == pytest.approx(y(al, "WLC_ND"))
+    R = up["O1_Results"]
+    assert R["E6"].value == "Outside the scope - for information" and R["C6"].value == "not in scope"
+    def verdicts(wb, boundary):
+        D = wb["Dashboard"]
+        return [D.cell(r, 10).value for r in range(1, D.max_row + 1) if str(D.cell(r, 4).value or "").startswith(boundary)
+                and D.cell(r, 10).value in ("Meets", "Above", "Not assessed", "Meets before contingency only")]
+    assert verdicts(up, "A-C") and set(verdicts(up, "A-C")) == {"Not assessed"} and "Not assessed" not in verdicts(al, "A-C")
+    assert verdicts(up, "A1-A5") == verdicts(al, "A1-A5")                 # upfront targets judged as before

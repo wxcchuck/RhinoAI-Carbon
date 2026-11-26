@@ -297,7 +297,7 @@ def build_dashboard(wb, ctx, opts, branding):
                           ["Project", "GLA aspirational", "GLA benchmark"])
     bud = [("Target (no contingency)", "=BUD_VAL"),
            ("Modelled + site, incl. contingency", "=" + sf(pick('"MOD_"&BUD_KEY'))),
-           ("Left for elements not yet designed", "=" + sf("BUD_VAL-%s" % pick('"MOD_"&BUD_KEY'))),
+           ("Left for elements not yet designed", "=" + sf('IFERROR(BUD_VAL-%s,"not in scope")' % pick('"MOD_"&BUD_KEY'))),
            ("Not yet designed - typical benchmarks", "=" + sf(pick('"BM_"&BUD_KEY'))),
            ("Not yet designed - scenario tier", "=" + sf(pick('"BMS_"&BUD_KEY')))]
     tables["bud"] = table(52, "Carbon budget (kgCO2e/m2, incl. contingency)", bud)
@@ -313,8 +313,8 @@ def build_dashboard(wb, ctx, opts, branding):
         ("Upfront carbon A1-A5", "=" + sf(v("UP_ALL")), "#,##0",
          '="kgCO2e/m2 GIA | "&TEXT(%s,"#,##0")&" before contingency"' % sf(v("UP_ALL") + "/(1+CONT)")),
         ("Embodied carbon A-C", "=" + sf(v("AC_ALL")), "#,##0",
-         '="incl. biogenic, excl. B6/B7 | "&TEXT(%s,"#,##0")&" before contingency"' % sf("(%s-%s-%s)/(1+CONT)+%s+%s" % (
-             v("AC_ALL"), v("BIO_STORED"), v("BIO_RELEASED"), v("BIO_STORED"), v("BIO_RELEASED")))),
+         '=IF(ISNUMBER(%s),"incl. biogenic, excl. B6/B7 | "&TEXT(%s,"#,##0")&" before contingency","outside the scope of assessment")' % (
+             v("AC_ALL"), sf("(%s-%s-%s)/(1+CONT)+%s+%s" % (v("AC_ALL"), v("BIO_STORED"), v("BIO_RELEASED"), v("BIO_STORED"), v("BIO_RELEASED"))))),
         ("Upfront total", "=" + sf(v("UP_T")), "#,##0", "tCO2e"),
         ("LETI upfront band", "=%s" % v("LETI_UP"), "@", '="life cycle: "&%s' % v("LETI_LC")),
         ("UKNZCBS upfront", '=IF({lim}=0,"n/a",IF({val}<={lim},"Meets","Above"))'.format(lim=uk_lim, val=uk_val), "@",
@@ -515,7 +515,7 @@ def build_dashboard(wb, ctx, opts, branding):
         ws.cell(r, 3, "=%s" % v(key)).font = _f(B, 9, True, B["project"])
         for c, nm_ in zip((4, 5, 6), q):
             ws.cell(r, c, "=%s" % nm_)
-        ws.cell(r, 7, '=IF(N(D{r})=0,"no P&M range",IF(C{r}<D{r},"Below P25 - check for omissions",IF(C{r}<=F{r},"Within P25-P75","Above P75 - look for savings")))'.format(r=r))
+        ws.cell(r, 7, '=IF(NOT(ISNUMBER(C{r})),"not in scope",IF(N(D{r})=0,"no P&M range",IF(C{r}<D{r},"Below P25 - check for omissions",IF(C{r}<=F{r},"Within P25-P75","Above P75 - look for savings"))))'.format(r=r))
         for c in range(1, 10):
             if c != 3:
                 ws.cell(r, c).font = _f(B, 9)
@@ -652,7 +652,7 @@ def build_compare(wb, ctx, opts, branding):
         for j, o in enumerate(opts):
             ref = "%s!$Y$%d" % (o["RS"], SUM_ROW[key.rstrip("/")])
             if key.endswith("/"):
-                ref = ref + "/(1+CONT)"
+                ref = "IF(ISNUMBER(%s),%s/(1+CONT),%s)" % (ref, ref, ref)
             c = ws.cell(r, 2 + j, "=" + (sf(ref) if key.rstrip("/") in BUILDING_LEVEL else ref))
             c.number_format = fmt
             c.font = _f(B, 10, i == 0, B["project"] if i == 0 else None)
