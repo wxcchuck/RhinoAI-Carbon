@@ -280,8 +280,8 @@ def _targets(path):
     g.append(["Office", "UP_ALL"] + GLA_SHARE)
     g.append(["Residential", "UP_ALL"] + [1, 0, 0, 0, 0, 0, 0])
     p = wb.create_sheet("PM_Structure")
-    p.append(["group", "use_class", "n", "p10", "p25", "p50", "p75", "p90", "ac_p25", "ac_p50", "ac_p75"])
-    p.append(["Commercial", "Office", 10, 20, 30, 40, 50, 60, 35, 45, 55])
+    p.append(["group", "use_class", "n", "p10", "p25", "p50", "p75", "p90", "ac_p25", "ac_p50", "ac_p75", "source"])
+    p.append(["Commercial", "Office", 10, 20, 30, 40, 50, 60, 35, 45, 55, "invented release, n=10"])
     wb.save(path)
 
 
@@ -344,6 +344,7 @@ def test_options_targets_dashboard(built2, tmp_path):
     assert D["Y53"].value == TG_SC
     assert D["Y55"].value == pytest.approx(sfround(TG_SC - y(1, "MOD_UP_SC")), rel=1e-9)
     assert D["D76"].value == 30 and D["D77"].value == 35                                         # P&M A1-A5 / A1-C4 P25
+    assert wb["Targets"]["AH5"].value == "invented release, n=10"          # the P&M source column travels
     # GLA element comparison: share x GLA total; project incl. contingency
     assert D["Z46"].value == pytest.approx(GLA_SHARE[3] * TG_GLA_A, rel=1e-9)
     assert D["AA46"].value == pytest.approx(GLA_SHARE[3] * TG_GLA_B, rel=1e-9)

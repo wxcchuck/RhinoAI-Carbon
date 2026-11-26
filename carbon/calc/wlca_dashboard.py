@@ -528,7 +528,8 @@ def build_dashboard(wb, ctx, opts, branding):
                       "includes site activities (A5a). Excludes facade, finishes, non-loadbearing / secondary elements, services and external works."),
                  (79, "Project: modelled structure (RICS 1, 2.1, 2.2, 2.4) plus the whole-building A5.2 site lump (and C1 for A1-C4). "
                       "The lumps are not split by element, so the project figure leans high."),
-                 (80, "P&M method: RICS 2017 / IStructE v2 with ICE v3 factors; A1-C4 includes B1 carbonation. A range to sense-check, not a target.")):
+                 (80, "P&M method: the IStructE / RICS method and mostly ICE factors current at each calculation; release, method and samples "
+                      "are in the source column of the P&M table (Targets). A1-C4 includes B1 carbonation. A range to sense-check, not a target.")):
         _note(ws, B, r, t)
     ch = BarChart()
     ch.type = "bar"
