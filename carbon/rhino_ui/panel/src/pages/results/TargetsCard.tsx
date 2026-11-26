@@ -6,7 +6,7 @@ import { TargetColumnsChart } from "@/components/charts-rich"
 import { fmt, sf, type Col, type Part } from "@/lib/charts"
 import { patchModel, send } from "@/lib/bridge"
 import type { Model, Scope } from "@/lib/model"
-import { BOUNDARY, type Palette, type ResOption, type Results, type Target } from "@/lib/results"
+import { BOUNDARY, baseKey, type Palette, type ResOption, type Results, type Target } from "@/lib/results"
 import { cn } from "@/lib/utils"
 
 export const MAX_CHART_TARGETS = 4
@@ -15,12 +15,16 @@ const TCOL: Record<string, [string, string]> = {
   UP_SC: ["A1-A5 shell & core", "excl. ext. works · UKNZCBS offices"], UP_WB: ["A1-A5 + Cat B", "whole building · UKNZCBS offices"],
   UP_X8: ["A1-A5", "excl. ext. works · UKNZCBS, LETI"], UP_ALL: ["A1-A5", "all elements · GLA"],
   AC_X8: ["A-C", "excl. ext. works · LETI, RIBA"], AC_ALL: ["A-C", "all elements · GLA"],
+  // RICS PS 1st edition (D21): no contingency, pre-construction demolition reported separately
+  V1_UP_X8: ["A1-A5", "excl. ext. works · LETI · PS 1st ed."], V1_UP_ALL: ["A1-A5", "all elements · GLA · PS 1st ed."],
+  V1_AC_X8: ["A-C", "excl. ext. works · LETI, RIBA · PS 1st ed."], V1_AC_ALL: ["A-C", "all elements · GLA · PS 1st ed."],
 }
-const UPFRONT = ["UP_SC", "UP_WB", "UP_X8", "UP_ALL"], LIFECYCLE = ["AC_X8", "AC_ALL"]
+// workbooks made before D21 carry the 2nd-edition keys for every target, so both spellings are listed
+const UPFRONT = ["UP_SC", "UP_WB", "UP_X8", "V1_UP_X8", "UP_ALL", "V1_UP_ALL"], LIFECYCLE = ["AC_X8", "V1_AC_X8", "AC_ALL", "V1_AC_ALL"]
 const short = (l: string) => l.replace("shell & core limit", "S&C").replace("whole-building limit", "whole bldg").replace(" design target", "")
   .replace("RIBA 2030 Challenge - ", "RIBA ").replace(" A1-A5", "").replace(" A-C", "")
 
-const inScope = (key: string, sc?: Scope) => !sc || (key.startsWith("UP_") ? sc.up : sc.ac)
+const inScope = (key: string, sc?: Scope) => !sc || (baseKey(key).startsWith("UP_") ? sc.up : sc.ac)
 
 export function chartTargets(m: Model, R: Results, sc?: Scope): string[] {
   const saved = (m.state.targets as { chart?: string[] | null }).chart
@@ -34,10 +38,16 @@ export function chartTargets(m: Model, R: Results, sc?: Scope): string[] {
 }
 
 function boundarySegs(key: string, v: ResOption["values"], R: Results, P: Palette, groupLabels: string[]): { segs: Part[]; total: number | null } {
-  const total = v[key], sc = R.sc || { fin: 1, ffe: 1, mep: 1 }
+  const total = v[key], sc = R.sc || { fin: 1, ffe: 1, mep: 1 }, ed1 = key.startsWith("V1_"), bk = baseKey(key)
   if (typeof total !== "number") return { segs: [], total: null }
   let segs: Part[] = []
-  if (key.startsWith("UP_")) {
+  if (ed1 && bk.startsWith("UP_")) {         // 1st edition: element groups before contingency, site less pre-construction demolition
+    groupLabels.forEach((label, i) => {
+      if (i === 6 && bk !== "UP_ALL") return
+      const x = (Number(v["E_" + i]) || 0) - (i === groupLabels.length - 1 ? Number(v.DEMO) || 0 : 0)
+      segs.push({ label, value: Math.max(0, x), color: P.groups[i % P.groups.length] })
+    })
+  } else if (key.startsWith("UP_")) {
     const share: Record<number, number> = { 3: key === "UP_SC" ? sc.fin : 1, 4: key === "UP_SC" ? sc.ffe : 1, 5: key === "UP_SC" ? sc.mep : 1 }
     groupLabels.forEach((label, i) => {
       if (i === 6 && key !== "UP_ALL") return               // external works only on the GLA boundary
@@ -47,7 +57,7 @@ function boundarySegs(key: string, v: ResOption["values"], R: Results, P: Palett
     const sum = segs.reduce((a, g) => a + (g.value || 0), 0)
     segs.push({ label: "Contingency (PS Table 10)", value: Math.max(0, total - sum), color: P.cont })
   } else {
-    const up = Number(key === "AC_X8" ? v.UP_X8 : v.UP_ALL) || 0
+    const up = Number(v[(ed1 ? "V1_" : "") + (bk === "AC_X8" ? "UP_X8" : "UP_ALL")]) || 0
     segs = [{ label: "Upfront A1-A5", value: up, color: P.stages[0] }, { label: "In use and end of life B-C", value: Math.max(0, total - up), color: P.stages[1] }]
   }
   return { segs, total }
@@ -68,7 +78,7 @@ export function TargetsCard({ m, R, o, sfN, P, lineColor, sc }: {
       const { segs, total } = boundarySegs(k, v, R, P, groupLabels)
       return { label: TCOL[k][0], sub: TCOL[k][1], segs, total: total == null ? null : sf(total, sfN),
         lines: sel.filter(([t]) => t.key === k).map(([t]) => ({ label: t.label, short: short(t.label), value: t.target,
-          color: lineColor(k.startsWith("AC_") ? P.target_ac : P.target) })) }
+          color: lineColor(baseKey(k).startsWith("AC_") ? P.target_ac : P.target) })) }
     })
     if (!cols.length) return null
     const order = (g: Part) => { const i = groupLabels.indexOf(g.label); return i >= 0 ? i : g.label.startsWith("Contingency") ? 99 : 50 }
@@ -84,7 +94,7 @@ export function TargetsCard({ m, R, o, sfN, P, lineColor, sc }: {
   const up = chart(UPFRONT, "Upfront A1-A5 by element"), ac = chart(LIFECYCLE, "Embodied A-C by stage")
   return (
     <ChartCard title="Against targets" wide
-      note="Each column is one reporting boundary, with that boundary's targets as dashed lines. Project figures include the PS Table 10 contingency (top segment); targets are bare thresholds (PS 4.10). Element segments are before contingency.">
+      note="Each column is one reporting boundary, with that boundary's targets as dashed lines; targets are bare thresholds. Each is judged on the RICS PS edition its scheme uses: UKNZCBS on the 2nd, incl. the PS Table 10 contingency (top segment, PS 4.10); GLA, LETI and RIBA 2030 on the 1st (2017) - no contingency, pre-construction demolition reported separately. Element segments are before contingency.">
       <div className="mb-4 flex flex-wrap items-center gap-1.5">
         <span className="mr-1 text-xs text-muted-foreground">Show up to {MAX_CHART_TARGETS}:</span>
         {([["Upfront", UPFRONT], ["Life cycle", LIFECYCLE]] as const).filter(([, keys]) => inScope(keys[0], sc)).map(([g, keys], gi) => (

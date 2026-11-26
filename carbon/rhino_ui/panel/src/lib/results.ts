@@ -8,9 +8,10 @@ export type Traj = {
   bio: number[] | null; b4: number[][]
 }
 export type ResOption = { k: number; values: Values; traj: Traj | null; verdicts: string[] }
-export type Target = { label: string; key: string; target: number }
+/** edition: the RICS PS edition the target is judged on (D21) - 2 (UKNZCBS, key incl. contingency) or 1 (GLA / LETI / RIBA, V1_ key). */
+export type Target = { label: string; key: string; target: number; edition?: 1 | 2 }
 export type Results = {
-  calculated: boolean; cont: number; stage: number; sc: { fin: number; ffe: number; mep: number }; catb: number | null
+  calculated: boolean; cont: number; stage: number; rics_edition?: 1 | 2; sc: { fin: number; ffe: number; mep: number }; catb: number | null
   options: ResOption[]; targets: Target[]; workbook: string
 }
 
@@ -20,7 +21,12 @@ export const n = (v: Values, k: string): number | undefined => (typeof v[k] === 
 export const BOUNDARY: Record<string, string> = {
   UP_X8: "A1-A5 excl. ext. works", UP_ALL: "A1-A5 all elements", UP_SC: "A1-A5 shell & core, excl. ext. works",
   UP_WB: "A1-A5 incl. Cat B + loose FF&E", AC_X8: "A-C excl. ext. works", AC_ALL: "A-C (excl. B6/B7)",
+  V1_UP_X8: "A1-A5 excl. ext. works · PS 1st ed.", V1_UP_ALL: "A1-A5 all elements · PS 1st ed.",
+  V1_AC_X8: "A-C excl. ext. works · PS 1st ed.", V1_AC_ALL: "A-C (excl. B6/B7) · PS 1st ed.",
 }
+
+/** The boundary a target key reports on, without the edition: V1_UP_ALL -> UP_ALL. */
+export const baseKey = (key: string) => key.replace(/^V1_/, "")
 
 export type Palette = {
   project: string; target: string; cont: string; target_ac: string; stages: string[]; module_d: string

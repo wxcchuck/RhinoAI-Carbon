@@ -514,6 +514,22 @@ def test_scope_in_older_saves():
     assert ws.loads(json.dumps(new))["project"]["scopes"] == {"upfront": True, "embodied": False, "wlc": True}
 
 
+def test_rics_edition():
+    """D21: the reporting method (RICS PS edition) - 2nd by default and for older saves; passed to the workbook."""
+    st = ws.default_state()
+    assert st["project"]["rics_edition"] == 2 and ws.rics_edition_of(st) == 2
+    old = ws.default_state()
+    del old["project"]["rics_edition"]
+    assert ws.loads(json.dumps(old))["project"]["rics_edition"] == 2
+    ws.apply_edit(st, ["project", "rics_edition"], "1", "int")
+    assert ws.rics_edition_of(ws.loads(ws.dumps(st))) == 1
+    o = ws.default_option("A", layer="L")
+    st["options"] = [o]
+    cc = ws.calc_config(st, {"library_xlsx": "lib", "benchmarks": {"path": "b"}}, [(o, "a.csv")])
+    assert cc["params"]["rics_edition"] == 1
+    assert [e for e, _, _ in ws.RICS_EDITIONS] == [2, 1]
+
+
 def test_budget_needs_its_boundary_in_scope():
     st = ws.default_state()
     st["project"]["name"], st["output"]["folder"] = "P", "out"

@@ -39,6 +39,8 @@ DEFAULT = dict(
     basis=["1F5F66", "E07B1A", "9FB3BC", "B8C4C8", "D9D2C5"],
     good="DCEFE1", bad="F8D7D3",
 )
+# targets judged on the RICS PS 1st edition basis (D21): boundary key -> V1_ key (UKNZCBS keys stay on the 2nd edition)
+TARGET_KEY = {"UP_X8": "V1_UP_X8", "UP_ALL": "V1_UP_ALL", "AC_X8": "V1_AC_X8", "AC_ALL": "V1_AC_ALL"}
 BOUNDARY_TEXT = {"UP_X8": "A1-A5 excl. ext. works", "UP_ALL": "A1-A5 all elements",
                  "UP_SC": "A1-A5 shell & core, excl. ext. works", "UP_WB": "A1-A5 incl. Cat B + loose FF&E",
                  "AC_X8": "A-C excl. ext. works", "AC_ALL": "A-C (excl. B6/B7)"}
@@ -46,7 +48,8 @@ GROUP_LABELS = ["Substructure", "Superstructure", "Facade", "Internal finishes",
 
 
 # building- / asset-level results that are reported to SIGFIG significant figures (PS 6.1.4)
-BUILDING_LEVEL = {"UP_ALL", "AC_ALL", "UP_T", "UP_X8", "UP_SC", "UP_WB", "SCN_UP_ALL", "BIO_STORED",
+BUILDING_LEVEL = {"UP_ALL", "AC_ALL", "UP_T", "UP_X8", "UP_SC", "UP_WB", "SCN_UP_ALL", "BIO_STORED", "HL_UP", "HL_AC", "HL_WLC",
+                  "V1_UP_ALL", "V1_UP_X8", "V1_AC_ALL", "V1_AC_X8", "V1_WLC_ND", "DEMO",
                   "B6_ND", "B6_D", "B7_ND", "B7_D", "WLC_ND", "WLC_D", "EUI", "AC_DEC"}
 
 
@@ -290,10 +293,10 @@ def build_dashboard(wb, ctx, opts, branding):
     for i in range(7):
         gcol = chr(ord("N") + i)       # GLA_Breakdown group columns N..T on Targets
         pct = 'SUMIFS(%s,%s,USE,%s,"UP_ALL")' % (TGb(gcol), TGb("L"), TGb("M"))
-        gla_rows.append((GROUP_LABELS[i], "=%s*(1+CONT)" % v("E_%d" % i),
+        gla_rows.append((GROUP_LABELS[i], "=%s" % v("E_%d" % i),          # GLA: RICS PS 1st ed., no contingency (D21)
                          "=%s*%s" % (pct, tsum("GLA", '"GLA aspirational"', "UP_ALL")),
                          "=%s*%s" % (pct, tsum("GLA", '"GLA benchmark"', "UP_ALL"))))
-    tables["gla"] = table(42, "Elements vs GLA typical development (A1-A5, kgCO2e/m2, incl. contingency)", gla_rows,
+    tables["gla"] = table(42, "Elements vs GLA typical development (A1-A5, kgCO2e/m2, RICS PS 1st ed. - no contingency)", gla_rows,
                           ["Project", "GLA aspirational", "GLA benchmark"])
     bud = [("Target (no contingency)", "=BUD_VAL"),
            ("Modelled + site, incl. contingency", "=" + sf(pick('"MOD_"&BUD_KEY'))),
@@ -303,19 +306,24 @@ def build_dashboard(wb, ctx, opts, branding):
     tables["bud"] = table(52, "Carbon budget (kgCO2e/m2, incl. contingency)", bud)
 
     # ---- headline tiles (row 6-9)
-    _section(ws, B, 6, "Headline - incl. %s contingency" % "PS Table 10")
+    _section(ws, B, 6, "Headline")
+    ws["A6"] = '=IF(LEFT(RICS_ED,3)="1st","Headline - RICS PS 1st edition (2017) basis: no contingency, pre-construction demolition separate",' \
+               '"Headline - RICS PS 2nd edition, incl. PS Table 10 contingency")'
     ws["J6"] = '="Contingency "&TEXT(CONT,"0%")&" (PS Table 10, RIBA stage "&STAGE&")"'
     ws["J6"].font = _f(B, 9, color=B["muted"])
     # UKNZCBS headline: offices use the shell & core limit (5.1.6.2); other sectors the single limit
     uk_lim = "IF(%s>0,%s,%s)" % (v("UK_LIM_SC"), v("UK_LIM_SC"), v("UK_LIM"))
     uk_val = "IF(%s>0,%s,%s)" % (v("UK_LIM_SC"), v("UP_SC"), v("UP_X8"))
     tiles = [
-        ("Upfront carbon A1-A5", "=" + sf(v("UP_ALL")), "#,##0",
-         '="kgCO2e/m2 GIA | "&TEXT(%s,"#,##0")&" before contingency"' % sf(v("UP_ALL") + "/(1+CONT)")),
-        ("Embodied carbon A-C", "=" + sf(v("AC_ALL")), "#,##0",
-         '=IF(ISNUMBER(%s),"incl. biogenic, excl. B6/B7 | "&TEXT(%s,"#,##0")&" before contingency","outside the scope of assessment")' % (
+        ("Upfront carbon A1-A5", "=" + sf(v("HL_UP")), "#,##0",
+         '=IF(LEFT(RICS_ED,3)="1st","kgCO2e/m2 GIA | demolition "&TEXT(%s,"#,##0")&" reported separately",'
+         '"kgCO2e/m2 GIA | "&TEXT(%s,"#,##0")&" before contingency")' % (sf(v("DEMO")), sf(v("UP_ALL") + "/(1+CONT)"))),
+        ("Embodied carbon A-C", "=" + sf(v("HL_AC")), "#,##0",
+         '=IF(ISNUMBER(%s),IF(LEFT(RICS_ED,3)="1st","incl. biogenic, excl. B6/B7 | 1st ed. basis",'
+         '"incl. biogenic, excl. B6/B7 | "&TEXT(%s,"#,##0")&" before contingency"),"outside the scope of assessment")' % (
              v("AC_ALL"), sf("(%s-%s-%s)/(1+CONT)+%s+%s" % (v("AC_ALL"), v("BIO_STORED"), v("BIO_RELEASED"), v("BIO_STORED"), v("BIO_RELEASED"))))),
-        ("Upfront total", "=" + sf(v("UP_T")), "#,##0", "tCO2e"),
+        ("Upfront total", '=IF(LEFT(RICS_ED,3)="1st",%s,%s)' % (sf("%s*%s/1000" % (v("HL_UP"), v("GIA"))), sf(v("UP_T"))), "#,##0",
+         '=IF(LEFT(RICS_ED,3)="1st","tCO2e, 1st ed. basis","tCO2e")'),
         ("LETI upfront band", "=%s" % v("LETI_UP"), "@", '="life cycle: "&%s' % v("LETI_LC")),
         ("UKNZCBS upfront", '=IF({lim}=0,"n/a",IF({val}<={lim},"Meets","Above"))'.format(lim=uk_lim, val=uk_val), "@",
          '=IF({lim}=0,"no limit for this use",IF({sc}>0,"shell & core ","")&TEXT({val},"#,##0")&" vs limit "&TEXT({lim},"#,##0")&" ("&UK_YEAR&")")'
@@ -348,13 +356,15 @@ def build_dashboard(wb, ctx, opts, branding):
 
     # ---- targets table + chart (rows 11-22)
     _section(ws, B, 11, "Against targets - each compared on its own boundary")
-    hdr = ["Target", "", "", "Boundary", "", "Before contingency", "Incl. contingency", "Target (no cont.)",
-           "Margin", "Result (incl. contingency)"]
+    hdr = ["Target", "", "", "Boundary and RICS PS basis", "", "Before contingency", "Compared figure", "Target (no cont.)",
+           "Margin", "Result"]
     for j, h in enumerate(hdr, start=1):
         ws.cell(12, j, h).font = _f(B, 9, True, B["muted"])
         ws.cell(12, j).alignment = Alignment(wrap_text=True, vertical="bottom")
     ws.row_dimensions[12].height = 26
-    trows = [
+    # the key each target is judged on: the RICS PS edition the scheme follows (D21) - UKNZCBS the 2nd (incl. contingency),
+    # LETI (2022), RIBA 2030 and the GLA (LPG 2022) the 1st (V1_ keys: no contingency, pre-construction demolition separate)
+    trows = [(sh, lbl, TARGET_KEY.get(key, key), tgt) for sh, lbl, key, tgt in [
         ("SH_UK", '"UKNZCBS "&UK_YEAR&" shell & core limit"', "UP_SC", "UK_LIM_SC"),
         ("SH_UK", '"UKNZCBS "&UK_YEAR&IF(UK_LIM_SC>0," whole-building limit"," limit")', "UP_WB", "UK_LIM"),
         ("SH_LETI", '"LETI 2020 design target (C)"', "UP_X8", tsum("LETI upfront", '"LETI band C"', "UP_X8")),
@@ -365,23 +375,27 @@ def build_dashboard(wb, ctx, opts, branding):
         ("SH_GLA", '"GLA aspirational A1-A5"', "UP_ALL", tsum("GLA", '"GLA aspirational"', "UP_ALL")),
         ("SH_GLA", '"GLA benchmark A-C"', "AC_ALL", tsum("GLA", '"GLA benchmark"', "AC_ALL")),
         ("SH_GLA", '"GLA aspirational A-C"', "AC_ALL", tsum("GLA", '"GLA aspirational"', "AC_ALL")),
-    ]
+    ]]
     t0 = 13
     for i, (sh, lbl, key, tgt) in enumerate(trows):
         r = t0 + i
         ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=3)
         ws.merge_cells(start_row=r, start_column=4, end_row=r, end_column=5)
         ws.cell(r, 1, '=IF(AND(%s="Y",N(%s)>0),%s,"")' % (sh, tgt, lbl))
-        ws.cell(r, 4, '=IF(A%d="","",%s)' % (r, '"%s"' % BOUNDARY_TEXT[key]))
-        # summary values include contingency on every target boundary, so "before" = value / (1 + CONT)
+        ed1 = key.startswith("V1_")
+        ws.cell(r, 4, '=IF(A%d="","",%s)' % (r, '"%s | %s"' % (BOUNDARY_TEXT[key[3:] if ed1 else key], "PS 1st ed." if ed1 else "PS 2nd ed.")))
+        # 2nd edition: the summary value includes contingency, so "before" = value / (1 + CONT); 1st edition: no contingency
         # shown to SIGFIG significant figures (PS 6.1.4); the result below is judged on the unrounded values
-        ws.cell(r, 6, '=IF(A%d="",NA(),IF(ISNUMBER(%s),%s,NA()))' % (r, v(key), sf(v(key) + "/(1+CONT)")))
+        before = v(key) if ed1 else v(key) + "/(1+CONT)"
+        ws.cell(r, 6, '=IF(A%d="",NA(),IF(ISNUMBER(%s),%s,NA()))' % (r, v(key), sf(before)))
         ws.cell(r, 7, '=IF(A%d="",NA(),IF(ISNUMBER(%s),%s,NA()))' % (r, v(key), sf(v(key))))
         ws.cell(r, 8, '=IF(A%d="",NA(),%s)' % (r, tgt))
         ws.cell(r, 9, '=IF(A{r}="","",IF(ISNA(G{r}),"",H{r}-G{r}))'.format(r=r))
-        # judged on the reportable figure (incl. contingency, PS 4.10); middle state shows what the contingency alone tips over
-        ws.cell(r, 10, '=IF(A{r}="","",IF(NOT(ISNUMBER({v})),"Not assessed",IF({v}<=H{r},"Meets",IF({v}/(1+CONT)<=H{r},"Meets before contingency only","Above"))))'
-                .format(r=r, v=v(key)))
+        if ed1:     # 1st edition: no contingency, so no middle state
+            ws.cell(r, 10, '=IF(A{r}="","",IF(NOT(ISNUMBER({v})),"Not assessed",IF({v}<=H{r},"Meets","Above")))'.format(r=r, v=v(key)))
+        else:       # 2nd edition: judged incl. contingency (PS 4.10); the middle state shows what the contingency alone tips over
+            ws.cell(r, 10, '=IF(A{r}="","",IF(NOT(ISNUMBER({v})),"Not assessed",IF({v}<=H{r},"Meets",IF({v}/(1+CONT)<=H{r},"Meets before contingency only","Above"))))'
+                    .format(r=r, v=v(key)))
         for c in range(1, 11):
             ws.cell(r, c).font = _f(B, 9)
             ws.cell(r, c).border = Border(bottom=Side(style="hair", color=B["rule"]))
@@ -392,8 +406,9 @@ def build_dashboard(wb, ctx, opts, branding):
     ws.conditional_formatting.add("J%d:J%d" % (t0, t1), CellIsRule(operator="equal", formula=['"Meets before contingency only"'],
                                                                     fill=PatternFill("solid", fgColor=B["warn"])))
     ws.conditional_formatting.add("J%d:J%d" % (t0, t1), CellIsRule(operator="equal", formula=['"Above"'], fill=PatternFill("solid", fgColor=B["bad"])))
-    _note(ws, B, t1 + 1, "Targets and limits are bare thresholds (no contingency); the result uses the project figure incl. the PS Table 10 contingency, "
-                         "the figure the PS requires for reporting (4.10). Building-level results shown to 2 s.f. at RIBA 0-2 and 3 s.f. from RIBA 3 (PS 6.1.4); "
+    _note(ws, B, t1 + 1, "Targets and limits are bare thresholds. Each is judged on the RICS PS edition it follows: UKNZCBS on the 2nd, with the PS Table 10 "
+                         "contingency the PS requires for reporting (4.10); GLA (LPG 2022), LETI (2022) and RIBA 2030 on the 1st (2017) - no contingency, "
+                         "pre-construction demolition reported separately, B3 = 25% of B2. Building-level results shown to 2 s.f. at RIBA 0-2 and 3 s.f. from RIBA 3 (PS 6.1.4); "
                          "results are judged on the unrounded values. UKNZCBS offices: shell & core = this result less the Cat A share of finishes, FF&E and services "
                        "(Project inputs, 100% shell & core by default); whole building needs a Cat B + loose FF&E allowance. A-C includes B2 / B3 (PS default allowances); B1, B5 not assessed.", h=36)
     na = FormulaRule(formula=["ISNA(F%d)" % t0], font=Font(color="FFFFFF"))      # hide #N/A kept for the chart
@@ -504,7 +519,7 @@ def build_dashboard(wb, ctx, opts, branding):
             ws.cell(r, c).border = Border(bottom=Side(style="hair", color=B["rule"]))
     ws.conditional_formatting.add("F65:F71", CellIsRule(operator="equal", formula=['"Better than aspirational"'], fill=PatternFill("solid", fgColor=B["good"])))
     ws.conditional_formatting.add("F65:F71", CellIsRule(operator="equal", formula=['"Above typical"'], fill=PatternFill("solid", fgColor=B["bad"])))
-    _note(ws, B, 72, "GLA values = typical-development share x GLA total (London Plan Guidance). Project incl. contingency; site A5.1/A5.2 sits inside the GLA groups so is not shown.")
+    _note(ws, B, 72, "GLA values = typical-development share x GLA total (London Plan Guidance). Project on the RICS PS 1st ed. basis the GLA follows (no contingency); site A5.1/A5.2 sits inside the GLA groups so is not shown.")
     ws.cell(74, 1, '="Structure against Price & Myers - "&PM_GROUP&" (n="&PM_N&"), kgCO2e/m2 GIA, before contingency"').font = _f(B, 9, True)
     for j, h in zip((1, 3, 4, 5, 6, 7), ["Stages", "Project", "P&M P25", "P&M median", "P&M P75", "Position"]):
         ws.cell(75, j, h).font = _f(B, 9, True, B["muted"])
@@ -577,7 +592,7 @@ def build_dashboard(wb, ctx, opts, branding):
     for j, h in zip((1, 5, 7), ["kgCO2e/m2 GIA over the RSP", "Non-decarbonised", "Decarbonised (Table 15 / FES)"]):
         ws.cell(94, j, h).font = _f(B, 9, True, B["muted"])
         ws.cell(94, j).alignment = Alignment(horizontal="left" if j == 1 else "right")
-    for r, lbl, a_, b_ in ((95, "Embodied A-C (incl. contingency)", "AC_ALL", "AC_DEC"), (96, "B6 operational energy", "B6_ND", "B6_D"),
+    for r, lbl, a_, b_ in ((95, "Embodied A-C (RICS PS 2nd ed., incl. contingency)", "AC_ALL", "AC_DEC"), (96, "B6 operational energy", "B6_ND", "B6_D"),
                            (97, "B7 operational water", "B7_ND", "B7_D"), (98, "Whole life carbon A-C + B6 + B7", "WLC_ND", "WLC_D")):
         ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=4)
         ws.merge_cells(start_row=r, start_column=5, end_row=r, end_column=6)
@@ -598,11 +613,12 @@ def build_dashboard(wb, ctx, opts, branding):
              % (v("W_M3"), v("W_M3"), v("W_M3"))).font = _f(B, 9)
 
     ws.cell(101, 1, "Notes").font = _f(B, 9, True)
-    notes = ["Headline and targets include contingency (PS Table 10). The scenario and the budget re-use typical or tier benchmarks for elements not yet designed - "
+    notes = ["Headline: the RICS PS edition chosen on the Project sheet (2nd: incl. PS Table 10 contingency; 1st: none, pre-construction demolition "
+             "reported separately). Targets: each on its own scheme's edition (table above). The scenario and the budget re-use typical or tier benchmarks for elements not yet designed - "
              "they are optioneering aids, never compliance results.",
              "Rows tagged [ASSUMED] in the take-off rest on office defaults (no SI, no detail yet); the doughnut shows their share.",
              "Sources: UKNZCBS Pilot (2024) Annex A; LETI Embodied Carbon Target Alignment (2022); RIBA 2030 Climate Challenge v2 (2021); "
-             "GLA WLCA London Plan Guidance (2022); Price & Myers Embodied Carbon Building Database (May 2025). Values on the Targets sheet.",
+             "GLA WLCA London Plan Guidance (2022); Price & Myers Embodied Carbon Building Database (release named on the Targets sheet). Values on the Targets sheet.",
              "B6 / B7: DESNZ GHG conversion factors and NESO Future Energy Scenarios (most conservative pathway, excl. BECCS) - see REF_B6B7."]
     for i, t in enumerate(notes):
         ws.cell(102 + i, 1, t).font = _f(B, 8, color=B["muted"])
@@ -643,7 +659,10 @@ def build_compare(wb, ctx, opts, branding):
             ("Embodied A-C, decarbonised (PS Table 15)", "AC_DEC", "#,##0"),
             ("Whole life A-C + B6 + B7, non-decarbonised", "WLC_ND", "#,##0"),
             ("Whole life A-C + B6 + B7, decarbonised", "WLC_D", "#,##0"),
-            ("QA flags open", "QA_FLAGS", "0")]
+            ("QA flags open", "QA_FLAGS", "0"),
+            ("Upfront A1-A5, RICS PS 1st ed. basis (no contingency, demolition separate)", "V1_UP_ALL", "#,##0"),
+            ("Embodied A-C, RICS PS 1st ed. basis", "V1_AC_ALL", "#,##0"),
+            ("Pre-construction demolition A5.1 (1st ed.: reported separately)", "DEMO", "#,##0")]
     for j, o in enumerate(opts):
         ws.column_dimensions[chr(66 + j)].width = 18
     r0 = 4

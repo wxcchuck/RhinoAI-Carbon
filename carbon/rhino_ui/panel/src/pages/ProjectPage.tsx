@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label"
 import { FieldGrid, Note, Notice, Section } from "@/components/blocks"
 import { Choice, ChoiceInput, FormField, TextInput, idOf } from "@/components/form"
 import { act, setValue } from "@/lib/bridge"
-import { numText, scopeOf, type PageProps } from "@/lib/model"
+import { editionOf, numText, scopeOf, type PageProps } from "@/lib/model"
 
 export function ProjectPage({ m }: PageProps) {
   const p = m.state.project, L = m.lists
@@ -44,6 +44,7 @@ export function ProjectPage({ m }: PageProps) {
       </Section>
 
       <ScopeSection m={m} />
+      <MethodSection m={m} />
 
       <Section title="Design options"
         lead="Each option is a massing layer in this file or another .3dm. Substructure, structure and façade are set per option on steps 3 to 5, so options can share a massing.">
@@ -128,6 +129,41 @@ function ScopeSection({ m }: { m: PageProps["m"] }) {
         Upfront: A1-A5, with the biogenic carbon stored in the products reported separately. Life cycle embodied: A1-A5, B1-B5 and C1-C4
         (B1 and B5 are not in this version), with module D and biogenic carbon reported separately. Whole life: life cycle embodied plus
         operational energy and water, B6 and B7. Whole life ticked on its own still calculates A-C, since it includes it.
+      </Note>
+    </Section>
+  )
+}
+
+// Reporting method (D21): the RICS PS edition the headline is reported on. One choice; targets keep their own scheme's edition.
+function MethodSection({ m }: { m: PageProps["m"] }) {
+  const eds = (m.lists as unknown as { rics_editions?: [number, string, string][] }).rics_editions || []
+  const ed = editionOf(m)
+  return (
+    <Section title="Reporting method"
+      lead="The RICS Professional Statement edition the headline figures are reported on. Each target is still judged on the edition its own scheme uses, so the comparison is like for like.">
+      <div className="grid gap-2 @2xl/main:grid-cols-2" role="radiogroup" aria-label="Reporting method">
+        {eds.map(([k, label, note]) => {
+          const on = ed === k
+          return (
+            <button key={k} type="button" role="radio" aria-checked={on}
+              className={"flex items-start gap-3 rounded-lg border p-3 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring "
+                + (on ? "border-primary bg-accent" : "bg-card hover:bg-muted")}
+              onClick={() => setValue(["project", "rics_edition"], String(k), "int")}>
+              <span aria-hidden className={"mt-0.5 grid size-4 shrink-0 place-items-center rounded-full border " + (on ? "border-primary" : "border-input")}>
+                {on && <span className="size-2 rounded-full bg-primary" />}
+              </span>
+              <span className="min-w-0">
+                <span className="block font-medium">{label}</span>
+                <span className="block text-xs text-muted-foreground">{note}</span>
+              </span>
+            </button>
+          )
+        })}
+      </div>
+      <Note>
+        Targets: UKNZCBS on the 2nd edition, incl. the PS Table 10 contingency; GLA (London Plan Guidance 2022), LETI (2022) and the
+        RIBA 2030 Climate Challenge on the 1st edition (2017) - no contingency, pre-construction demolition reported separately and
+        B3 = 25% of B2. Both are measured per m² GIA. The workbook carries both figures whichever is chosen.
       </Note>
     </Section>
   )

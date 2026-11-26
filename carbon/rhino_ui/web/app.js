@@ -81,6 +81,9 @@
     h += "<h2>Scope of assessment</h2><div class='row'>";
     for (const [k, label, mods] of (L.scopes || [])) h += check(["project", "scopes", k], !!(p.scopes || {})[k], `${label} (${mods})`);
     h += "</div>" + note("Tick one or more. Each ticked scope is a headline in the results and the workbook, and only the modules in scope are calculated: A1-A5 always; B2-B4, C1-C4 and D with life cycle embodied or whole life carbon. Whole life carbon needs operational energy and water (B6, B7) on step 6.");
+    h += "<h2>Reporting method</h2><div class='grid'>";
+    h += field("RICS PS edition", select(["project", "rics_edition"], (L.rics_editions || []).map(([k, l]) => [String(k), l]), String(p.rics_edition || 2), "int"));
+    h += "</div>" + note("The edition the headline is reported on. Each target is still judged on its own scheme's edition: UKNZCBS on the 2nd (incl. the PS Table 10 contingency); GLA, LETI and RIBA 2030 on the 1st (2017) - no contingency, pre-construction demolition reported separately, B3 = 25% of B2. Both per m² GIA.");
     h += "<h2>Design options</h2>" + note("Each option is one massing layer in this file, or another .3dm. Substructure, structure and façade are set per option on steps 3 to 5, so options can share a massing.");
     h += "<table class='form' style='width:100%;max-width:1100px'><tr><th>Include</th><th class='req'>Option name</th><th>Massing from</th><th class='req'>Layer / file</th><th></th></tr>";
     S().options.forEach((o, i) => {

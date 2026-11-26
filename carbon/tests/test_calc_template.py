@@ -325,7 +325,7 @@ def test_options_targets_dashboard(built2, tmp_path):
         slab = next(r for r in range(14, R.max_row + 1) if R.cell(r, 1).value == "2.2.1" and R.cell(r, 21).value == "Modelled")
         a52 = next(r for r in range(14, R.max_row + 1) if R.cell(r, 1).value == "A5.2")
         assert y(k, "STRUCT") == pytest.approx((R.cell(slab, 9).value + R.cell(a52, 9).value) * 1000 / GIA, rel=1e-9)
-        band = next((b for b, v in LETI_UP if y(k, "UP_X8") <= v), "worse than G")
+        band = next((b for b, v in LETI_UP if y(k, "V1_UP_X8") <= v), "worse than G")     # LETI: RICS PS 1st ed. (D21)
         assert y(k, "LETI_UP") == band
         assert y(k, "STRUCT") > 0
         assert y(k, "BIO_STORED") == pytest.approx(-y(k, "BIO_RELEASED"), abs=1e-9)        # stored = released over the life cycle
@@ -345,10 +345,10 @@ def test_options_targets_dashboard(built2, tmp_path):
     assert D["Y55"].value == pytest.approx(sfround(TG_SC - y(1, "MOD_UP_SC")), rel=1e-9)
     assert D["D76"].value == 30 and D["D77"].value == 35                                         # P&M A1-A5 / A1-C4 P25
     assert wb["Targets"]["AH5"].value == "invented release, n=10"          # the P&M source column travels
-    # GLA element comparison: share x GLA total; project incl. contingency
+    # GLA element comparison: share x GLA total; project on the RICS PS 1st ed. basis, no contingency (D21)
     assert D["Z46"].value == pytest.approx(GLA_SHARE[3] * TG_GLA_A, rel=1e-9)
     assert D["AA46"].value == pytest.approx(GLA_SHARE[3] * TG_GLA_B, rel=1e-9)
-    assert D["Y46"].value == pytest.approx(y(1, "E_3") * 1.15, rel=1e-9)
+    assert D["Y46"].value == pytest.approx(y(1, "E_3"), rel=1e-9)
 
     # result states: a limit between the before- and incl.-contingency figures -> "Meets before contingency only"
     mid = y(1, "UP_SC") * (1 + 1 / 1.15) / 2
@@ -550,6 +550,13 @@ def test_results_reader_for_the_window(built2, tmp_path):
     assert res["options"][1]["values"]["UP_ALL"] > res["options"][0]["values"]["UP_ALL"]   # Opt B has more slab
     assert wr.judge(100, 120, 0.15) == "Meets" and wr.judge(130, 120, 0.15) == "Meets before contingency only"
     assert wr.judge(200, 120, 0.15) == "Above" and wr.judge(None, 120, 0.15) == "Not assessed"
+    assert wr.judge(130, 120, 0.15, edition=1) == "Above"                   # 1st edition: no contingency, no middle state
+    assert res["rics_edition"] == 2
+    ed = dict((t["label"], (t["key"], t["edition"])) for t in res["targets"])
+    assert ed["GLA benchmark A1-A5"] == ("V1_UP_ALL", 1) and ed["RIBA 2030 Challenge - 2030"] == ("V1_AC_X8", 1)
+    assert next(v for k, v in ed.items() if k.startswith("UKNZCBS")) == ("UP_SC", 2)
+    o = res["options"][0]["values"]
+    assert o["HL_UP"] == pytest.approx(o["UP_ALL"]) and o["V1_UP_ALL"] < o["UP_ALL"]
 
 
 def test_b2_b3_allowances(built, tmp_path):
@@ -713,3 +720,55 @@ def test_scope_sets_what_is_calculated(built, tmp_path):
                 and D.cell(r, 10).value in ("Meets", "Above", "Not assessed", "Meets before contingency only")]
     assert verdicts(up, "A-C") and set(verdicts(up, "A-C")) == {"Not assessed"} and "Not assessed" not in verdicts(al, "A-C")
     assert verdicts(up, "A1-A5") == verdicts(al, "A1-A5")                 # upfront targets judged as before
+
+
+def test_rics_edition_basis(built, tmp_path):
+    """D21: RICS PS 1st edition (2017) basis next to the 2nd. 1st: no contingency, pre-construction demolition (A5.1) reported
+    separately (3.2.2), B3 = 25% of B2 (3.5.3.3). GLA / LETI / RIBA targets are judged on the 1st-edition figures whichever
+    edition is chosen; UKNZCBS on the 2nd. The headline follows the edition chosen on the Project sheet."""
+    exp = str(tmp_path / "export_demo.csv")
+    open(exp, "w", encoding="utf-8").write(open(built["takeoff_csv"], encoding="utf-8").read()
+                                           .replace("# existing_gia_demolished_m2: 0", "# existing_gia_demolished_m2: 800"))
+    tg, lib2 = str(tmp_path / "targets.xlsx"), str(tmp_path / "lib_b6.xlsx")
+    _targets(tg)
+    _b6_library(built["library_xlsx"], lib2)
+    wbs = {}
+    for ed in (2, 1):
+        cfg = dict(built, targets_xlsx=tg, library_xlsx=lib2, out=str(tmp_path / ("ed%d.xlsx" % ed)), params=dict(built["params"], rics_edition=ed),
+                   options=[dict(name="Opt A", takeoff_csv=exp)])
+        cfg.pop("takeoff_csv", None)
+        ct.build(cfg).save(cfg["out"])
+        wbs[ed] = _calc(cfg["out"], str(tmp_path / ("c_ed%d" % ed)))
+    err = lambda wb: [(ws.title, c.coordinate, c.value) for ws in wb for row in ws.iter_rows() for c in row  # noqa: E731
+                      if isinstance(c.value, str) and c.value[:4] in ("#VAL", "#REF", "#DIV", "#N/A", "#NAM", "#NUM")
+                      and not (ws.title == "Dashboard" and c.value == "#N/A")]
+    for ed, wb in wbs.items():
+        assert not err(wb), (ed, err(wb)[:10])
+    w2, w1 = wbs[2], wbs[1]
+    y = lambda wb, key: wb["O1_Results"].cell(ct.SUM_ROW[key], 25).value          # noqa: E731
+    P = w2["Project"]
+    cont = P["C%d" % next(r for r in range(5, 80) if P.cell(r, 2).value == "Contingency")].value
+    R = w2["O1_Results"]
+    rows = dict((str(R.cell(r, 2).value or ""), r) for r in range(14, R.max_row + 1))
+    b2, b3 = R["C%d" % rows["B2 maintenance - the greater of the two"]].value, R["C%d" % rows["B3 repair"]].value
+    gia, demo = y(w2, "GIA"), y(w2, "DEMO")
+    assert demo > 0 and cont > 0
+    bio = y(w2, "BIO_STORED") + y(w2, "BIO_RELEASED")
+    assert y(w2, "V1_UP_ALL") == pytest.approx(y(w2, "UP_ALL") / (1 + cont) - demo, rel=1e-9)
+    assert y(w2, "V1_UP_X8") == pytest.approx(y(w2, "UP_X8") / (1 + cont) - demo, rel=1e-9)
+    assert y(w2, "V1_AC_ALL") == pytest.approx((y(w2, "AC_ALL") - bio) / (1 + cont) - demo + (0.25 * b2 - b3) * 1000 / gia + bio, rel=1e-9)
+    for key in ("UP_ALL", "V1_UP_ALL", "V1_AC_ALL", "V1_AC_X8", "DEMO"):            # the edition only changes the headline
+        assert y(w1, key) == pytest.approx(y(w2, key)), key
+    assert y(w2, "HL_UP") == pytest.approx(y(w2, "UP_ALL")) and y(w1, "HL_UP") == pytest.approx(y(w1, "V1_UP_ALL"))
+    assert y(w2, "HL_AC") == pytest.approx(y(w2, "AC_ALL")) and y(w1, "HL_AC") == pytest.approx(y(w1, "V1_AC_ALL"))
+    assert "1st ed." in w1["O1_Results"]["A5"].value or "1st ed." in str(w1["O1_Results"]["G6"].value)
+    D = w2["Dashboard"]
+    tr = [r for r in range(13, 23) if D.cell(r, 1).value]
+    basis = dict((D.cell(r, 1).value, (str(D.cell(r, 4).value), D.cell(r, 6).value, D.cell(r, 7).value, D.cell(r, 10).value)) for r in tr)
+    gla = basis["GLA benchmark A1-A5"]
+    assert gla[0].endswith("PS 1st ed.") and gla[1] == gla[2] and gla[3] in ("Meets", "Above")
+    assert gla[2] == pytest.approx(sfround(y(w2, "V1_UP_ALL")))
+    uk = next(v for k, v in basis.items() if k.startswith("UKNZCBS"))
+    assert uk[0].endswith("PS 2nd ed.") and uk[2] == pytest.approx(sfround(y(w2, "UP_X8")))
+    assert [D.cell(r, 10).value for r in tr] == [w1["Dashboard"].cell(r, 10).value for r in tr]   # verdicts do not move
+    assert "1st edition" in w1["Dashboard"]["A6"].value and "2nd edition" in D["A6"].value

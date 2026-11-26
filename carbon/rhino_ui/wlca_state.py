@@ -33,6 +33,18 @@ SCOPES = [("upfront", "Upfront embodied carbon", "A1-A5"),
           ("wlc", "Whole life carbon", "A-C, incl. B6 & B7")]
 
 
+# Reporting method (D21): the RICS PS edition the headline is reported on. Targets are judged on their own scheme's edition
+# whichever is chosen - UKNZCBS on the 2nd; GLA (LPG 2022), LETI (2022), RIBA 2030 and the P&M ranges on the 1st.
+RICS_EDITIONS = [(2, "RICS PS 2nd edition (2023)", "Incl. the PS Table 10 contingency; pre-construction demolition in A5.1. UKNZCBS."),
+                 (1, "RICS PS 1st edition (2017)", "No contingency; pre-construction demolition reported separately; B3 = 25% of B2. "
+                                                   "GLA, LETI, RIBA 2030.")]
+
+
+def rics_edition_of(state):
+    """1 or 2 (default 2)."""
+    return 1 if str((state.get("project") or {}).get("rics_edition", 2)).strip() == "1" else 2
+
+
 def default_scopes():
     return {"upfront": True, "embodied": False, "wlc": False}
 
@@ -48,7 +60,7 @@ def default_state():
         "version": 1,
         "project": {"name": "", "use_class": "Office", "riba_stage": 2, "start_year": 2027,
                     "demolished_gia_m2": 0.0, "assessor": "", "occupancy": None, "occ_days": None,
-                    "scopes": default_scopes()},
+                    "scopes": default_scopes(), "rics_edition": 2},
         "options": [],
         "schedule": {"path": "", "sheet": ""},
         # plan route (D5): "rhino" = typical floor read from Rhino layers (default), "pdf" = plan extract json, "none"
@@ -351,6 +363,7 @@ def loads(text, base=None, exists=os.path.exists):
         op = (st.get("operational") or {}).get("route") or "Not assessed"
         sp = {"upfront": True, "embodied": True, "wlc": op != "Not assessed"}
     st["project"]["scopes"] = dict(default_scopes(), **dict((k, bool(v)) for k, v in sp.items() if k in default_scopes()))
+    st["project"]["rics_edition"] = rics_edition_of(st)                # saved before D21: the 2nd edition, as calculated then
     for o in st.get("options") or []:
         fill_substructure(o)
     if base and rel:
@@ -905,6 +918,7 @@ def calc_config(state, office, exports):
     op = state.get("operational") or {}
     scopes = scopes_of(state)
     params["scopes"] = dict((k, "Y" if k in scopes else "N") for k, _, _ in SCOPES)
+    params["rics_edition"] = rics_edition_of(state)
     params.update({"op_route": (op.get("route") or "Not assessed") if "wlc" in scopes else "Not assessed",
                    "dh_factor": float(op.get("dh_factor") or 0),
                    "occupancy": state["project"].get("occupancy"), "occ_days": state["project"].get("occ_days")})

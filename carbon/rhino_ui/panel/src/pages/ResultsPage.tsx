@@ -9,7 +9,7 @@ import { fmt, forDark, sf } from "@/lib/charts"
 import { DonutChart, HBarChart, type BarRow } from "@/components/charts"
 import { act } from "@/lib/bridge"
 import { scopeOf, type Model, type PageProps, type Scope } from "@/lib/model"
-import { n, palette, useDark, useSticky, type Palette, type ResOption, type Results } from "@/lib/results"
+import { baseKey, n, palette, useDark, useSticky, type Palette, type ResOption, type Results } from "@/lib/results"
 import { CalcStatus } from "@/pages/RunPage"
 import { TargetsCard } from "@/pages/results/TargetsCard"
 import { WholeLifeCard } from "@/pages/results/WholeLifeCard"
@@ -40,7 +40,7 @@ export function ResultsPage({ m }: PageProps) {
   const cur = tab >= opts.length ? 0 : tab
   const P = palette(m.branding as Record<string, unknown>)
   const lineColor = (c: string) => forDark(c, dark)
-  const sc = scopeOf(m)
+  const sc = scopeOf(m), ed1 = R.rics_edition === 1
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-2">
@@ -61,7 +61,10 @@ export function ResultsPage({ m }: PageProps) {
         : <OptionView m={m} R={R} o={opts[cur]} sfN={sfN} P={P} lineColor={lineColor} sc={sc} />}
       <Note>
         Results are read from the calculated workbook ({R.workbook}). Building-level figures are shown to {sfN} significant figures (PS 6.1.4);
-        all figures include the PS Table 10 contingency unless stated. The workbook holds every assumption and breakdown.
+        {ed1
+          ? "headline figures are on the RICS PS 1st edition (2017) basis - no contingency, pre-construction demolition reported separately; breakdowns include the PS Table 10 contingency unless stated. "
+          : "all figures include the PS Table 10 contingency unless stated. "}
+        Targets are judged on their own scheme's edition. The workbook holds every assumption and breakdown.
       </Note>
     </div>
   )
@@ -70,7 +73,11 @@ export function ResultsPage({ m }: PageProps) {
 type ViewProps = { m: Model; R: Results; sfN: number; P: Palette; lineColor: (c: string) => string; sc: Scope }
 
 /** Targets on a boundary the scope reports: A1-A5 boundaries for upfront, A-C boundaries for life cycle / whole life. */
-export const targetInScope = (key: string, sc: Scope) => (key.startsWith("UP_") ? sc.up : sc.ac)
+export const targetInScope = (key: string, sc: Scope) => (baseKey(key).startsWith("UP_") ? sc.up : sc.ac)
+
+/** The headline key on the workbook's reporting method (D21): the 1st edition reads the V1_ figures where the workbook has them. */
+export const headKey = (R: Results, v: ResOption["values"], key: "UP_ALL" | "AC_ALL" | "WLC_ND") =>
+  R.rics_edition === 1 && typeof v["V1_" + key] !== "undefined" ? "V1_" + key : key
 
 function OptionView({ m, R, o, sfN, P, lineColor, sc }: ViewProps & { o: ResOption }) {
   const v = o.values, S = (k: string) => fmt(sf(n(v, k), sfN))
@@ -87,14 +94,17 @@ function OptionView({ m, R, o, sfN, P, lineColor, sc }: ViewProps & { o: ResOpti
   if (n(v, "M_D")) mods.push({ label: "D (memo, not in A-C)", value: n(v, "M_D"), color: P.module_d, sep: true, muted: true })
   const groups: BarRow[] = (m.group_labels as string[]).map((label, i) => ({ label, value: n(v, "E_" + i), color: P.groups[i % P.groups.length] }))
   groups.push({ label: "Contingency", value: n(v, "E_CONT"), color: P.cont })
-  const upT = n(v, "UP_T")
+  const hUp = headKey(R, v, "UP_ALL"), ed1 = hUp !== "UP_ALL", gia = n(v, "GIA"), demo = n(v, "DEMO")
+  const upT = ed1 ? (n(v, hUp) != null && gia ? (n(v, hUp) as number) * gia / 1000 : undefined) : n(v, "UP_T")
+  const upSub = [upT != null ? `${fmt(sf(upT, sfN))} tCO2e` : "", ed1 && demo ? `demolition ${fmt(sf(demo, sfN))} separate` : ""].filter(Boolean).join(" · ")
   return (
     <div className="space-y-5">
+      {ed1 && <Note>Headline on the RICS PS 1st edition (2017) basis: no contingency; pre-construction demolition reported separately; B3 = 25% of B2.</Note>}
       <div className="grid grid-cols-2 gap-3 @4xl/main:grid-cols-4">
-        {sc.up && <Tile title="Upfront carbon A1-A5" value={S("UP_ALL")} unit="kgCO2e/m² GIA" sub={upT != null ? `${fmt(sf(upT, sfN))} tCO2e` : undefined} />}
-        {sc.emb && <Tile title="Life cycle embodied carbon A-C" value={S("AC_ALL")} unit="kgCO2e/m² GIA" sub="incl. B2-B4, excl. B6/B7" />}
-        {op && <Tile title="Whole life, non-decarbonised" value={S("WLC_ND")} unit="kgCO2e/m² GIA" sub="A-C + B6 + B7" />}
-        {op && <Tile title="Whole life, decarbonised" value={S("WLC_D")} unit="kgCO2e/m² GIA" sub="PS Table 15, FES grid" />}
+        {sc.up && <Tile title="Upfront carbon A1-A5" value={S(hUp)} unit="kgCO2e/m² GIA" sub={upSub || undefined} />}
+        {sc.emb && <Tile title="Life cycle embodied carbon A-C" value={S(headKey(R, v, "AC_ALL"))} unit="kgCO2e/m² GIA" sub="incl. B2-B4, excl. B6/B7" />}
+        {op && <Tile title="Whole life, non-decarbonised" value={S(headKey(R, v, "WLC_ND"))} unit="kgCO2e/m² GIA" sub="A-C + B6 + B7" />}
+        {op && <Tile title="Whole life, decarbonised" value={S("WLC_D")} unit="kgCO2e/m² GIA" sub={ed1 ? "PS Table 15, FES grid · 2nd ed. basis" : "PS Table 15, FES grid"} />}
       </div>
       {n(v, "QA_FLAGS") ? (
         <Notice tone="warn">{fmt(n(v, "QA_FLAGS"))} QA flag(s) open: check sheet O{o.k}_QA in the workbook before using these figures.</Notice>
@@ -143,9 +153,15 @@ function OptionView({ m, R, o, sfN, P, lineColor, sc }: ViewProps & { o: ResOpti
 
 function CompareView({ R, sfN, P, lineColor, sc }: ViewProps) {
   const opts = R.options, names = opts.map((o) => String(o.values.NAME || `Option ${o.k}`))
-  const want: Record<string, boolean> = { UP_ALL: sc.up, AC_ALL: sc.emb, AC_DEC: sc.wlc, WLC_ND: sc.wlc, WLC_D: sc.wlc, EUI: sc.wlc, QA_FLAGS: true }
-  const rows = ([["Upfront A1-A5", "UP_ALL"], ["Life cycle embodied A-C", "AC_ALL"], ["Embodied A-C decarbonised", "AC_DEC"],
-    ["Whole life, non-decarbonised", "WLC_ND"], ["Whole life, decarbonised", "WLC_D"], ["EUI (kWh/m²/yr)", "EUI"], ["QA flags open", "QA_FLAGS"]] as const)
+  const v1 = R.rics_edition === 1 && opts.some((o) => o.values.V1_UP_ALL !== undefined)
+  const want: Record<string, boolean> = { UP_ALL: sc.up, AC_ALL: sc.emb, V1_UP_ALL: sc.up, V1_AC_ALL: sc.emb, V1_WLC_ND: sc.wlc, DEMO: v1,
+    AC_DEC: sc.wlc, WLC_ND: sc.wlc, WLC_D: sc.wlc, EUI: sc.wlc, QA_FLAGS: true }
+  const rows = ((v1
+    ? [["Upfront A1-A5 · PS 1st ed.", "V1_UP_ALL"], ["Life cycle embodied A-C · PS 1st ed.", "V1_AC_ALL"], ["Pre-construction demolition (separate)", "DEMO"],
+      ["Whole life, non-decarbonised · PS 1st ed.", "V1_WLC_ND"], ["Upfront A1-A5 · PS 2nd ed.", "UP_ALL"], ["Life cycle embodied A-C · PS 2nd ed.", "AC_ALL"]]
+    : [["Upfront A1-A5", "UP_ALL"], ["Life cycle embodied A-C", "AC_ALL"]]).concat([["Embodied A-C decarbonised", "AC_DEC"],
+    [v1 ? "Whole life, non-decarbonised · PS 2nd ed." : "Whole life, non-decarbonised", "WLC_ND"], ["Whole life, decarbonised", "WLC_D"],
+    ["EUI (kWh/m²/yr)", "EUI"], ["QA flags open", "QA_FLAGS"]]) as [string, string][])
     .filter(([, k]) => want[k] && opts.some((o) => n(o.values, k) != null))
   return (
     <div className="space-y-5">
@@ -180,8 +196,8 @@ function CompareView({ R, sfN, P, lineColor, sc }: ViewProps) {
       </ChartCard>
       <div className="grid grid-cols-1 gap-5 @3xl/main:grid-cols-2">
         {sc.ac && <TrajectoryCard opts={opts} R={R} sfN={sfN} P={P} lineColor={lineColor} wlc={sc.wlc} />}
-        {([["Upfront A1-A5", "UP_ALL", sc.up], ["Life cycle embodied A-C", "AC_ALL", sc.ac]] as const).filter(([, , on]) => on).map(([label, k]) => (
-          <ChartCard key={k} title={label} note="kgCO2e/m² GIA incl. contingency.">
+        {([["Upfront A1-A5", v1 ? "V1_UP_ALL" : "UP_ALL", sc.up], ["Life cycle embodied A-C", v1 ? "V1_AC_ALL" : "AC_ALL", sc.ac]] as const).filter(([, , on]) => on).map(([label, k]) => (
+          <ChartCard key={k} title={label} note={v1 ? "kgCO2e/m² GIA, RICS PS 1st ed. basis (no contingency, demolition separate)." : "kgCO2e/m² GIA incl. contingency."}>
             <HBarChart rows={opts.map((o, i) => ({ label: names[i], value: n(o.values, k), color: P.project }))} unit="kgCO2e/m²" title={label} labelWidth={120} />
           </ChartCard>
         ))}
