@@ -85,7 +85,7 @@ def default_option(name, layer="", source="layer", file_path=""):
         "name": name, "include": True, "source": source, "layer": layer, "file": file_path,
         "facade": [{"build_up": "CW-UNIT-01", "kind": FACADE_UNITISED, "share": 1.0, "wwr": None}],
         "structure": {"frame": "RC flat slab", "grid_x_m": 9.0, "grid_y_m": 8.0, "column_size_m": 0.75,
-                      "sources": {}},
+                      "sources": {}, "plan_level": "", "column_sections": []},
         "operational": {"elec": None, "gas": None, "dh": None, "pv_self": None, "pv_export": None, "water": None, "eui": None},
         "substructure": default_substructure(),
         "use_modelled": True,          # take off the modelled elements of this model (step 2) for this option
@@ -366,6 +366,8 @@ def loads(text, base=None, exists=os.path.exists):
     st["project"]["rics_edition"] = rics_edition_of(st)                # saved before D21: the 2nd edition, as calculated then
     for o in st.get("options") or []:
         fill_substructure(o)
+        o.setdefault("structure", {}).setdefault("plan_level", "")         # saved before D22: no taper, no sections
+        o["structure"].setdefault("column_sections", [])
     if base and rel:
         resolve_paths(st, rel, base, exists)
     return st
@@ -463,6 +465,13 @@ def validate(state, office=None):
             if f.get("kind") == FACADE_PUNCHED and not (0 <= float(f.get("wwr") or 0) <= 0.95):
                 out.append(("error", "%s: glazing ratio for %s must be 0-95%% (step 5)." % (tag, f["build_up"])))
         out += check_substructure(o, tag, sched_bsm)
+        for b in (o.get("structure") or {}).get("column_sections") or []:      # D22: the engineer's sections by level band
+            if not str(b.get("sizes") or "").strip():
+                continue
+            import wlca_core as _core
+            if _core.parse_sections(b.get("sizes")) is None or not str(b.get("from") or "").strip() or not str(b.get("to") or "").strip():
+                out.append(("error", "%s: column sections %s-%s '%s' - give the levels and sizes like 450x1100, 450x1700 (step 4)."
+                            % (tag, b.get("from") or "?", b.get("to") or "?", b.get("sizes"))))
     sch = state["schedule"]
     if not sch.get("path"):
         out.append(("warning", "No area schedule: GIA and levels come from the massing and storey heights (step 2)."))
@@ -879,7 +888,9 @@ def takeoff_config(state, option, office, base_config):
         cfg["structure"]["plan_json"] = pl["json"]          # written by the dialog's plan reader before the take-off
     s = option["structure"]
     cfg["structure"].update({"grid_x_m": float(s["grid_x_m"]), "grid_y_m": float(s["grid_y_m"]),
-                             "column_size_m": float(s["column_size_m"]), "frame": s.get("frame") or "RC flat slab"})
+                             "column_size_m": float(s["column_size_m"]), "frame": s.get("frame") or "RC flat slab",
+                             "plan_level": (s.get("plan_level") or "").strip() or None,
+                             "column_sections": [dict(b) for b in s.get("column_sections") or [] if str(b.get("sizes") or "").strip()]})
     # facade: the take-off writes one glazed and one opaque row; apply_facade_mix() re-splits them per option
     cfg["wwr"] = {"N": 0.5, "E": 0.5, "S": 0.5, "W": 0.5}
     defaults = (office or {}).get("takeoff_defaults") or {}
@@ -948,7 +959,9 @@ def plan_summary(plan, notes):
     c, k, st = plan["core"], plan["columns"], plan["stairs"]
     lines = ["Core walls: %.0f m per floor, %s mm average (%d pieces)" % (
                  c["wall_length_m_per_floor"] or 0, "%.0f" % (1000 * c["mean_thickness_m"]) if c["mean_thickness_m"] else "-", c["pieces"]),
-             "Columns: %d per floor%s" % (k["count_per_floor"], ", %.2f m %s" % (k["size_m"], "/".join(k["shapes"])) if k["size_m"] else ""),
+             "Columns: %d per floor%s" % (k["count_per_floor"], (" - %s mm, mean section %.3f m2" % (
+                 ", ".join("%d x %s" % (n, lab) for lab, n in k["sections"].items()), k["section_m2"]) if k.get("sections")
+                 else ", %.2f m %s" % (k["size_m"], "/".join(k["shapes"]))) if k["size_m"] else ""),
              "Stairs: %d%s" % (st["count"], " - %s flights, %s treads, %.2f m wide, going %.2f m" % (
                  "/".join(str(x) for x in st["flights_per_stair"]), "/".join(str(x) for x in sorted(set(st["treads_per_flight"]))),
                  st["flight_width_m"], st["going_m"]) if st["count"] else " (office defaults will be used)")]

@@ -126,7 +126,8 @@ def parse_area_schedule(spec, warnings):
     rows = read_xlsx_sheet(spec["path"], spec.get("sheet", "Sheet1"))
     hdr, cols = None, {}
     for r in sorted(rows):
-        lab = dict((c, _txt(v).lower()) for c, v in rows[r].items())
+        # "Floor-to-Floor", "floor_to_floor", "Floor to\nFloor" all read as "floor to floor"
+        lab = dict((c, " ".join(_txt(v).lower().replace("-", " ").replace("_", " ").split())) for c, v in rows[r].items())
         vals = set(lab.values())
         if "level" in vals and "gea" in vals and "gia" in vals:
             hdr = r
@@ -339,27 +340,122 @@ def structure_rows(lv_all, plan, S, method, warnings, core_wall_build_up="WALL-R
         n_typ = S["column_count_per_floor"]
     elif plan and plan["columns"]["count_per_floor"]:
         n_typ = plan["columns"]["count_per_floor"]
-        if abs(plan["columns"]["size_m"] - S["column_size_m"]) > 0.1 * S["column_size_m"]:
-            warnings.append("Plan columns %.2f m vs column_size_m %.2f m / build-up %s" % (plan["columns"]["size_m"], S["column_size_m"], column_build_up))
-    free_typ = typ[2] - (core_area or 0)
+        a_pl = plan["columns"].get("section_m2") or plan["columns"]["size_m"] ** 2
+        a_bu = S.get("column_build_up_section_m2") or 0.5625
+        if abs(a_pl - a_bu) > 0.1 * a_bu:
+            warnings.append("Plan columns %.2f m (section %.3f m2) vs build-up %s (%.4f m2) - quantity scaled to the section "
+                            "of each level; check the sizes with the engineer" % (plan["columns"]["size_m"], a_pl, column_build_up, a_bu))
+    # the level the plan shows (D22): its columns set the count per m2 and the section the rule tapers from
+    pi = level_index([x[0] for x in lv_all], S.get("plan_level")) if plan else None
+    ref = lv_all[pi] if pi is not None else typ
+    free_typ = ref[2] - (core_area or 0)
     if n_typ:
-        rho, rho_src = n_typ / free_typ, "%d on typical level %s" % (n_typ, typ[0])
+        rho, rho_src = n_typ / free_typ, "%d on %s level %s" % (n_typ, "plan" if pi is not None else "typical", ref[0])
     else:
         rho = S["column_edge_factor"] / (S["grid_x_m"] * S["grid_y_m"])
         rho_src = "grid %.1f x %.1f m x edge factor %.2f" % (S["grid_x_m"], S["grid_y_m"], S["column_edge_factor"])
+    secs, sec_note = column_sections(lv_all, plan, S, pi, warnings)
+    a_bu = S.get("column_build_up_section_m2") or 0.5625
     col_m, col_n = 0.0, []
-    for name, h, gea, gia, nia in lv_all:
+    for (name, h, gea, gia, nia), a in zip(lv_all, secs):
         n = int(round(rho * max(0.0, gea - (core_area or 0))))
         col_n.append((name, n))
-        col_m += n * h
+        col_m += n * h * a / a_bu                # m of the column build-up: scaled to each level's section (D22)
     rows.append(("2.1.1", "column", col_m, "m", method,
-                 ("" if n_typ else ASSUMED) + "Columns %s; scaled per level by GEA less core (%s): %s"
+                 ("" if n_typ else ASSUMED) + "Columns %s; scaled per level by GEA less core (%s): %s; %s; m of build-up %s (%.4f m2)"
                  % (rho_src, "core %.0f m2, %s" % (core_area, ca_src) if core_area else "no core deduction",
-                    ", ".join("%s:%d" % c for c in col_n[:3]) + " ...")))
+                    ", ".join("%s:%d" % c for c in col_n[:3]) + " ...", sec_note, column_build_up, a_bu)))
     info = dict(typical_level=typ[0], core_area_m2=core_area, core_area_source=ca_src,
                 core_wall_m_per_floor=wall_len, core_wall_source=wl_src,
-                columns_per_m2=round(rho, 5), columns_by_level=col_n)
+                columns_per_m2=round(rho, 5), columns_by_level=col_n, plan_level=ref[0] if pi is not None else None,
+                column_section_by_level=[(x[0], round(a, 4)) for x, a in zip(lv_all, secs)])
     return rows, info
+
+
+def level_index(names, name):
+    """Index of a level by name ("01" finds "1"), or None."""
+    if name in (None, ""):
+        return None
+    name = str(name).strip()
+    for i, n in enumerate(names):
+        if str(n).strip().upper() == name.upper():
+            return i
+    k = _level_key(name)
+    hits = [i for i, n in enumerate(names) if _level_key(str(n)) == k]
+    return hits[0] if len(hits) == 1 else None
+
+
+def parse_sections(text):
+    """Mean section area (m2) of '450x1100, 450x1700' (mm, or m when below 10), 'D750' / '750 dia' (circular) or a
+    bare number (m2); None when unreadable."""
+    import re
+    t = str(text or "").strip().lower().replace("\u00d7", "x").replace("*", "x")
+    if not t:
+        return None
+    try:
+        return float(t) if float(t) > 0 else None
+    except ValueError:
+        pass
+    areas = []
+    for part in re.split(r"[,;/]+|\s{2,}", t):
+        part = part.strip()
+        if not part:
+            continue
+        m = re.fullmatch(r"(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)", part)
+        d = re.fullmatch(r"(?:d|dia\.?|\u00f8)?\s*(\d+(?:\.\d+)?)\s*(?:mm)?\s*(?:dia\.?|d)?", part)
+        if m:
+            a, b = (float(v) / (1000.0 if float(v) >= 10 else 1.0) for v in m.groups())
+            areas.append(a * b)
+        elif d and ("d" in part or "\u00f8" in part):
+            v = float(d.group(1)) / (1000.0 if float(d.group(1)) >= 10 else 1.0)
+            areas.append(math.pi * v * v / 4.0)
+        else:
+            return None
+    return sum(areas) / len(areas) if areas else None
+
+
+def column_sections(lv_all, plan, S, pi, warnings):
+    """Column section (m2) per level, bottom -> top, and a note (D22). First match wins per level:
+      1 the engineer's sections by level band (S["column_sections"]: [{"from", "to", "sizes"}]);
+      2 with a plan and its level (S["plan_level"]): the plan section x floors carried / floors carried at the plan
+        level (floors carried = this level and every level above), not below S["column_min_section_m2"];
+      3 the plan section on every level (no plan level given), else column_size_m squared."""
+    names = [x[0] for x in lv_all]
+    pc = (plan or {}).get("columns") or {}
+    base = pc.get("section_m2") or (pc["size_m"] ** 2 if pc.get("size_m") else None)
+    base_src = "plan" if base else "column size"
+    if not base:
+        base = float(S.get("column_size_m") or 0.75) ** 2
+    bands = []
+    for b in S.get("column_sections") or []:
+        a = parse_sections(b.get("sizes"))
+        lo, hi = level_index(names, b.get("from")), level_index(names, b.get("to"))
+        if a is None or lo is None or hi is None:
+            warnings.append("Column sections: band %s-%s '%s' not read (levels must be in the schedule, sizes like "
+                            "450x1100, 450x1700) - left out" % (b.get("from"), b.get("to"), b.get("sizes")))
+            continue
+        bands.append((min(lo, hi), max(lo, hi), a))
+    amin = S.get("column_min_section_m2") or 0.1225
+    out, src = [], {"schedule": 0, "rule": 0, "base": 0}
+    for i in range(len(lv_all)):
+        band = next((a for lo, hi, a in bands if lo <= i <= hi), None)
+        if band is not None:
+            out.append(band); src["schedule"] += 1
+        elif pi is not None:
+            out.append(max(amin, base * (len(lv_all) - i) / float(len(lv_all) - pi))); src["rule"] += 1
+        else:
+            out.append(base); src["base"] += 1
+    parts = []
+    if src["schedule"]:
+        parts.append("engineer's sections on %d levels" % src["schedule"])
+    if src["rule"]:
+        parts.append("floors-carried rule on %d levels (%s %.3f m2 at level %s, min %.4f m2)" % (src["rule"], base_src, base, names[pi], amin))
+    if src["base"]:
+        parts.append("%s section %.3f m2 on %d levels" % (base_src, base, src["base"]))
+        if plan and pc.get("count_per_floor") and not bands:
+            warnings.append("Columns: the plan section (%.3f m2) is used on every level - set the level the plan shows "
+                            "(step 4) so the section reduces with height, or enter the engineer's column sections" % base)
+    return out, "section by level: " + "; ".join(parts)
 
 
 # ----------------------------------------------------------------------------- substructure (1.1, 1.2.3)

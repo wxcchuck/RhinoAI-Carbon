@@ -150,3 +150,26 @@ def test_boxes_that_touch_other_shapes_are_not_columns():
     assert not any(r["id"] in ids["columns"] for r in row) and nib["id"] not in ids["columns"]
     assert nib["id"] in ids["walls"]                                           # a nib stays part of the core walls
     assert any("touch other shapes" in n for n in notes)
+
+
+def test_blade_columns_on_a_columns_only_layer():
+    """D22: 450 x 1400 columns (3.1 x as long as wide) on a layer that holds only columns. The shared-layer
+    rules leave them out; a columns-only layer trusts the drawing up to 2.0 m long and 4 x as long as wide.
+    Longer rectangles (blade walls) are listed with their sizes."""
+    W, S = plan()
+    C = [_rect(8 + 7 * i, 1.5, 8.45 + 7 * i, 2.9, layer="C") for i in range(4)] + \
+        [_rect(5, 20, 5.45, 21.7, layer="C"), _rect(12, 20, 12.45, 22.546, layer="C"), _rect(20, 20, 20.45, 25.4, layer="C")]
+    p, ids, notes = pr.measure(W, C, S)
+    assert p["columns"]["count_per_floor"] == 0                      # shared-layer rules: 3.1 x is a wall stub
+    p, ids, notes = pr.measure(W, C, S, dedicated=True)
+    c = p["columns"]
+    assert c["count_per_floor"] == 5 and c["dedicated_layer"]
+    assert c["sections"] == {"450x1400": 4, "450x1700": 1}
+    assert c["section_m2"] == pytest.approx((4 * 0.45 * 1.4 + 0.45 * 1.7) / 5, rel=1e-6)
+    left = next(n for n in notes if "left out" in n)
+    assert "1 x 450x2546" in left and "1 x 450x5400" in left
+    against_core = _rect(15.3, 13, 15.75, 14.4, layer="C")             # drawn against the core wall: still a column
+    assert pr.measure(W, C + [against_core], S, dedicated=True)[0]["columns"]["count_per_floor"] == 6
+    assert pr.measure(W + [against_core], W + [against_core], S)[0]["columns"]["count_per_floor"] == 6   # shared: 3.1 x, out
+    rc = pr.measure(W, [_circle(5, 6, 0.75, layer="C")], S, dedicated=True)[0]["columns"]
+    assert rc["section_m2"] == pytest.approx(math.pi * 0.75 ** 2 / 4, rel=1e-3) and rc["sections"] == {"D750": 1}

@@ -67,6 +67,8 @@ export type Model = {
   }
   office: { path?: string; source?: string; loaded: boolean; error?: string | null }
   schedule: { text: string; level: "good" | "warn" | "muted" }
+  /** level names bottom -> top from the area schedule ([] without one) */
+  levels?: string[]
   checks: Check[]
   blocked: boolean
   calc: { status: "" | "running" | "done" | "failed"; message: string }

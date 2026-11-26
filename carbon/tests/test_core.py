@@ -49,6 +49,22 @@ def test_parse_schedule_flags_broken_aod_chain(tmp_path):
     assert sum("AOD" in m for m in w) == 2           # 4->5 and 5->6 both break
 
 
+@pytest.mark.parametrize("label", ["Floor-to-Floor", "floor_to_floor", "Floor to\nFloor", "FTF"])
+def test_parse_schedule_ftf_header_spellings(tmp_path, label):
+    """The floor-to-floor column is found however the header is hyphenated or wrapped (e.g. 'Floor-to-Floor')."""
+    openpyxl = pytest.importorskip("openpyxl")
+    path = write_schedule(str(tmp_path / "s.xlsx"))
+    wb = openpyxl.load_workbook(path)
+    ws = wb["Office"]
+    for row in ws.iter_rows():
+        for c in row:
+            if c.value == "Floor to Floor":
+                c.value = label
+    wb.save(path)
+    lv = core.parse_area_schedule({"path": path, "sheet": "Office"}, [])
+    assert lv[-1]["ftf"] is not None and lv[7]["ftf"] == 3.75
+
+
 def test_parse_schedule_errors_are_loud(tmp_path):
     path = write_schedule(str(tmp_path / "s.xlsx"))
     with pytest.raises(core.TakeoffError, match="not in"):
@@ -118,6 +134,42 @@ def test_structure_plan_route_and_overrides(schedule, defaults):
     S.update(core_wall_length_m_per_floor=99.0, column_count_per_floor=10)
     rows, info = core.structure_rows(_lv_all(schedule), plan, S, "Derived", [])
     assert info["core_wall_m_per_floor"] == 99.0 and info["columns_per_m2"] == round(10 / 840, 5)
+
+
+def test_column_sections_by_level(schedule, defaults):
+    """D22: the column quantity (m of the build-up) follows each level's section - the engineer's sections by band
+    first, else the floors-carried rule from the plan level, else the plan section on every level."""
+    lv = _lv_all(schedule)
+    names = [x[0] for x in lv]
+    plan = dict(source="Rhino", core=dict(wall_length_m_per_floor=150.0, mean_thickness_m=0.25),
+                columns=dict(count_per_floor=12, size_m=0.794, section_m2=0.63, shapes=["rectangle"]))
+    S = dict(defaults["structure"])
+    a_bu = S["column_build_up_section_m2"]
+    w = []
+    rows, info = core.structure_rows(lv, plan, S, "Derived", w)          # no plan level: plan section everywhere
+    col = lambda rs: [r for r in rs if r[1] == "column"][0][2]          # noqa: E731
+    n = dict(info["columns_by_level"])
+    assert col(rows) == pytest.approx(sum(n[x[0]] * x[1] * 0.63 / a_bu for x in lv))
+    assert any("set the level the plan shows" in m for m in w)
+    S["plan_level"] = "01"                                               # the plan is level 1: taper by floors carried
+    rows, info = core.structure_rows(lv, plan, S, "Derived", [])
+    sec = dict(info["column_section_by_level"])
+    p = names.index("1")
+    assert sec["1"] == pytest.approx(0.63)
+    assert sec[names[0]] == pytest.approx(0.63 * len(lv) / (len(lv) - p))                       # basement carries more
+    assert sec[names[-1]] == pytest.approx(max(0.1225, 0.63 / (len(lv) - p)))
+    assert info["columns_per_m2"] == round(12 / (1100 - 260), 5)
+    S["column_sections"] = [{"from": "B2", "to": "0", "sizes": "450x1100, 450x1700, 450x1700"},
+                            {"from": "1", "to": "5", "sizes": "350x900, 450x1400"},
+                            {"from": "7", "to": "99", "sizes": "nonsense"}]
+    w = []
+    rows, info = core.structure_rows(lv, plan, S, "Derived", w)
+    sec = dict(info["column_section_by_level"])
+    assert sec["B1"] == pytest.approx(0.675) and sec["3"] == pytest.approx((0.315 + 0.63) / 2)
+    assert sec["6"] == pytest.approx(0.63 * (len(lv) - names.index("6")) / (len(lv) - p))        # no band: the rule
+    assert any("band 7-99" in m for m in w)
+    n = dict(info["columns_by_level"])
+    assert col(rows) == pytest.approx(sum(n[x[0]] * x[1] * sec[x[0]] / a_bu for x in lv))
 
 
 # ----------------------------------------------------------------------------- secant wall geometry

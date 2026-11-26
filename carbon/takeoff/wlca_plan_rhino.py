@@ -12,8 +12,11 @@ It returns the same dict as WLCA_plan_extract, so the take-off's structure_rows 
   core walls  thin closed outlines or hatches, 0.10-0.50 m thick: plan area A, thickness t from the outline
               (exact for a rectangle: P = 2(L + t), A = L t); length = A / t
   columns     circles 0.20-1.50 m across; squares and rectangles (closed polylines, each side 0.20-1.50 m, long side
-              at most 3 x the short one, so wall stubs and treads stay out); blocks by their box. A rectangle
-              counts as the square of the same area (the take-off models square columns)
+              at most 3 x the short one, so wall stubs and treads stay out); blocks by their box. On a layer that
+              holds only columns (not the wall layer) the drawing is trusted further (D22): short side 0.20-1.00 m,
+              long side up to 2.00 m, up to 4 x as long as wide - blade columns such as 450 x 1700. Each column's
+              section area is kept (section_m2, sections; circles at pi d2 / 4). Closed
+              rectangles left out are listed with their sizes
   stairs      treads = rectangles 0.18-0.40 x 0.80-2.20 m; runs of treads make flights, flights make stairs
               (same grouping as the PDF extractor). The plan may be rotated: rectangles are read in the
               plan's own frame (dominant rectangle angle).
@@ -35,6 +38,9 @@ DEFAULTS = {
     "column_size_range_m": [0.20, 1.50],
     "column_shapes": ["circle", "square", "rectangle"],
     "column_max_aspect": 3.0,                    # rectangle long side / short side; longer = a wall stub or blade
+    "column_short_max_m": None,                  # short side cap (None = the size range)
+    # a layer that holds only columns (not the wall layer): trust the drawing further - blade columns (D22)
+    "column_dedicated": {"column_size_range_m": [0.20, 2.00], "column_short_max_m": 1.00, "column_max_aspect": 4.0},
     "column_touch_tol_m": 0.02,                  # a square / rectangle touching another small shape is not a column
     "large_outline_m2": 20.0,                    # facade lines and other big outlines may touch columns
     "tread_going_range_m": [0.18, 0.40],
@@ -197,17 +203,17 @@ def touches(a, b, tol):
 
 # ----------------------------------------------------------------------------- classification
 def box_column(w, h, cfg):
-    """("square" | "rectangle", equivalent square side) for a w x h box that reads as a column, else None.
-    A rectangle counts as the square of the same area, so the concrete volume is kept."""
+    """("square" | "rectangle", equivalent square side, section area m2) for a w x h box that reads as a column,
+    else None. A rectangle counts as the square of the same area, so the concrete volume is kept."""
     lo, hi = cfg["column_size_range_m"]
     a, b = sorted((w, h))
-    if a < lo or b > hi:
+    if a < lo or b > hi or (cfg.get("column_short_max_m") and a > cfg["column_short_max_m"]):
         return None
     shapes = cfg["column_shapes"]
     if b - a <= 0.05 * b:
-        return ("square", (a + b) / 2.0) if ("square" in shapes or "rectangle" in shapes) else None
+        return ("square", (a + b) / 2.0, a * b) if ("square" in shapes or "rectangle" in shapes) else None
     if "rectangle" in shapes and b <= cfg.get("column_max_aspect", 3.0) * a:
-        return ("rectangle", math.sqrt(a * b))
+        return ("rectangle", math.sqrt(a * b), a * b)
     return None
 
 
@@ -215,7 +221,7 @@ def column_size(s, cfg):
     lo, hi = cfg["column_size_range_m"]
     if s.get("circle"):
         d = s["circle"][2]
-        return ("circle", d) if "circle" in cfg["column_shapes"] and lo <= d <= hi else None
+        return ("circle", d, math.pi * d * d / 4.0) if "circle" in cfg["column_shapes"] and lo <= d <= min(hi, 1.50) else None
     if s["closed"] and s.get("pts") and not s.get("block"):
         rf = rect_frame(s["pts"])
         return box_column(rf[3], rf[4], cfg) if rf else None
@@ -281,13 +287,16 @@ def check_scale(walls, cols, cfg):
     return 1.0, sc
 
 
-def measure(walls, cols, stairs, cfg=None, boundary=None, source="Rhino layers"):
+def measure(walls, cols, stairs, cfg=None, boundary=None, source="Rhino layers", dedicated=False):
     """Shapes (metres, file units applied) per role -> (plan dict like WLCA_plan_extract, ids, notes).
 
     walls / cols / stairs: shape lists from the chosen layers (cols may be the same list as walls).
-    boundary: shape to clip to, or None = largest closed outline on the wall layer."""
+    boundary: shape to clip to, or None = largest closed outline on the wall layer.
+    dedicated: the column layer holds only columns (not the wall layer) - the column_dedicated limits apply."""
     C = dict(DEFAULTS)
     C.update(cfg or {})
+    if dedicated:
+        C.update(C.get("column_dedicated") or {})
     notes = []
     k, sc = check_scale(walls, cols, C)
     if k != 1.0:
@@ -323,16 +332,23 @@ def measure(walls, cols, stairs, cfg=None, boundary=None, source="Rhino layers")
             if is_tread(s, C):
                 ids["stairs"].append(s.get("id"))
                 tread_ids.add(key(s))
-    cands = []
+    cands, left_out = [], {}
     for s in cols:
         if key(s) in tread_ids:
             continue
         cs = column_size(s, C)
         if cs:
             cands.append((s, cs))
+        elif dedicated and s["closed"] and s.get("pts") and not s.get("block"):
+            rf = rect_frame(s["pts"])
+            if rf:                                # a closed rectangle that is not a column: say which and why
+                lab = "%.0fx%.0f" % tuple(sorted((rf[3] * 1000, rf[4] * 1000)))
+                left_out[lab] = left_out.get(lab, 0) + 1
     # a square / rectangle is a column only when it stands free: one touching a wall piece, a nib, or a row of
     # other boxes (shafts, tiles) is not. Large outlines (facade lines) may touch columns.
-    others = dict((key(x), x) for x in walls + cols if key(x) not in tread_ids and x.get("closed")
+    # on a columns-only layer the drawing is trusted: a column drawn against a core wall still counts, so only
+    # neighbours on the column layer itself (a row of shafts or tiles) rule a box out (D22)
+    others = dict((key(x), x) for x in (cols if dedicated else walls + cols) if key(x) not in tread_ids and x.get("closed")
                   and (x.get("area") or 0) < C["large_outline_m2"])
     touching = 0
     keep_c = []
@@ -355,12 +371,20 @@ def measure(walls, cols, stairs, cfg=None, boundary=None, source="Rhino layers")
                 touching += 1
                 continue
         keep_c.append((s, cs))
-    col_ids, sizes, centres_, shapes_ = set(), [], [], set()
+    col_ids, sizes, centres_, shapes_, areas, sections = set(), [], [], set(), [], {}
     for s, cs in keep_c:
         if cs:
             col_ids.add(key(s))
             sizes.append(cs[1])
             shapes_.add(cs[0])
+            areas.append(cs[2])
+            if cs[0] == "circle":
+                lab = "D%.0f" % (cs[1] * 1000)
+            else:
+                rf = rect_frame(s["pts"]) if s.get("pts") and not s.get("block") else None
+                w, h = (rf[3], rf[4]) if rf else (s["bb"][2] - s["bb"][0], s["bb"][3] - s["bb"][1])
+                lab = "%.0fx%.0f" % tuple(sorted((w * 1000, h * 1000)))
+            sections[lab] = sections.get(lab, 0) + 1
             centres_.append([round(v, 2) for v in centre(s)])
             ids["columns"].append(s.get("id"))
     A = L = 0.0
@@ -380,6 +404,8 @@ def measure(walls, cols, stairs, cfg=None, boundary=None, source="Rhino layers")
         "core": {"wall_length_m_per_floor": round(L, 1), "wall_plan_area_m2_per_floor": round(A, 1),
                  "mean_thickness_m": round(A / L, 3) if L else None, "pieces": n_w},
         "columns": {"count_per_floor": len(sizes), "size_m": round(sum(sizes) / len(sizes), 3) if sizes else None,
+                    "section_m2": round(sum(areas) / len(areas), 4) if areas else None,
+                    "sections": dict(sorted(sections.items(), key=lambda kv: -kv[1])), "dedicated_layer": bool(dedicated),
                     "shapes": sorted(shapes_), "centres_m": centres_},
         "stairs": {"count": len(st), "flights_per_stair": [len(s["flights"]) for s in st],
                    "treads_per_flight": [f["treads"] for f in treads],
@@ -392,9 +418,16 @@ def measure(walls, cols, stairs, cfg=None, boundary=None, source="Rhino layers")
     if touching:
         notes.append("%d square / rectangular shapes of column size were left out because they touch other shapes "
                      "(wall nibs, shafts, tiles) - only free-standing ones count as columns." % touching)
+    lo, hi = C["column_size_range_m"]
+    rule = ("short side %.2f-%.2f m, long side up to %.2f m, up to %g x as long as wide" % (lo, C["column_short_max_m"], hi, C["column_max_aspect"])
+            if C.get("column_short_max_m") else "%.2f-%.2f m across, rectangles up to %g x as long as wide" % (lo, hi, C["column_max_aspect"]))
+    if left_out:
+        notes.append("%d closed rectangles on the column layer left out (%s): %s mm - blade walls or other shapes; core walls "
+                     "are read from the wall layer." % (sum(left_out.values()), rule,
+                                                        ", ".join("%d x %s" % (n, k) for k, n in sorted(left_out.items(), key=lambda kv: -kv[1])[:6])))
     if not sizes:
-        notes.append("No columns found (circles, squares or rectangles 0.2-1.5 m across as closed polylines or blocks; "
-                     "rectangles up to %g x as long as wide)." % C.get("column_max_aspect", 3.0))
+        notes.append("No columns found (circles, squares or rectangles as closed polylines or blocks: %s%s)."
+                     % (rule, "" if dedicated else "; a layer holding only columns allows blade columns up to 2.0 m"))
     if not st:
         notes.append("No stairs found (tread rectangles 0.18-0.40 x 0.80-2.20 m, 4+ per flight) - stairs use office defaults.")
     plan["note"] = " ".join(notes) + " Check the highlighted objects in Rhino."
@@ -511,7 +544,7 @@ def read_plan(doc, walls_layer, columns_layer=None, stairs_layer=None, boundary_
             bnd = tmp[0] if tmp else None
     src = "Rhino layers: walls '%s', columns '%s', stairs '%s'" % (walls_layer, columns_layer or walls_layer, stairs_layer or "-")
     return measure(shp.get(walls_layer, []), shp.get(columns_layer or walls_layer, []), shp.get(stairs_layer, []) if stairs_layer else [],
-                   cfg, boundary=bnd, source=src)
+                   cfg, boundary=bnd, source=src, dedicated=bool(columns_layer) and columns_layer != walls_layer)
 
 
 def all_layer_shapes(doc, max_layers=200):

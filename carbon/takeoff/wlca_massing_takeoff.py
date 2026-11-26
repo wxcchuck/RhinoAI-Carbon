@@ -119,7 +119,12 @@ CONFIG = {
         "column_count_per_floor": None,      # typical floor
         "grid_x_m": 9.0, "grid_y_m": 8.0,
         "column_edge_factor": 1.42,          # columns vs pure grid count - calibrated on pilot tower (20 on 1,012 m2, 9x8 grid)
-        "column_size_m": 0.75,
+        "column_size_m": 0.75,               # section used without a plan (square side)
+        # column sections (D22): quantity in m of the column build-up, scaled to each level's section
+        "column_build_up_section_m2": 0.5625,  # the column build-up's own section (COL-RC-750 = 750 x 750)
+        "plan_level": None,                  # the level the plan shows: count per m2 there; the section tapers from it
+        "column_sections": [],               # engineer's sections by band: [{"from": "00", "to": "01", "sizes": "450x1100, 450x1700"}]
+        "column_min_section_m2": 0.1225,     # floors-carried rule: not below 350 x 350
         "frame": "RC flat slab",             # or PT flat slab / Steel + composite deck / Steel + CLT + concrete topping /
                                              # Steel + CLT / Glulam + CLT (PF rates, columns scaled with height)
     },

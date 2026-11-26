@@ -157,7 +157,8 @@
     h += "<div class='grid'>";
     h += field("Column grid x (m)", input(["options", sel, "structure", "grid_x_m"], s.grid_x_m, "num", "num"));
     h += field("Column grid y (m)", input(["options", sel, "structure", "grid_y_m"], s.grid_y_m, "num", "num"));
-    h += field("Column size (m, square)", input(["options", sel, "structure", "column_size_m"], s.column_size_m, "num", "num"));
+    h += field("Column size without a plan (m, square)", input(["options", sel, "structure", "column_size_m"], s.column_size_m, "num", "num"));
+    h += field("Level the plan shows", select(["options", sel, "structure", "plan_level"], [["", "Not set - plan section on every level"]].concat((M.levels || []).slice().reverse().map(n => [n, n])), s.plan_level || ""));
     h += "</div>";
     return h + note("Cores, columns and stairs come from the plan on step 2 when there is one; otherwise these values and the office defaults are used and the rows are tagged [ASSUMED] in the workbook. Foundations and basement walls are set on step 3.");
   }
