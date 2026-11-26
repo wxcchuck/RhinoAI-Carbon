@@ -12,9 +12,11 @@ KEYS = ["NAME", "GIA", "UP_T", "AC_T", "UP_ALL", "UP_X8", "UP_SC", "UP_WB", "AC_
         "M_A13", "M_A4", "M_A5", "M_B2", "M_B3", "M_B4", "M_C", "M_D", "D_DEC", "B2_BASIS",
         "E_0", "E_1", "E_2", "E_3", "E_4", "E_5", "E_6", "E_7", "E_CONT",
         "B_MOD", "B_ASM", "B_BM", "B_SITE", "B_CONT", "SH_ASM",
-        "BIO_STORED", "BIO_RELEASED", "BC_ALL", "QA_FLAGS", "EUI", "EUI_LIM", "B6_ND", "B6_D", "B7_ND", "B7_D", "WLC_ND", "WLC_D", "OP_STATUS"]
-# Dashboard rows 13-22 (wlca_dashboard trows): the summary key each target is judged on
-TARGET_KEYS = ["UP_SC", "UP_WB", "UP_X8", "UP_X8", "AC_X8", "AC_X8", "UP_ALL", "UP_ALL", "AC_ALL", "AC_ALL"]
+        "BIO_STORED", "BIO_RELEASED", "BC_ALL", "QA_FLAGS", "EUI", "EUI_LIM", "B6_ND", "B6_D", "B7_ND", "B7_D", "WLC_ND", "WLC_D", "OP_STATUS",
+        "DEMO", "V1_UP_ALL", "V1_UP_X8", "V1_AC_ALL", "V1_AC_X8", "V1_WLC_ND", "HL_UP", "HL_AC", "HL_WLC"]
+# Dashboard rows 13-22 (wlca_dashboard trows): the summary key each target is judged on - UKNZCBS on the RICS PS 2nd edition
+# (incl. contingency), LETI / RIBA 2030 / GLA on the 1st (V1_ keys: no contingency, pre-construction demolition separate; D21)
+TARGET_KEYS = ["UP_SC", "UP_WB", "V1_UP_X8", "V1_UP_X8", "V1_AC_X8", "V1_AC_X8", "V1_UP_ALL", "V1_UP_ALL", "V1_AC_ALL", "V1_AC_ALL"]
 TARGET_ROW0 = 13
 
 PS_SCRIPT = r"""
@@ -80,14 +82,17 @@ def read_results(path):
             k += 1
         D = wb["Dashboard"]
         targets = []
-        for i, key in enumerate(TARGET_KEYS):
+        v1 = any("V1_UP_ALL" in o["values"] for o in opts)       # workbooks made before D21 judge every target on the 2nd edition
+        for i, key in enumerate(TARGET_KEYS if v1 else [x.replace("V1_", "") for x in TARGET_KEYS]):
             r = TARGET_ROW0 + i
             label, tgt = D.cell(r, 1).value, _num(D.cell(r, 8).value)
             if label and tgt:
-                targets.append({"label": label, "key": key, "target": tgt})
+                targets.append({"label": label, "key": key, "target": tgt, "edition": 1 if key.startswith("V1_") else 2})
         calculated = any(o["values"].get("UP_ALL") is not None for o in opts)
         sc = dict((k, _num(named(nm))) for k, nm in (("fin", "SC_FIN"), ("ffe", "SC_FFE"), ("mep", "SC_MEP")))
+        ed = str(named("RICS_ED") or "")
         return {"calculated": calculated, "cont": _num(named("CONT")) or 0.0, "stage": _num(named("STAGE")) or 2,
+                "rics_edition": 1 if ed.startswith("1st") else 2,
                 "sc": dict((k, 1.0 if v is None else v) for k, v in sc.items()), "catb": _num(named("CATB")),
                 "options": opts, "targets": targets, "workbook": os.path.abspath(path)}
     finally:
@@ -121,12 +126,13 @@ def read_trajectory(wb, k):
     return out
 
 
-def judge(value, target, cont):
-    """The Dashboard's verdict: Meets / Meets before contingency only / Above / Not assessed."""
+def judge(value, target, cont, edition=2):
+    """The Dashboard's verdict: Meets / Meets before contingency only / Above / Not assessed.
+    On the RICS PS 1st edition (edition=1) there is no contingency, so no middle state."""
     if value is None or not target:
         return "Not assessed"
     if value <= target:
         return "Meets"
-    if value / (1 + (cont or 0)) <= target:
+    if edition == 2 and value / (1 + (cont or 0)) <= target:
         return "Meets before contingency only"
     return "Above"

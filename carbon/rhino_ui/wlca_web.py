@@ -378,7 +378,7 @@ class WLCAWindow(object):
             return
         if res["calculated"]:
             for o in res["options"]:
-                o["verdicts"] = [wr.judge(o["values"].get(t["key"]), t["target"], res["cont"]) for t in res["targets"]]
+                o["verdicts"] = [wr.judge(o["values"].get(t["key"]), t["target"], res["cont"], t.get("edition", 2)) for t in res["targets"]]
             self.results = res
             self.calc = {"status": "done", "message": ""}
         elif not quiet:
@@ -438,7 +438,7 @@ class WLCAWindow(object):
             "state": st,
             "lists": {
                 "uses": rh.USES, "stages": ["0", "1", "2", "3", "4"], "frames": rh.FRAMES, "scenarios": rh.SCENARIOS,
-                "budgets": rh.BUDGETS, "scopes": [list(x) for x in ws.SCOPES], "op_routes": rh.OP_ROUTES, "op_fields": rh.OP_FIELDS, "plan_routes": PLAN_ROUTES,
+                "budgets": rh.BUDGETS, "scopes": [list(x) for x in ws.SCOPES], "rics_editions": [list(x) for x in ws.RICS_EDITIONS], "op_routes": rh.OP_ROUTES, "op_fields": rh.OP_FIELDS, "plan_routes": PLAN_ROUTES,
                 "massing_layers": self.massing_layers() or self.all_layers(), "all_layers": self.all_layers(),
                 "facade_types": ws.facade_catalogue(office), "sheets": self.sheet_names(st["schedule"]["path"]),
                 "fonts": _D.font_names(),

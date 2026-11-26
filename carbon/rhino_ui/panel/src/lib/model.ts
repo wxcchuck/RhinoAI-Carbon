@@ -22,6 +22,8 @@ export type State = {
     occupancy: number | null
     occ_days: number | null
     scopes?: Partial<Record<ScopeKey, boolean>>
+    /** Reporting method (D21): RICS PS edition of the headline. Targets are judged on their own scheme's edition. */
+    rics_edition?: 1 | 2
   }
   options: Option[]
   schedule: { path: string; sheet: string }
@@ -40,6 +42,11 @@ export function scopeOf(m: { state: State }): Scope {
   if (!sc) return { up: true, emb: true, wlc: true, ac: true }
   const up = !!sc.upfront, emb = !!sc.embodied, wlc = !!sc.wlc
   return { up, emb, wlc, ac: emb || wlc }
+}
+
+/** RICS PS edition the headline is reported on: 2 = 2nd (incl. contingency), 1 = 1st (2017: no contingency, demolition separate). */
+export function editionOf(m: { state: State }): 1 | 2 {
+  return String(m.state.project.rics_edition ?? 2) === "1" ? 1 : 2
 }
 
 export type Check = { level: "error" | "note"; text: string }

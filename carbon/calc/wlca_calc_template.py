@@ -158,7 +158,20 @@ SUMMARY = [
     ("AC_DEC", "Embodied A-C with material decarbonisation (PS Table 15), incl. contingency", "kgCO2e/m2"),
     ("D_DEC", "D with material decarbonisation (memo)", "kgCO2e/m2"),
     ("W_M3", "Water used (engineer, else occupancy x RIBA 2025 target)", "m3/yr"),
+    # RICS PS 1st edition (2017) basis (D21): no contingency, pre-construction demolition (A5.1) reported separately,
+    # B3 = 25% of B2 (1st ed. 3.5.3.3); the targets aligned with the 1st edition (GLA, LETI, RIBA 2030) are judged on it
+    ("DEMO", "Pre-construction demolition A5.1, before contingency (1st ed.: reported separately)", "kgCO2e/m2"),
+    ("V1_B3D", "B3 on the 1st-edition rule (25% of B2) less B3 on the 2nd, before contingency", "kgCO2e/m2"),
+    ("V1_UP_ALL", "A1-A5, all categories - RICS PS 1st ed. basis (GLA)", "kgCO2e/m2"),
+    ("V1_UP_X8", "A1-A5 excl. external works - RICS PS 1st ed. basis (LETI)", "kgCO2e/m2"),
+    ("V1_AC_ALL", "A-C incl. biogenic - RICS PS 1st ed. basis (GLA)", "kgCO2e/m2"),
+    ("V1_AC_X8", "A-C incl. biogenic, excl. external works - RICS PS 1st ed. basis (LETI, RIBA)", "kgCO2e/m2"),
+    ("V1_WLC_ND", "Whole life carbon, without grid decarbonisation - RICS PS 1st ed. basis", "kgCO2e/m2"),
+    ("HL_UP", "Headline upfront A1-A5 on the reporting method (Project)", "kgCO2e/m2"),
+    ("HL_AC", "Headline A-C on the reporting method (Project)", "kgCO2e/m2"),
+    ("HL_WLC", "Headline whole life carbon (non-decarbonised) on the reporting method (Project)", "kgCO2e/m2"),
 ]
+RICS_EDITIONS = ("2nd edition (2023)", "1st edition (2017)")
 OP_ROUTES = ("Engineer prediction (TM54)", "Indicative - EUI estimate or UKNZCBS limit", "Not assessed")
 OP_KEYS = (("elec", "Grid electricity (kWh/yr)", "E_ELEC"), ("gas", "Natural gas (kWh/yr)", "E_GAS"), ("dh", "District heat (kWh/yr)", "E_DH"),
            ("pv_self", "PV used on site (kWh/yr)", "E_PVS"), ("pv_export", "PV exported (kWh/yr)", "E_PVX"), ("water", "Water (m3/yr)", "W"),
@@ -668,6 +681,9 @@ def build(cfg):
          "methane from landfill, so it applies to the landfilled share only (C4). Reused / recycled share: inert factor as the processing "
          "stand-in (default, XW 16/10/2026); 'wood' charges methane on it too.", "BIO_STANDIN"),
         ("SCOPE", None, None, None, None),
+        ("Reporting method - RICS PS edition", RICS_EDITIONS[1] if str(params.get("rics_edition", 2)).startswith("1") else RICS_EDITIONS[0], "",
+         "Sets the headline figures. Targets are always judged on their own edition: GLA, LETI, RIBA 2030 and P&M on the 1st "
+         "(no contingency, pre-construction demolition separate, B3 = 25% of B2); UKNZCBS on the 2nd", "RICS_ED"),
         ("Upfront embodied carbon (A1-A5)", scopes["upfront"], "", "Scope of assessment (RICS PS terms). Y = reported as a headline. "
          "A1-A5 is always calculated; B2-B4, C1-C4 and D only with life cycle or whole life carbon, B6 / B7 only with whole life", "SCOPE_UP"),
         ("Life cycle embodied carbon (A-C, excl. B6 & B7)", scopes["embodied"], "", "A1-A5, B1-B5, C1-C4 (B1 / B5 not in this version)",
@@ -701,7 +717,7 @@ def build(cfg):
     head(P, 4, ["", "Input", "Value", "Unit", "Note / source"], [3, 44, 24, 22, 110])
     r = 5
     lists = {"USE": ",".join(use_classes), "BM_C1": "Exclude,Include",
-             "SH_UK": "Y,N", "SH_LETI": "Y,N", "SCOPE_UP": "Y,N", "SCOPE_EMB": "Y,N", "SCOPE_WLC": "Y,N", "SH_RIBA": "Y,N", "SH_GLA": "Y,N", "SCN": "GLA aspirational,GLA benchmark,None",
+             "SH_UK": "Y,N", "SH_LETI": "Y,N", "SCOPE_UP": "Y,N", "SCOPE_EMB": "Y,N", "SCOPE_WLC": "Y,N", "RICS_ED": ",".join(RICS_EDITIONS), "SH_RIBA": "Y,N", "SH_GLA": "Y,N", "SCN": "GLA aspirational,GLA benchmark,None",
              "BUD": "UKNZCBS,LETI 2030 (A),LETI 2020 (C),RIBA 2030,GLA aspirational A1-A5,GLA benchmark A1-A5",
              "PM_GROUP": ",".join(pm_groups), "EFW": ",".join(EFW_OPTS), "BIO_STANDIN": ",".join(STANDIN_OPTS),
              "OP_ROUTE": ",".join(OP_ROUTES)}
@@ -867,6 +883,12 @@ def build(cfg):
          "Scope of assessment (Project): upfront embodied carbon A1-A5, life cycle embodied carbon A-C excl. B6 & B7, whole life carbon A-C - one or more. "
          "Only the modules in scope are calculated: A1-A5 always (with biogenic carbon stored, reported separately); B2-B4, C1-C4, D and biogenic "
          "carbon released only with life cycle or whole life carbon (else A-C results read 'not in scope'); B6 / B7 only with whole life carbon."),
+        ("Reporting method", "RICS PS edition (Project, RICS_ED) for the headline. 2nd edition (2023): incl. the PS Table 10 contingency, "
+                             "pre-construction demolition in A5.1. 1st edition (2017): no contingency, pre-construction demolition reported "
+                             "separately (1st ed. 3.2.2), B3 = 25% of B2 (3.5.3.3; the 2nd-edition B2 default is kept, as the 1st gives none). "
+                             "Both are per m2 GIA. The O<k>_Results summary carries both (V1_ keys, DEMO). Targets are judged on their own "
+                             "scheme's edition whichever is chosen: UKNZCBS on the 2nd; GLA (London Plan Guidance 2022), LETI (2022) and RIBA 2030 "
+                             "on the 1st (Dashboard targets table, column D)."),
         ("How to use", "1 Project: GIA per option, use class, stage, facade route, targets.\n2 O<k>_QA: every FLAG must be fixed or justified.\n"
                        "3 Dashboard: pick an option at the top. Compare: all options side by side. O<k>_Results: the element x module table.\n"
                        "Change factors or layer quantities on Materials / Layers only for project-specific overrides; library-wide changes go to the library owner."),
@@ -1258,10 +1280,13 @@ def build_option(wb, ctx, o):
     rr = b["b3c"] + 1
 
     # headline block
-    R["A4"] = "Headline (incl. contingency; building-level figures to 2 s.f. at RIBA 0-2, 3 s.f. from RIBA 3 - PS 6.1.4)"
+    R["A4"] = ('=IF(LEFT(RICS_ED,3)="1st","Headline (RICS PS 1st edition basis, no contingency","Headline (RICS PS 2nd edition, incl. contingency")'
+               '&"; building-level figures to 2 s.f. at RIBA 0-2, 3 s.f. from RIBA 3 - PS 6.1.4)"')
     R["A4"].font = BOLD
-    hl = [("Upfront carbon A1-A5", "=" + sf("R%d" % tot), "kgCO2e/m2 GIA"),
-          ("Embodied carbon A-C incl. B2 / B3 and biogenic (excl. B6/B7)", "=" + sf("Y%d" % SUM_ROW["AC_ALL"]), "kgCO2e/m2 GIA"),
+    hl = [('=IF(LEFT(RICS_ED,3)="1st","Upfront carbon A1-A5 - RICS PS 1st ed. (no contingency, demolition separate)","Upfront carbon A1-A5")',
+           "=" + sf("Y%d" % SUM_ROW["HL_UP"]), "kgCO2e/m2 GIA"),
+          ('=IF(LEFT(RICS_ED,3)="1st","Embodied carbon A-C - RICS PS 1st ed. (no contingency, demolition separate)",'
+           '"Embodied carbon A-C incl. B2 / B3 and biogenic (excl. B6/B7)")', "=" + sf("Y%d" % SUM_ROW["HL_AC"]), "kgCO2e/m2 GIA"),
           ("A1-A5 total", "=" + sf("I%d" % tot), "tCO2e"),
           ("Modelled share of A1-A5 (before contingency)", "=IF(I%d=0,0,SUM(I%d:I%d)/I%d)" % (sub, mod_first, mod_last, sub), ""),
           ("Benchmarked share of A1-A5", "=IF(I%d=0,0,SUM(I%d:I%d)/I%d)" % (sub, bm_first, bm_last, sub), ""),
@@ -1279,6 +1304,8 @@ def build_option(wb, ctx, o):
     for i, nm in ((0, "SCOPE_UP"), (1, "SCOPE_EMB")):
         R.cell(5 + i, 5, '=IF(%s="Y","In scope","Outside the scope - for information")' % nm).font = Font(italic=True, color="595959")
     R.cell(5, 7, '=IF(SCOPE_WLC="Y","Whole life carbon (A-C + B6 + B7) in scope: see Summary","")').font = Font(italic=True, color="595959")
+    R.cell(6, 7, '=IF(LEFT(RICS_ED,3)="1st","Pre-construction demolition (reported separately, 1st ed. 3.2.2): "&TEXT(Y%d,"#,##0")&" kgCO2e/m2 GIA","")'
+           % SUM_ROW["DEMO"]).font = Font(italic=True, color="595959")
     R.freeze_panes = "D14"
 
     # ---------------------------------------------------------------- Summary block (X:Z) for Dashboard / Compare
@@ -1342,9 +1369,9 @@ def build_option(wb, ctx, o):
         "SCN_AC_ALL": "=Y%d+Y%d" % (SUM_ROW["MOD_AC_ALL"], SUM_ROW["BMS_AC_ALL"]),
         "UK_LIM": "=UK_LIM",
         "LETI_UP": '=IF(COUNTIFS(%s,"LETI upfront",%s,USE)=0,"n/a",INDEX(%s,COUNTIFS(%s)+1))'
-                   % (TGc("A"), TGc("C"), letis, tsub % (TGc("A"), "LETI upfront", TGc("C"), TGc("F"), "Y%d" % SUM_ROW["UP_X8"])),
+                   % (TGc("A"), TGc("C"), letis, tsub % (TGc("A"), "LETI upfront", TGc("C"), TGc("F"), "Y%d" % SUM_ROW["V1_UP_X8"])),      # LETI: RICS PS 1st ed. basis (D21)
         "LETI_LC": '=IF(COUNTIFS(%s,"LETI life cycle",%s,USE)=0,"n/a",INDEX(%s,COUNTIFS(%s)+1))'
-                   % (TGc("A"), TGc("C"), letis, tsub % (TGc("A"), "LETI life cycle", TGc("C"), TGc("F"), "Y%d" % SUM_ROW["AC_X8"])),
+                   % (TGc("A"), TGc("C"), letis, tsub % (TGc("A"), "LETI life cycle", TGc("C"), TGc("F"), "Y%d" % SUM_ROW["V1_AC_X8"])),      # LETI: RICS PS 1st ed. basis (D21)
         "QA_FLAGS": "=%s!C4" % QS, "NAME": "=O%d_NAME" % k,
     }
     for i, g in enumerate(GROUPS):
@@ -1377,6 +1404,23 @@ def build_option(wb, ctx, o):
     # A-C results only with life cycle embodied / whole life carbon in scope (Project); module totals read 0 outside it
     for key in AC_KEYS:
         F[key] = '=IF(SC_AC=0,"not in scope",%s)' % F[key][1:]
+    # RICS PS 1st edition basis (D21): value / (1 + CONT) - A5.1, biogenic kept out of the contingency, B3 on the 1st-ed. rule
+    y = lambda key: "Y%d" % SUM_ROW[key]                                     # noqa: E731
+    bio_y = "(%s+%s)" % (y("BIO_STORED"), y("BIO_RELEASED"))
+    v1ac = lambda key: '=IF(ISNUMBER({v}),({v}-{b})/(1+CONT)-{d}+{b3}+{b},{v})'.format(  # noqa: E731
+        v=y(key), b=bio_y, d=y("DEMO"), b3=y("V1_B3D"))
+    ed1 = 'LEFT(RICS_ED,3)="1st"'
+    F.update({
+        "DEMO": "=IF(%s>0,%s*1000/%s,0)" % (GIA, code("I", "A5.1"), GIA),
+        "V1_B3D": "=IF(%s>0,(0.25*C%d-C%d)*1000/%s,0)" % (GIA, b["b2"], b["b3"], GIA),
+        "V1_UP_ALL": "=%s/(1+CONT)-%s" % (y("UP_ALL"), y("DEMO")),
+        "V1_UP_X8": "=%s/(1+CONT)-%s" % (y("UP_X8"), y("DEMO")),
+        "V1_AC_ALL": v1ac("AC_ALL"), "V1_AC_X8": v1ac("AC_X8"),
+        "V1_WLC_ND": '=IF(AND(ISNUMBER({w}),ISNUMBER({a})),{a}+{b6}+{b7},{w})'.format(w=y("WLC_ND"), a=y("V1_AC_ALL"), b6=y("B6_ND"), b7=y("B7_ND")),
+        "HL_UP": "=IF(%s,%s,%s)" % (ed1, y("V1_UP_ALL"), y("UP_ALL")),
+        "HL_AC": "=IF(%s,%s,%s)" % (ed1, y("V1_AC_ALL"), y("AC_ALL")),
+        "HL_WLC": "=IF(%s,%s,%s)" % (ed1, y("V1_WLC_ND"), y("WLC_ND")),
+    })
     R.cell(4, 24, "Summary (read by Dashboard and Compare - do not move)").font = BOLD
     R.column_dimensions["X"].width = 12
     R.column_dimensions["Y"].width = 12
