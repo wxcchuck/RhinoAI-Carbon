@@ -40,6 +40,29 @@ RICS_EDITIONS = [(2, "RICS PS 2nd edition (2023)", "Incl. the PS Table 10 contin
                                                    "GLA, LETI, RIBA 2030.")]
 
 
+# custom targets (D25): up to three, each with a name, a value (kgCO2e/m2 GIA, no contingency), a boundary and a RICS PS edition
+CUSTOM_N = 3
+CUSTOM_BOUNDARIES = [("UP_ALL", "A1-A5, all elements"), ("UP_X8", "A1-A5, excl. external works"),
+                     ("AC_ALL", "A-C (excl. B6/B7), all elements"), ("AC_X8", "A-C (excl. B6/B7), excl. external works")]
+
+
+def default_custom_target():
+    return {"name": "", "value": None, "boundary": "UP_ALL", "edition": 2}
+
+
+def custom_targets_of(state):
+    """The custom targets in use: [(slot 1-3, target dict)] with a name and a value above 0."""
+    out = []
+    for n, c in enumerate((state.get("targets") or {}).get("custom") or [], start=1):
+        try:
+            v = float(c.get("value"))
+        except (TypeError, ValueError):
+            v = 0.0
+        if str(c.get("name") or "").strip() and v > 0:
+            out.append((n, c))
+    return out
+
+
 def rics_edition_of(state):
     """1 or 2 (default 2)."""
     return 1 if str((state.get("project") or {}).get("rics_edition", 2)).strip() == "1" else 2
@@ -69,6 +92,7 @@ def default_state():
         "targets": {"show": {"UKNZCBS": True, "LETI": True, "RIBA": True, "GLA": True},
                     "sc_share": {"finishes": 1.0, "ffe": 1.0, "services": 1.0},
                     "catb_allowance": None, "scenario": "GLA aspirational", "budget_target": "UKNZCBS",
+                    "custom": [default_custom_target() for _ in range(CUSTOM_N)],
                     "chart": None},        # targets drawn on the Results page (labels); None = a default few
         # font: one family for the whole workbook; logo: None = the office settings logo, "" = none, else an image file
         "output": {"folder": "", "workbook": "", "font": "Arial", "logo": None},
@@ -365,6 +389,8 @@ def loads(text, base=None, exists=os.path.exists):
         sp = {"upfront": True, "embodied": True, "wlc": op != "Not assessed"}
     st["project"]["scopes"] = dict(default_scopes(), **dict((k, bool(v)) for k, v in sp.items() if k in default_scopes()))
     st["project"]["rics_edition"] = rics_edition_of(st)                # saved before D21: the 2nd edition, as calculated then
+    cu = [dict(default_custom_target(), **(c or {})) for c in (st["targets"].get("custom") or [])][:CUSTOM_N]   # D25
+    st["targets"]["custom"] = cu + [default_custom_target() for _ in range(CUSTOM_N - len(cu))]
     for o in st.get("options") or []:
         fill_substructure(o)
         o.setdefault("structure", {}).setdefault("plan_level", "")         # saved before D22: no taper, no sections
@@ -445,6 +471,23 @@ def validate(state, office=None):
     if (state.get("targets") or {}).get("budget_target") == "RIBA 2030" and not ({"embodied", "wlc"} & set(scopes)):
         out.append(("error", "The RIBA 2030 carbon budget is on A-C, which is outside the scope of assessment (step 1): "
                              "choose an upfront budget on step 6, or tick life cycle embodied carbon."))
+    ac_ok = bool({"embodied", "wlc"} & set(scopes))
+    used = dict(custom_targets_of(state))
+    for n, c in enumerate((state.get("targets") or {}).get("custom") or [], start=1):      # D25
+        named, val = str(c.get("name") or "").strip(), c.get("value")
+        if val not in (None, "") and not named:
+            out.append(("error", "Custom target %d has a value but no name (step 6)." % n))
+        elif named and n not in used:
+            out.append(("error", "Custom target %d (%s) needs a value above 0 kgCO2e/m2 (step 6)." % (n, named)))
+        elif n in used and str(c.get("boundary") or "").startswith("AC") and not ac_ok:
+            out.append(("warning", "Custom target %d (%s) is on A-C, outside the scope of assessment (step 1): it reads 'not assessed'." % (n, named)))
+    bud = str((state.get("targets") or {}).get("budget_target") or "")
+    if bud.startswith("Custom target"):
+        n = int(bud.split()[-1])
+        if n not in used:
+            out.append(("error", "The carbon budget is set to %s, which is not filled in (step 6)." % bud))
+        elif str(used[n].get("boundary") or "").startswith("AC") and not ac_ok:
+            out.append(("error", "The carbon budget (%s) is on A-C, which is outside the scope of assessment (step 1)." % bud))
     if "wlc" in scopes and ((state.get("operational") or {}).get("route") or "Not assessed") == "Not assessed":
         out.append(("error", "Whole life carbon is in scope (step 1): choose a B6 / B7 basis on step 6, or untick whole life carbon."))
     cat = {f["id"]: f for f in facade_catalogue(office or {})}
@@ -924,6 +967,9 @@ def calc_config(state, office, exports):
         "construction_start_year": int(state["project"]["start_year"]),
         "show_targets": dict((k, "Y" if v else "N") for k, v in t["show"].items()),
         "scenario": t["scenario"], "budget_target": t["budget_target"],
+        "custom_targets": [{"name": str(c.get("name") or "").strip(), "value": float(c["value"]) if c in dict(custom_targets_of(state)).values() else None,
+                            "boundary": c.get("boundary") or "UP_ALL", "edition": 1 if str(c.get("edition")) == "1" else 2}
+                           for c in t.get("custom") or []],
         "sc_share": dict(t["sc_share"]),
         "catb_allowance": None if t.get("catb_allowance") in (None, "") else float(t["catb_allowance"]),
     })

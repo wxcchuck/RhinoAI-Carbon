@@ -170,8 +170,12 @@ SUMMARY = [
     ("HL_UP", "Headline upfront A1-A5 on the reporting method (Project)", "kgCO2e/m2"),
     ("HL_AC", "Headline A-C on the reporting method (Project)", "kgCO2e/m2"),
     ("HL_WLC", "Headline whole life carbon (non-decarbonised) on the reporting method (Project)", "kgCO2e/m2"),
-]
+] + [("EC_%d" % i, "A-C %s (before contingency, excl. biogenic; D25)" % g, "kgCO2e/m2") for i, g in enumerate(GROUPS)]
 RICS_EDITIONS = ("2nd edition (2023)", "1st edition (2017)")
+# custom targets (D25): up to three, each on its own boundary and RICS PS edition
+CUSTOM_N = 3
+CUSTOM_BOUNDARIES = (("A1-A5 all elements", "UP_ALL"), ("A1-A5 excl. external works", "UP_X8"),
+                     ("A-C all elements", "AC_ALL"), ("A-C excl. external works", "AC_X8"))
 OP_ROUTES = ("Engineer prediction (TM54)", "Indicative - EUI estimate or UKNZCBS limit", "Not assessed")
 OP_KEYS = (("elec", "Grid electricity (kWh/yr)", "E_ELEC"), ("gas", "Natural gas (kWh/yr)", "E_GAS"), ("dh", "District heat (kWh/yr)", "E_DH"),
            ("pv_self", "PV used on site (kWh/yr)", "E_PVS"), ("pv_export", "PV exported (kWh/yr)", "E_PVX"), ("water", "Water (m3/yr)", "W"),
@@ -419,7 +423,7 @@ def build(cfg):
 
     wb = Workbook()
     wb.remove(wb.active)
-    for nm in ["README", "Project", "Dashboard", "Compare"]:
+    for nm in ["README", "Project", "Dashboard", "Compare", "Budgets"]:
         wb.create_sheet(nm)
     for o in opts:
         for s in ("Results", "QA", "Takeoff", "Lines", "Mat", "Traj"):
@@ -625,6 +629,15 @@ def build(cfg):
     scopes = scope_flags(params)
     pm_groups = [r[0] for r in pm[1:] if r and r[0]]
     pm_default = params.get("pm_group") or next((r[0] for r in pm[1:] if r and r[1] == header.get("use_class", "Office")), pm_groups[0] if pm_groups else "")
+    custom_rows = []
+    for n, ct in enumerate((list(params.get("custom_targets") or []) + [{}] * CUSTOM_N)[:CUSTOM_N], start=1):
+        bnd = dict((k, l) for l, k in CUSTOM_BOUNDARIES).get(ct.get("boundary"), CUSTOM_BOUNDARIES[0][0])
+        custom_rows += [
+            ("Custom target %d - name" % n, ct.get("name") or None, "", "Blank = not used. Compared on the Dashboard; 'Custom target %d' as the budget target" % n, "CT%d_NAME" % n),
+            ("Custom target %d - value" % n, ct.get("value"), "kgCO2e/m2 GIA", "Bare threshold (no contingency)", "CT%d_VAL" % n),
+            ("Custom target %d - boundary" % n, bnd, "", "A1-A5 or A-C (excl. B6 / B7), with or without external works", "CT%d_BND" % n),
+            ("Custom target %d - RICS PS basis" % n, RICS_EDITIONS[1] if int(ct.get("edition") or 2) == 1 else RICS_EDITIONS[0], "",
+             "2nd edition: judged incl. the PS Table 10 contingency; 1st edition: no contingency, pre-construction demolition separate", "CT%d_ED" % n)]
     items = [
         ("Project ID", header.get("project_id", ""), "", "From export header", "PROJ"),
         ("Use class", header.get("use_class", "Office"), "", "Selects benchmark rows and targets", "USE"),
@@ -704,7 +717,9 @@ def build(cfg):
         ("Show GLA (London Plan Guidance)", show.get("GLA", "Y"), "", "A1-A5 and A-C (excl. B6, B7), all categories incl. external works", "SH_GLA"),
         ("Non-modelled scenario tier", params["scenario"], "",
          "Scenario only - never the headline. Benchmarked elements re-run at GLA aspirational / GLA benchmark per module group", "SCN"),
-        ("Budget target", params["budget_target"], "", "Carbon budget chart: target minus modelled + site = what is left for elements not yet designed", "BUD"),
+        ("Budget target", params["budget_target"], "", "Carbon budget chart: target minus modelled + site = what is left for elements not yet designed. "
+         "A custom target also gets element budgets (its value x the GLA share of each element group, Budgets sheet)", "BUD"),
+    ] + custom_rows + [
         ("Price & Myers structure group", pm_default, "", "Structural A1-A5 and A1-C4 ranges (structure only). Release, method and samples: Targets, P&M source column", "PM_GROUP"),
         ("OPERATIONAL", None, None, None, None),
         ("Operational energy (B6) basis", params["op_route"], "",
@@ -718,7 +733,10 @@ def build(cfg):
     r = 5
     lists = {"USE": ",".join(use_classes), "BM_C1": "Exclude,Include",
              "SH_UK": "Y,N", "SH_LETI": "Y,N", "SCOPE_UP": "Y,N", "SCOPE_EMB": "Y,N", "SCOPE_WLC": "Y,N", "RICS_ED": ",".join(RICS_EDITIONS), "SH_RIBA": "Y,N", "SH_GLA": "Y,N", "SCN": "GLA aspirational,GLA benchmark,None",
-             "BUD": "UKNZCBS,LETI 2030 (A),LETI 2020 (C),RIBA 2030,GLA aspirational A1-A5,GLA benchmark A1-A5",
+             "BUD": "UKNZCBS,LETI 2030 (A),LETI 2020 (C),RIBA 2030,GLA aspirational A1-A5,GLA benchmark A1-A5,"
+                    + ",".join("Custom target %d" % n for n in range(1, CUSTOM_N + 1)),
+             **dict(("CT%d_BND" % n, ",".join(l for l, _ in CUSTOM_BOUNDARIES)) for n in range(1, CUSTOM_N + 1)),
+             **dict(("CT%d_ED" % n, ",".join(RICS_EDITIONS)) for n in range(1, CUSTOM_N + 1)),
              "PM_GROUP": ",".join(pm_groups), "EFW": ",".join(EFW_OPTS), "BIO_STANDIN": ",".join(STANDIN_OPTS),
              "OP_ROUTE": ",".join(OP_ROUTES)}
     for lbl, val, unit, note, nm in items:
@@ -813,11 +831,16 @@ def build(cfg):
         ("Scenario factor B-C (tier / GLA benchmark)",
          '=IF(SCN="None",1,IFERROR(IF(SCN="GLA aspirational",%s,%s)/%s,1))' % (gla("aspirational", "BC_ALL"), gla("benchmark", "BC_ALL"), gla("benchmark", "BC_ALL")), "", "SCN_FBC"),
         ("UKNZCBS offices shell & core limit", "=" + tsum("UKNZCBS", '"UKNZCBS S&C "&UK_YEAR', "UP_X8"), "kgCO2e/m2", "UK_LIM_SC"),
+    ] + [x for n in range(1, CUSTOM_N + 1) for x in (
+        ("Custom target %d boundary key" % n, '=IF(CT{n}_BND="A1-A5 excl. external works","UP_X8",IF(CT{n}_BND="A-C all elements","AC_ALL",'
+         'IF(CT{n}_BND="A-C excl. external works","AC_X8","UP_ALL")))'.format(n=n), "", "CT%d_KEY" % n),
+        ("Custom target %d summary key (V1_ = RICS PS 1st ed.)" % n, '=IF(LEFT(CT{n}_ED,3)="1st","V1_","")&CT{n}_KEY'.format(n=n), "", "CT%d_SKEY" % n),
+        ("Custom target %d in use" % n, '=IF(AND(LEN(CT{n}_NAME&"")>0,N(CT{n}_VAL)>0),"Y","N")'.format(n=n), "", "CT%d_ON" % n))] + [
         ("Budget target value",
-         '=IF(BUD="UKNZCBS",IF(UK_LIM_SC>0,UK_LIM_SC,UK_LIM),IF(BUD="LETI 2030 (A)",%s,IF(BUD="LETI 2020 (C)",%s,IF(BUD="RIBA 2030",%s,IF(BUD="GLA aspirational A1-A5",%s,%s)))))'
+         '=IF(LEFT(BUD,13)="Custom target",N(CHOOSE(VALUE(RIGHT(BUD,1)),CT1_VAL,CT2_VAL,CT3_VAL)),IF(BUD="UKNZCBS",IF(UK_LIM_SC>0,UK_LIM_SC,UK_LIM),IF(BUD="LETI 2030 (A)",%s,IF(BUD="LETI 2020 (C)",%s,IF(BUD="RIBA 2030",%s,IF(BUD="GLA aspirational A1-A5",%s,%s)))))'
          % (tsum("LETI upfront", '"LETI band A"', "UP_X8"), tsum("LETI upfront", '"LETI band C"', "UP_X8"),
-            tsum("RIBA 2030", '"RIBA 2030"', "AC_X8"), gla("aspirational", "UP_ALL"), gla("benchmark", "UP_ALL")), "kgCO2e/m2", "BUD_VAL"),
-        ("Budget target boundary", '=IF(BUD="RIBA 2030","AC_X8",IF(LEFT(BUD,3)="GLA","UP_ALL",IF(AND(BUD="UKNZCBS",UK_LIM_SC>0),"UP_SC","UP_X8")))', "", "BUD_KEY"),
+            tsum("RIBA 2030", '"RIBA 2030"', "AC_X8"), gla("aspirational", "UP_ALL"), gla("benchmark", "UP_ALL")) + ")", "kgCO2e/m2", "BUD_VAL"),
+        ("Budget target boundary", '=IF(LEFT(BUD,13)="Custom target",CHOOSE(VALUE(RIGHT(BUD,1)),CT1_KEY,CT2_KEY,CT3_KEY),IF(BUD="RIBA 2030","AC_X8",IF(LEFT(BUD,3)="GLA","UP_ALL",IF(AND(BUD="UKNZCBS",UK_LIM_SC>0),"UP_SC","UP_X8"))))', "", "BUD_KEY"),
         ("P&M structure P25", '=SUMIFS(%s,%s,PM_GROUP)' % (TGp("AA"), TGp("W")), "kgCO2e/m2", "PM_P25"),
         ("P&M structure median", '=SUMIFS(%s,%s,PM_GROUP)' % (TGp("AB"), TGp("W")), "kgCO2e/m2", "PM_P50"),
         ("P&M structure P75", '=SUMIFS(%s,%s,PM_GROUP)' % (TGp("AC"), TGp("W")), "kgCO2e/m2", "PM_P75"),
@@ -864,9 +887,10 @@ def build(cfg):
         o.update(build_option(wb, ctx, o))
 
     # =================================================================================== Dashboard + Compare
-    from wlca_dashboard import build_dashboard, build_compare    # noqa: E402
+    from wlca_dashboard import build_budgets, build_compare, build_dashboard    # noqa: E402
     build_dashboard(wb, ctx, opts, cfg.get("branding") or {})
     build_compare(wb, ctx, opts, cfg.get("branding") or {})
+    build_budgets(wb, ctx, opts, cfg.get("branding") or {})
 
     # =================================================================================== README
     D = wb["README"]
@@ -889,6 +913,11 @@ def build(cfg):
                              "Both are per m2 GIA. The O<k>_Results summary carries both (V1_ keys, DEMO). Targets are judged on their own "
                              "scheme's edition whichever is chosen: UKNZCBS on the 2nd; GLA (London Plan Guidance 2022), LETI (2022) and RIBA 2030 "
                              "on the 1st (Dashboard targets table, column D)."),
+        ("Custom targets", "Up to three on the Project sheet (name, value in kgCO2e/m2 GIA without contingency, boundary, RICS PS edition). "
+                           "They join the Dashboard targets table (rows 23-25), judged on their own boundary and edition, and any of them can be "
+                           "the budget target. The Budgets sheet splits each into element budgets: value x the GLA typical-development share of "
+                           "each element group for the use (LPG 2022 Table A2.1; A1-A5 or A-C shares by boundary; excl. external works rescales "
+                           "the other six groups to 100%), against the selected option's groups on the same basis."),
         ("How to use", "1 Project: GIA per option, use class, stage, facade route, targets.\n2 O<k>_QA: every FLAG must be fixed or justified.\n"
                        "3 Dashboard: pick an option at the top. Compare: all options side by side. O<k>_Results: the element x module table.\n"
                        "Change factors or layer quantities on Materials / Layers only for project-specific overrides; library-wide changes go to the library owner."),
@@ -1376,6 +1405,8 @@ def build_option(wb, ctx, o):
     }
     for i, g in enumerate(GROUPS):
         F["E_%d" % i] = '=IF(%s>0,SUMIFS(%s,%s,"%s")*1000/%s,0)' % (GIA, RG("I"), RG("T"), g, GIA)
+        # A-C per group (column O, before contingency, excl. biogenic) for the custom target element budgets (D25)
+        F["EC_%d" % i] = '=IF(SC_AC<>1,"not in scope",IF(%s>0,SUMIFS(%s,%s,"%s")*1000/%s,0))' % (GIA, RG("O"), RG("T"), g, GIA)
     # ---- B6 / B7 (PS 5.3 / 5.4, App. G): per option; no contingency; indicative route = UKNZCBS EUI limit x GIA, all electric
     eng, ind = 'LEFT(OP_EFF,8)="Engineer"', 'LEFT(OP_EFF,10)="Indicative"'
     E_ = "IF(%s,N(O%d_E_ELEC),IF(%s,IF(N(O%d_EUI_IN)>0,O%d_EUI_IN,UK_EUI)*%s,0))" % (eng, k, ind, k, k, GIA)

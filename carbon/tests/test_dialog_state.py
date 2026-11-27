@@ -550,6 +550,36 @@ def test_column_sections_state(defaults):
     assert [m for lvl, m in ws.validate(st) if lvl == "error" and "column sections 2-?" in m]
 
 
+def test_custom_targets_state(defaults):
+    """D25: three custom target slots - defaults, older saves, workbook params, checks, budget."""
+    st = ws.default_state()
+    assert len(st["targets"]["custom"]) == 3 and ws.custom_targets_of(st) == []
+    old = ws.default_state()
+    del old["targets"]["custom"]
+    assert len(ws.loads(json.dumps(old))["targets"]["custom"]) == 3
+    cu = st["targets"]["custom"]
+    cu[0].update(name="Client", value=400, boundary="UP_X8", edition=2)
+    cu[1].update(name="", value=300)
+    cu[2].update(name="Stretch")
+    msgs = [m for lvl, m in ws.validate(st) if lvl == "error"]
+    assert any("Custom target 2 has a value but no name" in m for m in msgs)
+    assert any("Custom target 3 (Stretch) needs a value" in m for m in msgs)
+    cu[1].update(name="Planning", boundary="AC_ALL", edition=1)
+    cu[2].update(name="")
+    st["targets"]["budget_target"] = "Custom target 3"
+    assert any("Custom target 3, which is not filled in" in m for lvl, m in ws.validate(st))
+    st["targets"]["budget_target"] = "Custom target 2"
+    st["project"]["scopes"] = {"upfront": True, "embodied": False, "wlc": False}
+    msgs = ws.validate(st)
+    assert ("error", "The carbon budget (Custom target 2) is on A-C, which is outside the scope of assessment (step 1).") in msgs
+    assert any(lvl == "warning" and "Custom target 2 (Planning) is on A-C" in m for lvl, m in msgs)
+    o = ws.default_option("A", layer="L")
+    st["options"] = [o]
+    cc = ws.calc_config(st, {"library_xlsx": "lib", "benchmarks": {"path": "b"}}, [(o, "a.csv")])
+    assert cc["params"]["custom_targets"][0] == {"name": "Client", "value": 400.0, "boundary": "UP_X8", "edition": 2}
+    assert cc["params"]["custom_targets"][1]["edition"] == 1 and cc["params"]["custom_targets"][2]["value"] is None
+
+
 def test_budget_needs_its_boundary_in_scope():
     st = ws.default_state()
     st["project"]["name"], st["output"]["folder"] = "P", "out"

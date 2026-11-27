@@ -278,6 +278,7 @@ def _targets(path):
     g = wb.create_sheet("GLA_Breakdown")
     g.append(["use_class", "metric"] + ct.GROUPS[:7])
     g.append(["Office", "UP_ALL"] + GLA_SHARE)
+    g.append(["Office", "AC_ALL", 0.13, 0.25, 0.18, 0.16, 0.05, 0.21, 0.02])          # invented A-C shares (sum 1)
     g.append(["Residential", "UP_ALL"] + [1, 0, 0, 0, 0, 0, 0])
     p = wb.create_sheet("PM_Structure")
     p.append(["group", "use_class", "n", "p10", "p25", "p50", "p75", "p90", "ac_p25", "ac_p50", "ac_p75", "source"])
@@ -772,3 +773,62 @@ def test_rics_edition_basis(built, tmp_path):
     assert uk[0].endswith("PS 2nd ed.") and uk[2] == pytest.approx(sfround(y(w2, "UP_X8")))
     assert [D.cell(r, 10).value for r in tr] == [w1["Dashboard"].cell(r, 10).value for r in tr]   # verdicts do not move
     assert "1st edition" in w1["Dashboard"]["A6"].value and "2nd edition" in D["A6"].value
+
+
+def test_custom_targets(built, tmp_path):
+    """D25: up to three custom targets, each on its own boundary and RICS PS edition, on the Dashboard targets table; element
+    budgets on the Budgets sheet = target x GLA share for the use (A1-A5 or A-C shares; excl. external works rescaled)."""
+    tg, lib2 = str(tmp_path / "targets.xlsx"), str(tmp_path / "lib_b6.xlsx")
+    _targets(tg)
+    _b6_library(built["library_xlsx"], lib2)
+    ct = [{"name": "Client upfront", "value": 400, "boundary": "UP_X8", "edition": 2},
+          {"name": "Planning A-C", "value": 600, "boundary": "AC_ALL", "edition": 1}]
+    cfg = dict(built, targets_xlsx=tg, library_xlsx=lib2, out=str(tmp_path / "ct.xlsx"),
+               params=dict(built["params"], custom_targets=ct, budget_target="Custom target 2", scopes={"upfront": "Y", "embodied": "Y", "wlc": "N"}))
+    import wlca_calc_template as tmpl
+    tmpl.build(cfg).save(cfg["out"])
+    wb = _calc(cfg["out"], str(tmp_path / "c"))
+    errs = [(ws.title, c.coordinate, c.value) for ws in wb for row in ws.iter_rows() for c in row
+            if isinstance(c.value, str) and c.value[:4] in ("#VAL", "#REF", "#DIV", "#N/A", "#NAM", "#NUM")
+            and not (ws.title == "Dashboard" and c.value == "#N/A")]
+    assert not errs, errs[:10]
+    y = lambda key: wb["O1_Results"].cell(tmpl.SUM_ROW[key], 25).value          # noqa: E731
+    P = wb["Project"]
+    cont = P["C%d" % next(r for r in range(5, 80) if P.cell(r, 2).value == "Contingency")].value
+    D = wb["Dashboard"]
+    rows = dict((D.cell(r, 1).value, r) for r in range(13, 26) if D.cell(r, 1).value)
+    r1, r2 = rows["Client upfront"], rows["Planning A-C"]
+    assert r1 == 23 and r2 == 24 and not D.cell(25, 1).value                    # slot 3 unused
+    assert D.cell(r1, 4).value == "A1-A5 excl. external works | PS 2nd ed." and D.cell(r2, 4).value == "A-C all elements | PS 1st ed."
+    assert D.cell(r1, 7).value == pytest.approx(sfround(y("UP_X8"))) and D.cell(r2, 7).value == pytest.approx(sfround(y("V1_AC_ALL")))
+    assert D.cell(r1, 8).value == 400 and D.cell(r2, 8).value == 600
+    assert D.cell(r1, 10).value == wr_judge(y("UP_X8"), 400, cont, 2) and D.cell(r2, 10).value == wr_judge(y("V1_AC_ALL"), 600, cont, 1)
+    # budget target: custom target 2
+    names = dict((dn, wb.defined_names[dn].attr_text) for dn in ("BUD_VAL", "BUD_KEY"))
+    val = lambda nm: (lambda s, c: wb[s.strip("'")][c.replace("$", "")].value)(*names[nm].split("!"))   # noqa: E731
+    assert val("BUD_VAL") == 600 and val("BUD_KEY") == "AC_ALL"
+    # element budgets
+    S = wb["Budgets"]
+    cells = [[c.value for c in r] for r in S.iter_rows(min_row=1, max_col=6)]
+    def block(title):
+        i = next(k for k, r in enumerate(cells) if isinstance(r[0], str) and r[0].startswith(title))
+        return cells[i + 2:i + 11]
+    b1 = block("Custom target 1: Client upfront")
+    assert b1[6][0] == "External works" and b1[6][1] == 0 and b1[6][3] == "excluded"
+    assert sum(r[1] for r in b1[:7]) == pytest.approx(1.0) and sum(r[2] for r in b1[:7]) == pytest.approx(400)
+    assert b1[0][3] == pytest.approx(y("E_0") * (1 + cont)) and b1[8][2] == 400
+    assert b1[8][3] == pytest.approx(sfround(y("UP_X8")))
+    b2 = block("Custom target 2: Planning A-C")
+    assert b2[6][1] > 0 and sum(r[1] for r in b2[:7]) == pytest.approx(1.0)
+    assert b2[1][3] == pytest.approx(y("EC_1"))                                 # 1st ed.: before contingency
+    assert b2[7][3] == pytest.approx(y("V1_AC_ALL") - sum(r[3] for r in b2[:7]))  # not allocated = total (unrounded) - groups
+    assert "not used" in next(r[0] for r in cells if isinstance(r[0], str) and r[0].startswith("Custom target 3"))
+    import wlca_results as wr
+    res = wr.read_results(str(next(__import__("pathlib").Path(tmp_path / "c").glob("*.xlsx"))))
+    cu = [t for t in res["targets"] if t.get("custom")]
+    assert [(t["label"], t["key"], t["edition"], t["target"]) for t in cu] == [("Client upfront", "UP_X8", 2, 400), ("Planning A-C", "V1_AC_ALL", 1, 600)]
+
+
+def wr_judge(value, target, cont, edition):
+    import wlca_results as wr
+    return wr.judge(value, target, cont, edition)

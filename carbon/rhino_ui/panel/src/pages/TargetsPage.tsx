@@ -13,7 +13,9 @@ type Targets = {
   catb_allowance: number | null
   scenario: string
   budget_target: string
+  custom?: Custom[]
 }
+type Custom = { name: string; value: number | null; boundary: string; edition: number }
 type Operational = { route: string; op_year: number | null; dh_factor: number | null }
 
 const SHOW: [string, string][] = [
@@ -48,6 +50,8 @@ export function TargetsPage({ m }: PageProps) {
         </div>
       </Section>
 
+      <CustomTargets t={t} boundaries={(L.custom_boundaries as [string, string][]) || []} />
+
       <Section title="UKNZCBS offices"
         lead="The share of each element group that is shell & core. The rest counts as Cat A and is taken off A1-A5 (excl. external works) for the UKNZCBS offices shell & core limit only (5.1.6.2).">
         <FieldGrid>
@@ -65,13 +69,15 @@ export function TargetsPage({ m }: PageProps) {
         </FieldGrid>
       </Section>
 
-      <Section title="Scenario and budget">
+      <Section title="Scenario and budget"
+        lead="The budget compares the chosen target with what is modelled so far, leaving the rest for elements not yet designed. A custom target is also split into element budgets by the GLA typical-development shares (workbook Budgets sheet).">
         <FieldGrid>
           <FormField label="Elements not yet designed: scenario" htmlFor={idOf(["targets", "scenario"])}>
             <ChoiceInput path={["targets", "scenario"]} value={t.scenario} options={L.scenarios as string[]} />
           </FormField>
           <FormField label="Carbon budget against" htmlFor={idOf(["targets", "budget_target"])}>
-            <ChoiceInput path={["targets", "budget_target"]} value={t.budget_target} options={L.budgets as string[]} />
+            <ChoiceInput path={["targets", "budget_target"]} value={t.budget_target}
+              options={(L.budgets as string[]).map((b) => [b, budgetLabel(b, t.custom || [])] as [string, string])} />
           </FormField>
         </FieldGrid>
       </Section>
@@ -146,5 +152,49 @@ export function TargetsPage({ m }: PageProps) {
         </Note>
       </Section>
     </div>
+  )
+}
+
+// Custom targets (D25): up to three, each with its own boundary and RICS PS edition. A blank name leaves the slot unused.
+const EDITIONS: [string, string][] = [["2", "RICS PS 2nd ed. - incl. contingency"], ["1", "RICS PS 1st ed. - no contingency"]]
+
+function budgetLabel(b: string, custom: Custom[]) {
+  const n = /^Custom target (\d)$/.exec(b)
+  if (!n) return b
+  const c = custom[Number(n[1]) - 1]
+  return c && c.name ? `${b} - ${c.name}` : `${b} (not filled in)`
+}
+
+function CustomTargets({ t, boundaries }: { t: Targets; boundaries: [string, string][] }) {
+  const slots = t.custom || []
+  const P = (n: number, k: string) => ["targets", "custom", n, k]
+  return (
+    <Section title="Custom targets"
+      lead="Your own targets - a client brief, a planning condition, a stretch goal. Each is compared on its own boundary and RICS PS edition, on the Results page and the Dashboard, and can be the carbon budget below.">
+      <ul className="grid gap-3 @3xl/main:grid-cols-3">
+        {slots.map((c, n) => (
+          <li key={n} className="rounded-lg border bg-card p-3">
+            <p className="mb-2 text-xs font-medium text-muted-foreground">Custom target {n + 1}</p>
+            <div className="grid gap-3">
+              <FormField label="Name" htmlFor={idOf(P(n, "name"))}>
+                <TextInput path={P(n, "name")} value={c.name} placeholder="e.g. Client brief upfront" />
+              </FormField>
+              <NumField path={P(n, "value")} value={c.value} label="Value (kgCO2e/m² GIA)" hint="A bare threshold, no contingency." />
+              <FormField label="Boundary" htmlFor={idOf(P(n, "boundary"))}>
+                <ChoiceInput path={P(n, "boundary")} value={c.boundary} options={boundaries} />
+              </FormField>
+              <FormField label="Judged on" htmlFor={idOf(P(n, "edition"))}>
+                <ChoiceInput path={P(n, "edition")} value={String(c.edition ?? 2)} options={EDITIONS} kind="int" />
+              </FormField>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <Note>
+        Leave the name blank for an unused slot. 2nd edition: judged with the PS Table 10 contingency, like UKNZCBS; 1st edition: without it and with
+        pre-construction demolition reported separately, like GLA, LETI and RIBA 2030. Element budgets use the GLA shares for the project's use and the
+        target's boundary (A1-A5 or A-C; excl. external works rescales the other groups).
+      </Note>
+    </Section>
   )
 }

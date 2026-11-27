@@ -57,7 +57,8 @@ OP_ROUTES = ["Engineer prediction (TM54)", "Indicative - EUI estimate or UKNZCBS
 OP_FIELDS = [("elec", "Grid electricity (kWh)"), ("gas", "Natural gas (kWh)"), ("dh", "District heat (kWh)"),
              ("pv_self", "PV used on site (kWh)"), ("pv_export", "PV exported (kWh)"), ("water", "Water (m³)"),
              ("eui", "Indicative EUI (kWh/m² GIA)")]
-BUDGETS = ["UKNZCBS", "LETI 2030 (A)", "LETI 2020 (C)", "RIBA 2030", "GLA aspirational A1-A5", "GLA benchmark A1-A5"]
+BUDGETS = ["UKNZCBS", "LETI 2030 (A)", "LETI 2020 (C)", "RIBA 2030", "GLA aspirational A1-A5", "GLA benchmark A1-A5",
+           "Custom target 1", "Custom target 2", "Custom target 3"]    # custom targets: D25
 
 
 def office_settings_path():
