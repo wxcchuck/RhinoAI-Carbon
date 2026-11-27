@@ -55,7 +55,7 @@ function ColumnSections({ m, i, s }: { m: PageProps["m"]; i: number; s: Structur
     .concat(levels.map((n) => [n, n] as [string, string]))
   return (
     <Section title="Column sections" code="2.1.1"
-      lead="The plan on step 2 shows one level, but columns usually get smaller towards the top. Each level's section comes from the engineer's sections below; levels they don't cover reduce from the plan level by the floors each column carries, not below 350 × 350 mm.">
+      lead="The plan on step 2 shows one level, but columns usually get smaller towards the top. Each level's section comes from the engineer's sections below; levels they don't cover follow the floors each column carries: smaller above the plan level (not below 350 × 350 mm), larger below it (at most 1.5 × the plan section).">
       <FieldGrid>
         <FormField label="Level the plan shows" htmlFor={idOf(P("plan_level"))} className="@md/main:col-span-2">
           <ChoiceInput path={P("plan_level")} value={s.plan_level ?? ""} options={opts} />

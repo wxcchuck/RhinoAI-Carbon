@@ -418,7 +418,8 @@ def column_sections(lv_all, plan, S, pi, warnings):
     """Column section (m2) per level, bottom -> top, and a note (D22). First match wins per level:
       1 the engineer's sections by level band (S["column_sections"]: [{"from", "to", "sizes"}]);
       2 with a plan and its level (S["plan_level"]): the plan section x floors carried / floors carried at the plan
-        level (floors carried = this level and every level above), not below S["column_min_section_m2"];
+        level (floors carried = this level and every level above), not below S["column_min_section_m2"] and, below
+        the plan level, not above S["column_max_growth"] x the plan section (D24: 1.5);
       3 the plan section on every level (no plan level given), else column_size_m squared."""
     names = [x[0] for x in lv_all]
     pc = (plan or {}).get("columns") or {}
@@ -436,20 +437,32 @@ def column_sections(lv_all, plan, S, pi, warnings):
             continue
         bands.append((min(lo, hi), max(lo, hi), a))
     amin = S.get("column_min_section_m2") or 0.1225
+    grow = S.get("column_max_growth") or 1.5
     out, src = [], {"schedule": 0, "rule": 0, "base": 0}
+    capped = 0
     for i in range(len(lv_all)):
         band = next((a for lo, hi, a in bands if lo <= i <= hi), None)
         if band is not None:
             out.append(band); src["schedule"] += 1
         elif pi is not None:
-            out.append(max(amin, base * (len(lv_all) - i) / float(len(lv_all) - pi))); src["rule"] += 1
+            a = max(amin, base * (len(lv_all) - i) / float(len(lv_all) - pi))
+            if i < pi and a > grow * base:          # below the plan level: grows, but not past the cap (D24)
+                a, capped = grow * base, capped + 1
+            out.append(a); src["rule"] += 1
         else:
             out.append(base); src["base"] += 1
     parts = []
     if src["schedule"]:
         parts.append("engineer's sections on %d levels" % src["schedule"])
     if src["rule"]:
-        parts.append("floors-carried rule on %d levels (%s %.3f m2 at level %s, min %.4f m2)" % (src["rule"], base_src, base, names[pi], amin))
+        parts.append("floors-carried rule on %d levels (%s %.3f m2 at level %s, min %.4f m2, max %g x below it%s)"
+                     % (src["rule"], base_src, base, names[pi], amin, grow, ", reached on %d" % capped if capped else ""))
+        below = [i for i in range(pi) if not any(lo <= i <= hi for lo, hi, _ in bands)]
+        if below and pi >= len(lv_all) / 2.0:
+            warnings.append("Columns: the plan shows level %s, in the top half of the building - below it the floors-carried "
+                            "rule grows the section to at most %g x the plan section (%d levels%s). Enter the engineer's sections "
+                            "for the lower levels (step 4), or check the level the plan shows."
+                            % (names[pi], grow, len(below), ", %d at the cap" % capped if capped else ""))
     if src["base"]:
         parts.append("%s section %.3f m2 on %d levels" % (base_src, base, src["base"]))
         if plan and pc.get("count_per_floor") and not bands:

@@ -159,6 +159,12 @@ def test_column_sections_by_level(schedule, defaults):
     assert sec[names[0]] == pytest.approx(0.63 * len(lv) / (len(lv) - p))                       # basement carries more
     assert sec[names[-1]] == pytest.approx(max(0.1225, 0.63 / (len(lv) - p)))
     assert info["columns_per_m2"] == round(12 / (1100 - 260), 5)
+    S2 = dict(S, plan_level=names[-1])                                   # D24: a plan at the top level
+    w = []
+    sec2 = dict(core.structure_rows(lv, plan, S2, "Derived", w)[1]["column_section_by_level"])
+    assert sec2[names[-1]] == pytest.approx(0.63) and sec2[names[0]] == pytest.approx(1.5 * 0.63)   # capped, not x len(lv)
+    assert all(a <= 1.5 * 0.63 + 1e-9 for a in sec2.values())
+    assert any("top half of the building" in m for m in w)
     S["column_sections"] = [{"from": "B2", "to": "0", "sizes": "450x1100, 450x1700, 450x1700"},
                             {"from": "1", "to": "5", "sizes": "350x900, 450x1400"},
                             {"from": "7", "to": "99", "sizes": "nonsense"}]

@@ -125,6 +125,7 @@ CONFIG = {
         "plan_level": None,                  # the level the plan shows: count per m2 there; the section tapers from it
         "column_sections": [],               # engineer's sections by band: [{"from": "00", "to": "01", "sizes": "450x1100, 450x1700"}]
         "column_min_section_m2": 0.1225,     # floors-carried rule: not below 350 x 350
+        "column_max_growth": 1.5,            # floors-carried rule below the plan level: not above 1.5 x the plan section (D24)
         "frame": "RC flat slab",             # or PT flat slab / Steel + composite deck / Steel + CLT + concrete topping /
                                              # Steel + CLT / Glulam + CLT (PF rates, columns scaled with height)
     },
