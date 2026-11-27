@@ -23,6 +23,29 @@ if PKG and PKG not in sys.path:
     sys.path.insert(0, PKG)
 import wlca_state as ws  # noqa: E402
 
+
+def ensure_package(name):
+    """Import a pip package, installing it once into Rhino's default Python environment when missing - the same
+    place a '# r: name' script header installs to."""
+    import importlib
+    try:
+        return importlib.import_module(name)
+    except ImportError:
+        pass
+    import subprocess
+    env = next((p for p in sys.path if os.sep + "site-envs" + os.sep in p and os.path.basename(p).startswith("default")), None)
+    exe = os.path.join(os.path.expanduser("~"), ".rhinocode", "py39-rh8", "python.exe")
+    if not env or not os.path.exists(exe):
+        raise ImportError("%s is not installed and Rhino's Python environment was not found - run a script with "
+                          "'# r: %s' in the Rhino ScriptEditor once" % (name, name))
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    r = subprocess.run([exe, "-m", "pip", "install", "--disable-pip-version-check", "--target", env, name],
+                       capture_output=True, text=True, creationflags=flags, timeout=600)
+    if r.returncode:
+        raise ImportError("Installing %s failed: %s" % (name, (r.stderr or r.stdout).strip()[-400:]))
+    importlib.invalidate_caches()
+    return importlib.import_module(name)
+
 USES = ["Office", "Residential", "Schools & Universities", "Retail"]
 try:
     import wlca_core as _core          # noqa: E402
@@ -207,6 +230,25 @@ class WLCARhino(object):
             self.state["schedule"]["sheet"] = names[0] if names else ""
             self.save()
             self.refresh()
+
+    def read_column_pdf(self, i):
+        """Step 4: the engineer's column schedule from a PDF -> option i's column sections (D23). Replaces the bands."""
+        dlg = forms.OpenFileDialog()
+        dlg.Title = "Structural engineer's drawing with the column schedule"
+        dlg.Filters.Add(forms.FileFilter("PDF", ".pdf"))
+        if dlg.ShowDialog(self.dialog_parent) != forms.DialogResult.Ok:
+            return
+        s = self.state["options"][int(i)]["structure"]
+        try:
+            ensure_package("pymupdf")
+            import wlca_column_schedule as cs
+            got = cs.read_pdf(dlg.FileName)
+            s["column_sections"] = got["bands"]
+            s["column_schedule"] = {"pdf": dlg.FileName, "page": got["page"], "summary": got["summary"], "error": ""}
+        except Exception as e:
+            s["column_schedule"] = {"pdf": dlg.FileName, "page": None, "summary": "", "error": str(e)}
+        self.save()
+        self.refresh()
 
     def pick_plan_json(self):
         dlg = forms.OpenFileDialog()

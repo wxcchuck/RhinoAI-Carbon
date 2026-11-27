@@ -85,7 +85,8 @@ def default_option(name, layer="", source="layer", file_path=""):
         "name": name, "include": True, "source": source, "layer": layer, "file": file_path,
         "facade": [{"build_up": "CW-UNIT-01", "kind": FACADE_UNITISED, "share": 1.0, "wwr": None}],
         "structure": {"frame": "RC flat slab", "grid_x_m": 9.0, "grid_y_m": 8.0, "column_size_m": 0.75,
-                      "sources": {}, "plan_level": "", "column_sections": []},
+                      "sources": {}, "plan_level": "", "column_sections": [],
+                      "column_schedule": {}},
         "operational": {"elec": None, "gas": None, "dh": None, "pv_self": None, "pv_export": None, "water": None, "eui": None},
         "substructure": default_substructure(),
         "use_modelled": True,          # take off the modelled elements of this model (step 2) for this option
@@ -368,6 +369,7 @@ def loads(text, base=None, exists=os.path.exists):
         fill_substructure(o)
         o.setdefault("structure", {}).setdefault("plan_level", "")         # saved before D22: no taper, no sections
         o["structure"].setdefault("column_sections", [])
+        o["structure"].setdefault("column_schedule", {})                  # D23: where the bands were read from
     if base and rel:
         resolve_paths(st, rel, base, exists)
     return st
