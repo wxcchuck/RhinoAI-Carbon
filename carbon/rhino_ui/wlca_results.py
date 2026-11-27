@@ -18,6 +18,7 @@ KEYS = ["NAME", "GIA", "UP_T", "AC_T", "UP_ALL", "UP_X8", "UP_SC", "UP_WB", "AC_
 # (incl. contingency), LETI / RIBA 2030 / GLA on the 1st (V1_ keys: no contingency, pre-construction demolition separate; D21)
 TARGET_KEYS = ["UP_SC", "UP_WB", "V1_UP_X8", "V1_UP_X8", "V1_AC_X8", "V1_AC_X8", "V1_UP_ALL", "V1_UP_ALL", "V1_AC_ALL", "V1_AC_ALL"]
 TARGET_ROW0 = 13
+CUSTOM_N = 3              # rows 23-25: custom targets (D25), key and edition from the names CTn_SKEY / CTn_ED
 
 PS_SCRIPT = r"""
 $ErrorActionPreference = 'Stop'
@@ -88,6 +89,12 @@ def read_results(path):
             label, tgt = D.cell(r, 1).value, _num(D.cell(r, 8).value)
             if label and tgt:
                 targets.append({"label": label, "key": key, "target": tgt, "edition": 1 if key.startswith("V1_") else 2})
+        for n in range(1, CUSTOM_N + 1):
+            r = TARGET_ROW0 + len(TARGET_KEYS) + n - 1
+            label, tgt, key = D.cell(r, 1).value, _num(D.cell(r, 8).value), named("CT%d_SKEY" % n)
+            if label and tgt and key:
+                targets.append({"label": label, "key": str(key), "target": tgt, "edition": 1 if str(key).startswith("V1_") else 2,
+                                "custom": n})
         calculated = any(o["values"].get("UP_ALL") is not None for o in opts)
         sc = dict((k, _num(named(nm))) for k, nm in (("fin", "SC_FIN"), ("ffe", "SC_FFE"), ("mep", "SC_MEP")))
         ed = str(named("RICS_ED") or "")

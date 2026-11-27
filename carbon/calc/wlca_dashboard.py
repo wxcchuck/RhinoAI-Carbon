@@ -40,6 +40,7 @@ DEFAULT = dict(
     good="DCEFE1", bad="F8D7D3",
 )
 # targets judged on the RICS PS 1st edition basis (D21): boundary key -> V1_ key (UKNZCBS keys stay on the 2nd edition)
+CUSTOM_N = 3              # custom targets (D25): Dashboard rows 23-25, after the ten scheme targets
 TARGET_KEY = {"UP_X8": "V1_UP_X8", "UP_ALL": "V1_UP_ALL", "AC_X8": "V1_AC_X8", "AC_ALL": "V1_AC_ALL"}
 BOUNDARY_TEXT = {"UP_X8": "A1-A5 excl. ext. works", "UP_ALL": "A1-A5 all elements",
                  "UP_SC": "A1-A5 shell & core, excl. ext. works", "UP_WB": "A1-A5 incl. Cat B + loose FF&E",
@@ -354,7 +355,7 @@ def build_dashboard(wb, ctx, opts, branding):
     ws["A10"].font = _f(B, 9, color=B["muted"])
     ws.conditional_formatting.add("M8", CellIsRule(operator="equal", formula=['"Above"'], font=Font(name=B["font"], size=20, bold=True, color="C0392B")))
 
-    # ---- targets table + chart (rows 11-22)
+    # ---- targets table + chart (rows 11-25: ten scheme targets, then up to three custom targets)
     _section(ws, B, 11, "Against targets - each compared on its own boundary")
     hdr = ["Target", "", "", "Boundary and RICS PS basis", "", "Before contingency", "Compared figure", "Target (no cont.)",
            "Margin", "Result"]
@@ -401,6 +402,26 @@ def build_dashboard(wb, ctx, opts, branding):
             ws.cell(r, c).border = Border(bottom=Side(style="hair", color=B["rule"]))
         for c in (6, 7, 8, 9):
             ws.cell(r, c).number_format = '#,##0;-#,##0;0;""'
+    # custom targets (D25): each on its own boundary (CTn_KEY) and RICS PS edition (CTn_ED; summary key CTn_SKEY)
+    for n in range(1, CUSTOM_N + 1):
+        r = t0 + len(trows)
+        trows.append(("CT%d_ON" % n, None, None, None))
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=3)
+        ws.merge_cells(start_row=r, start_column=4, end_row=r, end_column=5)
+        val, ed1 = pick("CT%d_SKEY" % n), 'LEFT(CT%d_ED,3)="1st"' % n
+        ws.cell(r, 1, '=IF(CT%d_ON="Y",CT%d_NAME,"")' % (n, n))
+        ws.cell(r, 4, '=IF(A{r}="","",CT{n}_BND&" | PS "&IF({e},"1st","2nd")&" ed.")'.format(r=r, n=n, e=ed1))
+        ws.cell(r, 6, '=IF(A{r}="",NA(),IFERROR(IF(ISNUMBER({v}),IF({e},{a},{b}),NA()),NA()))'.format(r=r, v=val, e=ed1, a=sf(val), b=sf(val + "/(1+CONT)")))
+        ws.cell(r, 7, '=IF(A{r}="",NA(),IFERROR(IF(ISNUMBER({v}),{a},NA()),NA()))'.format(r=r, v=val, a=sf(val)))
+        ws.cell(r, 8, '=IF(A%d="",NA(),CT%d_VAL)' % (r, n))
+        ws.cell(r, 9, '=IF(A{r}="","",IF(ISNA(G{r}),"",H{r}-G{r}))'.format(r=r))
+        ws.cell(r, 10, '=IF(A{r}="","",IFERROR(IF(NOT(ISNUMBER({v})),"Not assessed",IF({v}<=H{r},"Meets",IF(AND(NOT({e}),{v}/(1+CONT)<=H{r}),'
+                       '"Meets before contingency only","Above"))),"Not assessed"))'.format(r=r, v=val, e=ed1))
+        for c in range(1, 11):
+            ws.cell(r, c).font = _f(B, 9)
+            ws.cell(r, c).border = Border(bottom=Side(style="hair", color=B["rule"]))
+        for c in (6, 7, 8, 9):
+            ws.cell(r, c).number_format = '#,##0;-#,##0;0;""'
     t1 = t0 + len(trows) - 1
     ws.conditional_formatting.add("J%d:J%d" % (t0, t1), CellIsRule(operator="equal", formula=['"Meets"'], fill=PatternFill("solid", fgColor=B["good"])))
     ws.conditional_formatting.add("J%d:J%d" % (t0, t1), CellIsRule(operator="equal", formula=['"Meets before contingency only"'],
@@ -408,7 +429,7 @@ def build_dashboard(wb, ctx, opts, branding):
     ws.conditional_formatting.add("J%d:J%d" % (t0, t1), CellIsRule(operator="equal", formula=['"Above"'], fill=PatternFill("solid", fgColor=B["bad"])))
     _note(ws, B, t1 + 1, "Targets and limits are bare thresholds. Each is judged on the RICS PS edition it follows: UKNZCBS on the 2nd, with the PS Table 10 "
                          "contingency the PS requires for reporting (4.10); GLA (LPG 2022), LETI (2022) and RIBA 2030 on the 1st (2017) - no contingency, "
-                         "pre-construction demolition reported separately, B3 = 25% of B2. Building-level results shown to 2 s.f. at RIBA 0-2 and 3 s.f. from RIBA 3 (PS 6.1.4); "
+                         "pre-construction demolition reported separately, B3 = 25% of B2; custom targets on the edition chosen for each (Project). Building-level results shown to 2 s.f. at RIBA 0-2 and 3 s.f. from RIBA 3 (PS 6.1.4); "
                          "results are judged on the unrounded values. UKNZCBS offices: shell & core = this result less the Cat A share of finishes, FF&E and services "
                        "(Project inputs, 100% shell & core by default); whole building needs a Cat B + loose FF&E allowance. A-C includes B2 / B3 (PS default allowances); B1, B5 not assessed.", h=36)
     na = FormulaRule(formula=["ISNA(F%d)" % t0], font=Font(color="FFFFFF"))      # hide #N/A kept for the chart
@@ -737,3 +758,79 @@ def build_compare(wb, ctx, opts, branding):
     bc += ln
     ws.add_chart(bc, "%s26" % chr(66 + n + 1))
     ws.freeze_panes = "B4"
+
+
+def build_budgets(wb, ctx, opts, branding):
+    """Budgets sheet (D25): each custom target split into element budgets by the GLA typical-development shares for the
+    project's use (GLA LPG 2022 Table A2.1; A1-A5 shares for an A1-A5 target, A-C shares for an A-C one; 'excl. external
+    works' rescales the other six groups to 100%), against the selected option's element groups on the same boundary and
+    RICS PS edition (2nd: x (1 + contingency); 1st: before contingency)."""
+    B = _brand(branding)
+    ws = wb["Budgets"]
+    ws.sheet_view.showGridLines = False
+    TGb = ctx["TGb"]
+    last_key = max(SUM_ROW.values())
+    v = lambda key: "Dashboard!$U$%d" % SUM_ROW[key]                                              # noqa: E731
+    pick = lambda e: "INDEX(Dashboard!$U$5:$U$%d,MATCH(%s,Dashboard!$T$5:$T$%d,0))" % (last_key, e, last_key)   # noqa: E731
+    for c, w in zip("ABCDEFG", [44, 11, 13, 13, 13, 16, 3]):
+        ws.column_dimensions[c].width = w
+    ws["A1"] = "Custom target element budgets"
+    ws["A1"].font = _f(B, 16, True)
+    ws["A2"] = '="Option: "&DASH_OPT&"  |  "&USE&"  |  pick the option on the Dashboard"'
+    ws["A2"].font = _f(B, 10, color=B["muted"])
+    _note(ws, B, 3, "Budget = the custom target x the GLA typical-development share of each element group for this use (GLA London Plan Guidance "
+                    "2022, Appendix 2 Table A2.1: A1-A5 shares for an A1-A5 target, A-C shares for an A-C target; excl. external works rescales "
+                    "the other six groups to 100%). Project = the selected option's element group on the same boundary: RICS PS 2nd ed. "
+                    "x (1 + PS Table 10 contingency), 1st ed. before contingency. Site lumps, B2 / B3 and biogenic carbon are not in any group: "
+                    "they sit in 'Not allocated', and only the total is judged against the target.", c2=6, h=48)
+    r = 5
+    for n in range(1, CUSTOM_N + 1):
+        ed1, ac, x8 = 'LEFT(CT%d_ED,3)="1st"' % n, 'LEFT(CT%d_KEY,2)="AC"' % n, 'RIGHT(CT%d_KEY,2)="X8"' % n
+        on = 'CT%d_ON="Y"' % n
+        ws.cell(r, 1, '=IF({on},"Custom target {n}: "&CT{n}_NAME&" - "&TEXT(CT{n}_VAL,"#,##0")&" kgCO2e/m2 GIA, "&CT{n}_BND&", RICS PS "'
+                      '&IF({e},"1st","2nd")&" ed.","Custom target {n}: not used (Project sheet, or step 6 in Rhino)")'.format(on=on, n=n, e=ed1)
+                ).font = _f(B, 11, True)
+        r += 1
+        for j, h in enumerate(["Element group", "GLA share", "Budget", "Project", "Left", "Result"], start=1):
+            c = ws.cell(r, j, h)
+            c.font = _f(B, 9, True, B["muted"])
+            c.border = Border(bottom=Side(style="thin", color=B["rule"]))
+        r += 1
+        g0 = r
+        metric = 'IF(%s,"AC_ALL","UP_ALL")' % ac
+        raw = lambda i: 'SUMIFS(%s,%s,USE,%s,%s)' % (TGb(chr(ord("N") + i)), TGb("L"), TGb("M"), metric)   # noqa: E731
+        for i in range(7):
+            share = 'IF(%s,%s,%s)' % (x8, "0" if i == 6 else "IFERROR(%s/(1-%s),0)" % (raw(i), raw(6)), raw(i))
+            proj = 'IF({ac},{ec},{e})*IF({e1},1,1+CONT)'.format(ac=ac, ec=v("EC_%d" % i), e=v("E_%d" % i), e1=ed1)
+            if i == 6:
+                proj = 'IF(%s,"excluded",%s)' % (x8, proj)
+            ws.cell(r, 1, GROUP_LABELS[i])
+            ws.cell(r, 2, '=IF(%s,%s,"")' % (on, share)).number_format = "0%"
+            ws.cell(r, 3, '=IF({on},CT{n}_VAL*B{r},"")'.format(on=on, n=n, r=r))
+            ws.cell(r, 4, '=IF(%s,IFERROR(%s,"not in scope"),"")' % (on, proj))
+            ws.cell(r, 5, '=IF(AND(ISNUMBER(C{r}),ISNUMBER(D{r})),C{r}-D{r},"")'.format(r=r))
+            ws.cell(r, 6, '=IF(ISNUMBER(E{r}),IF(E{r}>=0,"Within","Over"),"")'.format(r=r))
+            r += 1
+        tot = r + 1
+        ws.cell(r, 1, "Not allocated (site lumps, B2 / B3, biogenic)")
+        ws.cell(r, 4, '=IF(AND({on},ISNUMBER(D{t})),{v}-SUM(D{a}:D{b}),"")'.format(on=on, t=tot, v=pick("CT%d_SKEY" % n), a=g0, b=r - 1))
+        r += 1
+        ws.cell(r, 1, "Total - the figure judged against the target")
+        ws.cell(r, 2, '=IF(%s,SUM(B%d:B%d),"")' % (on, g0, r - 2)).number_format = "0%"
+        ws.cell(r, 3, '=IF(%s,CT%d_VAL,"")' % (on, n))
+        ws.cell(r, 4, '=IF(%s,IFERROR(%s,"not in scope"),"")' % (on, sf(pick("CT%d_SKEY" % n))))
+        ws.cell(r, 5, '=IF(AND(ISNUMBER(C{r}),ISNUMBER(D{r})),C{r}-D{r},"")'.format(r=r))
+        ws.cell(r, 6, '=IF(NOT(ISNUMBER(D{r})),IF({on},"Not assessed",""),IF(D{r}<=C{r},"Meets",IF(AND(NOT({e}),D{r}/(1+CONT)<=C{r}),'
+                      '"Meets before contingency only","Above")))'.format(r=r, on=on, e=ed1))
+        for rr in range(g0, r + 1):
+            for c in range(1, 7):
+                x = ws.cell(rr, c)
+                x.font = _f(B, 9, rr == r)
+                if c in (3, 4, 5):
+                    x.number_format = '#,##0;-#,##0;0;""'
+                x.border = Border(bottom=Side(style="hair", color=B["rule"]))
+        ws.conditional_formatting.add("F%d:F%d" % (g0, r), CellIsRule(operator="equal", formula=['"Over"'], fill=PatternFill("solid", fgColor=B["bad"])))
+        ws.conditional_formatting.add("F%d:F%d" % (g0, r), CellIsRule(operator="equal", formula=['"Above"'], fill=PatternFill("solid", fgColor=B["bad"])))
+        ws.conditional_formatting.add("F%d:F%d" % (g0, r), CellIsRule(operator="equal", formula=['"Meets"'], fill=PatternFill("solid", fgColor=B["good"])))
+        ws.conditional_formatting.add("F%d:F%d" % (g0, r), CellIsRule(operator="equal", formula=['"Within"'], fill=PatternFill("solid", fgColor=B["good"])))
+        r += 3

@@ -457,7 +457,7 @@ class WLCAWindow(object):
             "state": st,
             "lists": {
                 "uses": rh.USES, "stages": ["0", "1", "2", "3", "4"], "frames": rh.FRAMES, "scenarios": rh.SCENARIOS,
-                "budgets": rh.BUDGETS, "scopes": [list(x) for x in ws.SCOPES], "rics_editions": [list(x) for x in ws.RICS_EDITIONS], "op_routes": rh.OP_ROUTES, "op_fields": rh.OP_FIELDS, "plan_routes": PLAN_ROUTES,
+                "budgets": rh.BUDGETS, "scopes": [list(x) for x in ws.SCOPES], "rics_editions": [list(x) for x in ws.RICS_EDITIONS], "custom_boundaries": [list(x) for x in ws.CUSTOM_BOUNDARIES], "op_routes": rh.OP_ROUTES, "op_fields": rh.OP_FIELDS, "plan_routes": PLAN_ROUTES,
                 "massing_layers": self.massing_layers() or self.all_layers(), "all_layers": self.all_layers(),
                 "facade_types": ws.facade_catalogue(office), "sheets": self.sheet_names(st["schedule"]["path"]),
                 "fonts": _D.font_names(),
