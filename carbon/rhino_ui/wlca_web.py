@@ -71,6 +71,7 @@ class WLCAWindow(object):
     plan_module = _D.plan_module
     find_plan_layers = _D.find_plan_layers
     read_plan = _D.read_plan
+    read_column_pdf = _D.read_column_pdf
     pick_schedule = _D.pick_schedule
     pick_plan_json = _D.pick_plan_json
     pick_folder = _D.pick_folder
@@ -254,6 +255,9 @@ class WLCAWindow(object):
             b["levels"].append(ws.new_basement_level(len(b["levels"]) + 1))
         elif name == "remove_basement_level":
             opts[int(a["i"])]["substructure"]["basement"]["levels"].pop(int(a["j"]))
+        elif name == "read_column_pdf":
+            self.read_column_pdf(int(a["i"]))
+            return
         elif name == "add_column_band":
             opts[int(a["i"])]["structure"].setdefault("column_sections", []).append({"from": "", "to": "", "sizes": ""})
         elif name == "remove_column_band":
